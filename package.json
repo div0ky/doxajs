@@ -16,7 +16,7 @@
     "audit:security": "pnpm audit --prod --audit-level=moderate",
     "audit:mvp": "pnpm check && pnpm check:field-guide && pnpm test && pnpm audit:boundaries && pnpm audit:docs",
     "changeset": "changeset",
-    "changeset:status": "changeset status",
+    "changeset:status": "node scripts/check-changeset-status.mjs",
     "ci": "pnpm verify",
     "check": "tsc -b --pretty false && tsc -p tsconfig.tests.json --noEmit --pretty false",
     "clean": "tsc -b --clean",
