@@ -19,7 +19,8 @@ Run `doxa --help` for the complete command surface.
 
 Install Doxa's optional realtime broadcasting core with `doxa add keryx`. Praxis enables
 `framework.broadcasting` and scaffolds the web listener, signed worker publish path, readiness
-check, and optional Redis topology. Keryx is not added to `Application.plugins`.
+check, same-origin browser authorization route, and optional Redis topology. Keryx is not added to
+`Application.plugins`.
 
 Praxis follows a Laravel-like migration lifecycle with developer-authored, forward-only SQL. Use
 `doxa make:migration <Name>` to create a timestamped stub, `doxa migrate:status` to inspect pending

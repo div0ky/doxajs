@@ -481,6 +481,37 @@ export class HealthRoute extends Route {
   handle(_request: HttpRequest) { return { status: 'ok' } }
 }
 
+${
+  configuration.broadcastingEnabled
+    ? `export class BroadcastAuthorizeRoute extends Route {
+  static override readonly id = 'broadcast-authorize'
+  static override readonly access = 'public'
+  readonly method = 'POST'
+  readonly path = '/broadcasting/authorize'
+  private readonly broadcasting = this.inject(ApplicationBroadcasting)
+  private readonly execution = this.inject(CurrentExecution)
+  handle(request: HttpRequest): Response {
+    const origin = request.header('origin')
+    if (!origin) throw new HttpError(400, 'origin_required', 'Realtime authorization requires a browser Origin.')
+    const context = this.execution.context
+    const grant = this.broadcasting.issueConnectionTicket({
+      actor: context.actor,
+      authentication: context.authentication,
+      ...(context.tenant ? { tenant: context.tenant } : {}),
+      correlationId: context.correlationId,
+      origin,
+    })
+    return Http.json(
+      { ticket: grant.ticket, expiresAt: grant.expiresAt.toISOString() },
+      200,
+      { 'Cache-Control': 'no-store' },
+    )
+  }
+}
+`
+    : ''
+}
+
 async function credentials(request: HttpRequest): Promise<{ identifier: string; contactEmail?: string; password: string }> {
   const body = await request.json<{ identifier?: unknown; contactEmail?: unknown; password?: unknown }>()
   if (typeof body.identifier !== 'string' || typeof body.password !== 'string') {
@@ -847,7 +878,7 @@ export class DoxaCoreFeature extends Feature {
   configs = [${configs.join(', ')}]
   providers = [${providers.join(', ')}]
   actions = [${verificationRoutes || recoveryRoutes ? 'SendAuthEmail' : ''}]
-  routes = [HealthRoute, ${managedIdentity ? 'RegisterRoute, ' : ''}LoginRoute, LogoutRoute, ReauthenticateRoute, MeRoute, ${verificationRoutes ? 'VerifyEmailRoute, ResendVerificationRoute, ' : ''}TokenRoute, ListAccessTokensRoute, RotateAccessTokenRoute, RevokeAccessTokenRoute, ${managedIdentity ? 'ChangePasswordRoute, ' : ''}ListSessionsRoute, RevokeSessionRoute${recoveryRoutes ? ', RequestPasswordResetRoute, ResetPasswordRoute' : ''}]
+  routes = [HealthRoute, ${configuration.broadcastingEnabled ? 'BroadcastAuthorizeRoute, ' : ''}${managedIdentity ? 'RegisterRoute, ' : ''}LoginRoute, LogoutRoute, ReauthenticateRoute, MeRoute, ${verificationRoutes ? 'VerifyEmailRoute, ResendVerificationRoute, ' : ''}TokenRoute, ListAccessTokensRoute, RotateAccessTokenRoute, RevokeAccessTokenRoute, ${managedIdentity ? 'ChangePasswordRoute, ' : ''}ListSessionsRoute, RevokeSessionRoute${recoveryRoutes ? ', RequestPasswordResetRoute, ResetPasswordRoute' : ''}]
   policies = [AccountPolicy]
 }
 `

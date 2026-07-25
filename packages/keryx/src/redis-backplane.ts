@@ -195,6 +195,19 @@ export class RedisBackplane {
     return Number(result) === 1
   }
 
+  async consumeAdmissionTicketOnce(
+    ticketId: string,
+    retentionMilliseconds: number,
+  ): Promise<boolean> {
+    if (!this.#available) throw new Error('Keryx Redis backplane is unavailable.')
+    const ticketHash = createHash('sha256').update(ticketId).digest('hex')
+    const result = await this.#commands.set(`${this.#prefix}:admission:${ticketHash}`, '1', {
+      PX: retentionMilliseconds,
+      NX: true,
+    })
+    return result === 'OK'
+  }
+
   async joinPresence(
     connectionId: string,
     destination: BroadcastDestination,

@@ -70,3 +70,9 @@ Deploy web and worker roles with one shared `DOXA_KERYX_SECRET`. Generated Compo
 replica remains `DOXA_KERYX_TOPOLOGY=single`. Multiple web replicas must set
 `DOXA_KERYX_TOPOLOGY=redis`, provide `DOXA_KERYX_REDIS_URL`, and route only instances whose Keryx
 `GET /ready` succeeds.
+
+When application HTTP and the browser-facing Keryx listener use different hostnames, configure
+`@doxajs/realtime` with the generated same-origin `/broadcasting/authorize` path (including any
+reverse-proxy prefix). Do not share the Doxa host-only session cookie across subdomains. Upgrade
+Keryx and Realtime together because ticket admission uses the `doxa.realtime.v2` WebSocket
+subprotocol offer.

@@ -26,11 +26,17 @@ port, and checks both application health and Keryx `GET /ready`. On another plat
 publish URL once with the platform's private web-service origin. Give web and background roles the
 same `DOXA_KERYX_SECRET`.
 
+When Keryx has a separate public hostname, configure the browser client with the generated
+same-origin `POST /broadcasting/authorize` path (including any application proxy prefix). Doxa uses
+that existing HTTP path to mint an encrypted, 30-second, origin-bound, single-use admission ticket;
+the browser does not need the private worker publish URL. Keep Doxa session cookies host-only and do
+not place admission credentials in WebSocket query strings.
+
 Use `DOXA_KERYX_TOPOLOGY=single` with exactly one web replica. Redis is not needed. Before scaling
 web horizontally, configure `DOXA_KERYX_TOPOLOGY=redis` and `DOXA_KERYX_REDIS_URL`; Redis
-distributes accepted events and presence state to every web replica. Keep an unready Keryx instance
-out of both WebSocket and internal publish routing. Redis loss makes Keryx unready and reconnects
-browser clients after the backplane recovers.
+distributes accepted events and presence state to every web replica and atomically consumes
+admission tickets. Keep an unready Keryx instance out of both WebSocket and internal publish
+routing. Redis loss makes Keryx unready and reconnects browser clients after the backplane recovers.
 
 Runtime roles require prebuilt `dist/` and `.doxa/` artifacts. They do not compile application
 source. The production dependency closure omits TypeScript, the compiler, Drizzle Studio, and

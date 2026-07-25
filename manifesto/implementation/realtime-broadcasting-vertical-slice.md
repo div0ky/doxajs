@@ -16,6 +16,9 @@ normative [realtime broadcasting specification](../specifications/realtime-broad
   subscription command, and authorizes private and presence channels with `broadcast.subscribe`.
 - Protocol v2 buffers frames during asynchronous authentication, emits `connected` only after
   admission, and makes subscription acknowledgements and structured failures explicit.
+- The generated same-origin authorization route mints encrypted, origin-bound, single-use admission
+  tickets for browser listeners on a separate hostname. Tickets travel in the WebSocket subprotocol
+  offer, and Redis coordinates consumption across web replicas.
 - Web roles own sockets and a signed HMAC publish endpoint. Worker-only roles start no listener and
   fail boot when a broadcast-capable application lacks remote publish configuration.
 - One web replica fans out locally. Redis topology provides atomic message deduplication,
@@ -34,11 +37,12 @@ normative [realtime broadcasting specification](../specifications/realtime-broad
 
 `tests/broadcasting.test.ts` proves compiler facts, queued and synchronous runtime paths, stable
 retry IDs, fake transport assertions, private-channel authorization, delayed authentication,
-observable client failures, signed worker publication, tamper/replay/size rejection, worker role
-isolation, real Redis fanout and presence across replicas, message deduplication, readiness loss,
-and recovery. `tests/praxis.test.ts` proves installation and compiler-owned composition. The
-repository verification gate covers package boundaries, publishable declarations, documentation
-links, formatting, linting, coverage, and dependency security.
+observable client failures, cross-origin ticket admission and replay rejection, signed worker
+publication, tamper/replay/size rejection, worker role isolation, real Redis fanout, ticket
+consumption, and presence across replicas, message deduplication, readiness loss, and recovery.
+`tests/praxis.test.ts` proves installation, the generated authorization route, and compiler-owned
+composition. The repository verification gate covers package boundaries, publishable declarations,
+documentation links, formatting, linting, coverage, and dependency security.
 
 ## Deliberate guarantees
 

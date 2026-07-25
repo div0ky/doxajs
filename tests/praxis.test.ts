@@ -889,6 +889,9 @@ describe('Praxis command suite', () => {
     expect(framework).toContain("import { Keryx } from '@doxajs/keryx'")
     expect(framework).toContain('export class ApplicationBroadcasting extends Keryx')
     expect(framework).toContain("static override readonly id = 'broadcasting'")
+    expect(framework).toContain('export class BroadcastAuthorizeRoute extends Route')
+    expect(framework).toContain("readonly path = '/broadcasting/authorize'")
+    expect(framework).toContain('this.broadcasting.issueConnectionTicket')
     expect(messages.at(-1)).toContain('Built garden')
   })
 

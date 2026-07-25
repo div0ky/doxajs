@@ -78,11 +78,13 @@ The `email` identifier kind requires `email` or `email-or-domain` normalization;
 `unsupported` and omits verification routes. `trusted` is an explicit assertion that an external
 authority has already verified the identity; it does not enable Doxa's verification ceremony.
 
-Cookie-authenticated unsafe requests and WebSocket upgrades require a configured trusted `Origin`.
-Bearer and cookie credentials may not be combined. Authentication tables store session, bearer,
-verification, and reset credentials as digests. Generated verification and recovery mail currently
-copies the raw challenge into durable delivery payloads; that security-release blocker is tracked in
-the
+Cookie-authenticated unsafe requests and same-host WebSocket upgrades require a configured trusted
+`Origin`. A Keryx listener on another hostname uses the generated same-origin
+`POST /broadcasting/authorize` route: it turns the admitted HTTP context into a short-lived,
+encrypted, origin-bound, single-use ticket without widening the host-only session cookie. Bearer and
+cookie credentials may not be combined. Authentication tables store session, bearer, verification,
+and reset credentials as digests. Generated verification and recovery mail currently copies the raw
+challenge into durable delivery payloads; that security-release blocker is tracked in the
 [2026-07-16 framework security audit](../../manifesto/implementation/security-audit-2026-07-16.md).
 
 Sensitive operations should require a recent password session:

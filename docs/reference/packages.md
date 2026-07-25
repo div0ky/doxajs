@@ -24,7 +24,9 @@
 
 Application events continue to use broadcasting contracts from `@doxajs/core`; Keryx and the
 realtime client do not become the domain event vocabulary. Install Keryx with `doxa add keryx`; do
-not add it to `Application.plugins` or author a broadcasting provider subclass.
+not add it to `Application.plugins` or author a broadcasting provider subclass. Separately addressed
+browser listeners use the compiler-generated same-origin authorization route and Realtime's
+short-lived admission-ticket flow.
 
 Application and infrastructure composition may import these packages. Domain Features should rely on
 Doxa-owned ports and types from `@doxajs/core`.
