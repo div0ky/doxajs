@@ -97,3 +97,6 @@ export class OrderShipped extends Event<{ orderId: string }> implements ShouldBr
 
 Queued broadcasts use the Unit of Work outbox automatically. Use `ShouldBroadcastNow` only when the
 publisher must synchronously observe transport success or failure.
+
+Enable Doxa's first-party transport with `doxa add keryx`. Keryx is a framework-owned optional core
+module; application Features continue to depend only on the broadcasting contracts above.

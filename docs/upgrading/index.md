@@ -57,3 +57,16 @@ and migration guidance.
 Before the first stable release, a release may explicitly re-baseline Doxa-owned framework schemas
 instead of preserving alpha migration history. Such a release requires recreating prerelease
 databases; it must never present rewritten migration checksums as a compatible forward migration.
+
+## Keryx protocol v2
+
+The alpha release that introduced Keryx protocol v2 deliberately breaks protocol v1. Upgrade
+`@doxajs/keryx` and `@doxajs/realtime` together. Remove an application-authored
+`ApplicationBroadcasting extends Keryx` provider, run `pnpm doxa add keryx`, and keep Keryx out of
+`Application.plugins`.
+
+Deploy web and worker roles with one shared `DOXA_KERYX_SECRET`. Generated Compose supplies
+`DOXA_KERYX_PUBLISH_URL`; other platforms set it to the private origin of the web role. One web
+replica remains `DOXA_KERYX_TOPOLOGY=single`. Multiple web replicas must set
+`DOXA_KERYX_TOPOLOGY=redis`, provide `DOXA_KERYX_REDIS_URL`, and route only instances whose Keryx
+`GET /ready` succeeds.

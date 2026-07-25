@@ -5,6 +5,7 @@
 - `@doxajs/core` — stable programming model and framework-owned contracts.
 - `@doxajs/testing` — test harnesses, fakes, and assertions.
 - `@doxajs/praxis` — generator and command suite.
+- `@doxajs/keryx` — opt-in, framework-owned WebSocket broadcasting core module.
 
 ## Composition adapters
 
@@ -16,14 +17,14 @@
 - `@doxajs/sendgrid`
 - `@doxajs/twilio-sms`
 - `@doxajs/theoria`
-- `@doxajs/keryx` — first-party WebSocket broadcasting server adapter.
 
 ## Realtime clients
 
 - `@doxajs/realtime` — subscriber-facing WebSocket client with reconnect and resubscription.
 
 Application events continue to use broadcasting contracts from `@doxajs/core`; Keryx and the
-realtime client do not become the domain event vocabulary.
+realtime client do not become the domain event vocabulary. Install Keryx with `doxa add keryx`; do
+not add it to `Application.plugins` or author a broadcasting provider subclass.
 
 Application and infrastructure composition may import these packages. Domain Features should rely on
 Doxa-owned ports and types from `@doxajs/core`.
