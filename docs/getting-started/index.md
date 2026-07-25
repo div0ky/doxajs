@@ -70,6 +70,7 @@ pnpm doxa add sendgrid
 pnpm doxa add twilio-sms
 pnpm doxa add opentelemetry
 pnpm doxa add theoria
+pnpm doxa add keryx
 pnpm test
 ```
 

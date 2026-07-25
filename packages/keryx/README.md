@@ -4,16 +4,37 @@
 > Improvements is the sole supported consumer. External use is permitted without compatibility,
 > support, warranty, roadmap, or production-readiness commitments.
 
-Keryx is Doxa's first-party WebSocket broadcasting server. Application events and subscribers use
-the provider-independent contracts in `@doxajs/core` and `@doxajs/realtime`.
+Keryx is Doxa's first-party WebSocket broadcasting server. It is an optional core module, not an
+application plugin or an application-owned provider.
 
-```ts
-import { Keryx } from '@doxajs/keryx'
-
-export class ApplicationBroadcasting extends Keryx {
-  static override readonly id = 'broadcasting'
-  constructor() {
-    super({ port: 6001 })
-  }
-}
+```sh
+pnpm doxa add keryx
 ```
+
+The command enables `framework.broadcasting`, installs `@doxajs/keryx` and `@doxajs/realtime`, and
+generates the provider, environment contract, production port, internal worker publish URL, and
+Keryx readiness check. Application events continue to use `ShouldBroadcast`, `ShouldBroadcastNow`,
+and channels from `@doxajs/core`.
+
+## Production roles
+
+`doxa serve` starts Keryx in the existing web process. `doxa work` starts no WebSocket listener and
+publishes through Keryx's signed internal HTTP endpoint. The generated Compose deployment wires that
+URL to `http://web:6001`; other platforms set `DOXA_KERYX_PUBLISH_URL` to their equivalent private
+web-service origin.
+
+One web replica uses `DOXA_KERYX_TOPOLOGY=single` and does not need Redis. Multiple web replicas
+use:
+
+```dotenv
+DOXA_KERYX_TOPOLOGY=redis
+DOXA_KERYX_REDIS_URL=redis://redis.internal:6379
+```
+
+Every role sharing publication authority must receive the same `DOXA_KERYX_SECRET` with at least 32
+characters. Do not expose the internal publish URL or Redis publicly. Route browser WebSockets to
+`/app` on the Keryx port and include `GET /ready` in load-balancer readiness.
+
+Keryx protocol v2 waits for Doxa authentication before emitting `connected`. Signed publication,
+bounded message-ID deduplication, Redis fanout, distributed presence leases, and backplane recovery
+are framework behavior; applications do not implement a backchannel.

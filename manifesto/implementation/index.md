@@ -80,8 +80,9 @@ requirement to its implementation and acceptance evidence.
     immutable image, prebuilt production boot, combined workers and schedules, explicit migrations,
     advanced scheduler isolation, Compose topology, and Gnosis deployment knowledge.
 26. [Realtime broadcasting vertical slice](realtime-broadcasting-vertical-slice.md) — compiled
-    queued/now event capabilities, transactional queue handoff, Keryx WebSockets, policy-backed
-    private and presence subscriptions, reconnecting typed clients, fakes, and Praxis tooling.
+    queued/now event capabilities, transactional queue handoff, protocol v2 Keryx WebSockets, signed
+    worker publication, Redis replication and presence, observable reconnecting clients, fakes, and
+    framework-owned Praxis composition.
 27. [Typed model query and relationship vertical slice](typed-model-query-relationship-vertical-slice.md)
     — logical typed plans, read-only query sessions, PostgreSQL and memory conformance,
     deterministic pagination and cursors, all relationship cardinalities, eager loading, identity

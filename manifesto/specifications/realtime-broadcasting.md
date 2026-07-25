@@ -4,6 +4,21 @@ This specification defines Doxa's application-facing broadcasting contract, the 
 adapter, and the `@doxajs/realtime` subscriber client. It is normative for implementations of the
 accepted [Keryx decision](../decisions/0028-keryx-realtime-broadcasting.md).
 
+## Installation and composition
+
+Broadcasting is an optional core module. `doxa add keryx` must:
+
+- install compatible `@doxajs/keryx` and `@doxajs/realtime` packages;
+- enable `framework.broadcasting`;
+- scaffold the publish secret, listener, topology, and deployment environment;
+- add Keryx readiness to generated production health checks; and
+- leave `Application.plugins` unchanged.
+
+When broadcasting is enabled, the compiler owns the singleton Keryx provider and its configuration.
+Application Features do not declare an `ApplicationBroadcasting` provider and applications do not
+select Keryx through the plugin array. The compiled manifest still exposes the ordinary
+`broadcasting` provider capability for deterministic inspection and test replacement.
+
 ## Event contract
 
 An event opts into queued broadcasting by implementing `ShouldBroadcast`, or synchronous
@@ -20,6 +35,40 @@ Work it is submitted directly to the selected queue. `ShouldBroadcastNow` calls 
 broadcast transport in the current execution and propagates transport failures to the dispatcher.
 `ShouldDispatchAfterCommit` still controls the event as a whole; Doxa stages queued broadcast work
 once and does not duplicate it when after-commit listeners run.
+
+The durable queue envelope ID is the broadcast message ID. Every retry reuses that ID. Keryx
+deduplicates accepted IDs for a bounded interval so a lost publish response cannot fan out the same
+queue delivery twice.
+
+## Runtime roles and publication topology
+
+`doxa serve` selects the web role. It starts Keryx's WebSocket listener and authenticated internal
+publish endpoint in that web process. Keryx may use a separate port, but it is not a third service.
+
+`doxa work` selects a worker-only role. It never starts a public Keryx listener. If the manifest can
+broadcast, boot fails closed unless the worker has a publish URL and a shared secret. The worker
+sends the exact broadcast envelope to `POST /apps/{applicationId}/events` on a ready web role.
+Requests use a timestamped, nonced HMAC-SHA256 signature over the method, exact path, and body
+digest. Missing, stale, replayed, or invalid credentials fail before publication. Payload limits
+apply before JSON decoding.
+
+The publish URL identifies an internal Keryx origin, not a per-event callback. Generated Compose
+wires it to the `web` service automatically. Other platforms provide the equivalent private service
+discovery URL once as deployment configuration.
+
+Keryx supports two topologies:
+
+- `single` is valid only when one web replica owns all live sockets. Accepted messages fan out
+  directly in that process.
+- `redis` is required when web roles are horizontally replicated. Any web replica may accept a
+  signed worker publish. An atomic Redis operation deduplicates and publishes it once; every web
+  replica consumes the frame and fans out to its local sockets.
+
+Redis also owns distributed presence membership and expiring connection leases. A member joins
+globally on its first connection and leaves globally after its last connection or expired lease.
+Backplane loss makes Keryx unready, closes live sockets with a retryable service-restart code, and
+recreates the complete publisher/subscriber/command connection set. Keryx becomes ready only after
+the replacement backplane is subscribed and usable. Web readiness must include `GET /ready`.
 
 ## Channels and authorization
 
@@ -50,35 +99,51 @@ credentials, policy decisions, or execution context to clients.
 
 ## Wire protocol
 
-Keryx uses JSON WebSocket frames. Client commands are `subscribe`, `unsubscribe`, and `ping`. Server
-frames are `connected`, `subscribed`, `unsubscribed`, `event`, `presence_joined`, `presence_left`,
-`pong`, and `error`. Every frame has `protocol: 1`. Unknown protocol versions, commands, fields with
-invalid types, malformed JSON, oversized frames, and unsupported binary data receive an error and
-close when continuing would be unsafe.
+Keryx uses strict JSON WebSocket protocol v2. Client commands are `subscribe`, `unsubscribe`, and
+`ping`. Server frames are `connected`, `subscribed`, `unsubscribed`, `event`, `presence_joined`,
+`presence_left`, `pong`, and `error`. Every frame has `protocol: 2`; protocol v1 is not accepted.
+
+The network transport's `open` event does not mean the Doxa connection is authenticated. Keryx must
+install a bounded pending-frame handler before starting asynchronous admission. After authentication
+succeeds it sends `connected`, replaces the pending handler with the normal ordered handler, and
+drains buffered frames. `@doxajs/realtime` must not send subscription commands until it receives
+that valid `connected` frame.
+
+`subscribed` and `unsubscribed` acknowledge channel state. Error frames contain a stable code,
+message, retryable flag, fatal flag, operation, and optional channel. Unknown protocol versions,
+commands, invalid fields, malformed JSON, oversized frames, pending-buffer overflow, and unsupported
+binary data receive an error and close when continuing would be unsafe.
 
 An event frame contains a unique message ID, stable event name, channel, JSON data, and ISO-8601
 occurrence time. It contains no transport-native object and no Doxa execution or credential data.
+
+## Client state and reconnect
+
+`@doxajs/realtime` exposes connection state as `idle`, `connecting`, `transport-open`,
+`authenticated`, `reconnecting`, or `disconnected`. It exposes each subscription as `pending`,
+`subscribing`, `subscribed`, `failed`, `leaving`, or `left`. Current state, the last structured
+error, state listeners, and error listeners are public.
+
+The client reconnects non-terminal failures with capped exponential backoff and jitter. It waits for
+the new `connected` frame before resubscribing all locally active channels. Authentication rejection
+and fatal protocol errors are terminal and do not create an automatic reconnect loop. Connection and
+subscription acknowledgement deadlines produce observable errors. Explicitly leaving the final
+listener sends `unsubscribe`; explicitly disconnecting disables reconnect.
 
 ## Delivery, ordering, and failures
 
 Broadcasting is at-most-once from Keryx to each currently connected subscriber. It is not durable
 for disconnected clients. Queued broadcast intent is durable until Keryx accepts the publish call;
-queue retry and terminal-failure rules apply to adapter failures. Applications requiring replay use
-a durable query or domain journal and treat realtime delivery as an invalidation or notification.
+queue retry and terminal-failure rules apply to transport failures. Applications requiring replay
+use a durable query or domain journal and treat realtime delivery as an invalidation or
+notification.
 
-Keryx preserves publish-call order per connection. Doxa makes no global ordering promise across
-queue workers or server replicas. Event IDs let clients suppress duplicates when infrastructure
-retries race with a disconnect.
-
-Slow or failed sockets are closed without failing delivery to healthy subscribers. A server-level
-publish failure rejects the transport call. Heartbeats remove dead connections. Shutdown stops new
-connections, drains active publish calls, closes sockets, and releases the listener.
-
-## Reconnect and subscriptions
-
-`@doxajs/realtime` reconnects with capped exponential backoff and jitter, then resubscribes to all
-locally active subscriptions. Consumers receive no synthetic replay. Explicitly leaving the final
-listener for a channel sends `unsubscribe`; explicitly disconnecting disables reconnect.
+Keryx preserves each accepted message ID and makes no global event-order promise across queue
+workers or server replicas. Redis publication preserves one accepted fanout for the configured
+deduplication interval, not a durable subscriber log. Slow or failed sockets are closed without
+failing delivery to healthy subscribers. A server-level publish failure rejects the transport call.
+Heartbeats remove dead connections. Shutdown stops readiness, drains active publish calls, closes
+sockets, and releases listener and backplane resources.
 
 ## Inspection and testing
 

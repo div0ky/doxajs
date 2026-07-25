@@ -4,7 +4,9 @@
 - **Accepted:** 2026-07-11
 - **Amended:** 2026-07-16 — Publication alone does not imply external stability during controlled
   adoption
-- **Scope:** Optional post-MVP WebSocket and broadcasting capability
+- **Amended:** 2026-07-24 — Framework-owned composition, authenticated worker publishing, protocol
+  v2 readiness, and Redis replication
+- **Scope:** Optional post-MVP core WebSocket and broadcasting capability
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -17,6 +19,25 @@ Application code uses the Doxa concept **broadcasting**. It does not depend on K
 `ShouldBroadcast` and `ShouldBroadcastNow` retain their already accepted event semantics; Keryx is
 the transport implementation that delivers those broadcasts. Realtime clients express subscriptions
 and received events through the same Doxa broadcasting contract.
+
+Keryx is an opt-in core module, not an application plugin. `doxa add keryx` enables
+`framework.broadcasting`, installs the server and client packages, and lets the compiler generate
+the singleton broadcasting provider. Applications do not declare an `ApplicationBroadcasting`
+subclass or add Keryx to `Application.plugins`.
+
+The web role owns Keryx's public WebSocket listener and authenticated internal publish endpoint in
+the existing web process. A worker-only role never starts a public listener. It sends broadcasts to
+the web role through the signed internal endpoint; generated Compose wiring supplies that internal
+URL, so the default deployment does not require a third service or a manually copied endpoint.
+
+One web replica can fan out directly. Horizontally replicated web roles require Keryx's Redis
+topology: workers publish once to any ready web replica, Redis replicates accepted events and
+presence state, and every web replica fans out to its local sockets. Redis is therefore conditional
+infrastructure for Keryx replication, not a requirement for the standard one-web-replica topology.
+
+Protocol v2 makes authentication readiness explicit. A WebSocket transport opening is not
+subscription permission. Keryx installs its frame buffer before asynchronous authentication, sends
+`connected` only after admission succeeds, and only then may `@doxajs/realtime` subscribe.
 
 _Keryx_ is the Greek word for a herald: an exact role name for a component that announces
 application events without becoming the application's event model.
@@ -35,13 +56,16 @@ without leaking its native API into actions, events, listeners, or browser code.
 ## Boundary
 
 - `@doxajs/keryx` owns the first-party server adapter, connection lifecycle, protocol integration,
-  and delivery implementation, as defined by the
+  signed publish ingress, optional Redis replication, presence leases, and delivery implementation,
+  as defined by the
   [realtime broadcasting specification](../specifications/realtime-broadcasting.md).
 - `@doxajs/realtime` owns the subscriber-facing client API for Doxa broadcasts.
 - Doxa core owns event capabilities, authorization integration, execution-context creation, typed
   broadcast contracts, fakes, and diagnostics.
 - Application code speaks in terms of events, channels, subscriptions, and broadcasting; it never
   imports Keryx engine types.
+- Framework composition may import Keryx, but application Features and plugin declarations may not
+  own or replace the generated first-party provider.
 - A Keryx connection authenticates at connection admission, but each admitted message creates a
   fresh Doxa execution as required by the actor and execution-context specification.
 - The package names do not select a protocol engine or make broadcasting necessary for the MVP
@@ -58,12 +82,26 @@ without leaking its native API into actions, events, listeners, or browser code.
   identity and must not imply Laravel compatibility or shared implementation.
 - **Expose Keryx as the application programming model:** rejected. This would let transport
   machinery define application semantics, contrary to the adapter boundary.
+- **Start Keryx in every runtime role:** rejected. A worker listener has no browser connections and
+  creates the original process-local delivery contradiction.
+- **Always require Redis:** rejected. A single web replica already owns every live socket and needs
+  only the signed worker-to-web publish path.
+- **Run an extra Keryx-only service by default:** rejected. The opt-in core module can safely own a
+  second listener in each web process, while retaining explicit role and health boundaries.
 
 ## Consequences
 
 - Documentation has one application-facing term: broadcasting.
-- Keryx can be replaced or supplemented without rewriting application features.
+- Application features remain provider-independent, while the opt-in first-party composition is
+  framework-owned and intentionally opinionated.
 - Realtime clients remain discoverable by purpose and avoid a second term developers must learn.
+- Production deployments with one web replica need a shared secret and internal service URL but no
+  Redis. Generated Compose supplies the URL; other platforms configure their private service
+  discovery value.
+- Production deployments with multiple web replicas require Redis and must include Keryx `/ready` in
+  readiness routing.
+- Protocol v1 clients are deliberately incompatible with protocol v2 during controlled alpha
+  adoption.
 - Keryx is a public package name, but alpha publication alone does not create external compatibility
   or support commitments.
 - Broadcasting remains optional for applications and outside the MVP viability bar, while its

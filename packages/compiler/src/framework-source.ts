@@ -57,6 +57,7 @@ export function prepareFrameworkSource(fileName: string, sourceText: string): Pr
   const auth = framework ? nestedObject(framework, 'auth') : undefined
   const identity = auth ? nestedObject(auth, 'identity') : undefined
   const queue = framework ? nestedObject(framework, 'queue') : undefined
+  const broadcasting = framework ? nestedObject(framework, 'broadcasting') : undefined
   const theoria = framework ? nestedObject(framework, 'theoria') : undefined
   const localConcurrency = queue ? optionalPositiveNumber(queue, 'localConcurrency') : undefined
   const outboxPollingMilliseconds = queue
@@ -136,6 +137,7 @@ export function prepareFrameworkSource(fileName: string, sourceText: string): Pr
     verificationMode: identityVerificationMode(identity),
     ...(localConcurrency === undefined ? {} : { localConcurrency }),
     ...(outboxPollingMilliseconds === undefined ? {} : { outboxPollingMilliseconds }),
+    broadcastingEnabled: broadcasting ? (optionalBoolean(broadcasting, 'enabled') ?? true) : false,
     theoriaProfile,
     theoriaProductionEnabled: theoria
       ? (optionalBoolean(theoria, 'productionEnabled') ?? false)
@@ -206,6 +208,7 @@ function renderFrameworkSource(
     readonly verificationMode: string
     readonly localConcurrency?: number
     readonly outboxPollingMilliseconds?: number
+    readonly broadcastingEnabled: boolean
     readonly theoriaProfile: string
     readonly theoriaProductionEnabled: boolean
     readonly theoriaSampleRate: number
@@ -232,6 +235,7 @@ function renderFrameworkSource(
   const twilio = plugins.includes('@doxajs/twilio-sms')
   const theoria = plugins.includes('@doxajs/theoria')
   const optionalImports = [
+    ...(configuration.broadcastingEnabled ? ["import { Keryx } from '@doxajs/keryx'"] : []),
     ...(opentelemetry ? ["import { DoxaOpenTelemetry } from '@doxajs/opentelemetry'"] : []),
     ...(sendgrid ? ["import { SendGridMailTransport } from '@doxajs/sendgrid'"] : []),
     ...(twilio ? ["import { TwilioSmsTransport } from '@doxajs/twilio-sms'"] : []),
@@ -244,6 +248,38 @@ function renderFrameworkSource(
   const verificationRoutes =
     managedIdentity && configuration.hasContactEmail && configuration.verificationMode === 'mapped'
   const recoveryRoutes = managedIdentity && configuration.hasContactEmail
+
+  if (configuration.broadcastingEnabled) {
+    configs.push('DoxaKeryxConfig')
+    providers.push('ApplicationBroadcasting')
+    providerSources.push(`export class DoxaKeryxConfig extends Configuration {
+  host = '127.0.0.1'
+  port = 6001
+  path = '/app'
+  key = 'default'
+  declare secret?: SecretString
+  declare publishUrl?: string
+  topology: 'single' | 'redis' = 'single'
+  declare redisUrl?: SecretString
+}
+
+export class ApplicationBroadcasting extends Keryx {
+  static override readonly id = 'broadcasting'
+  constructor(config: DoxaKeryxConfig) {
+    super({
+      applicationId: ${JSON.stringify(applicationId)},
+      host: config.host,
+      port: config.port,
+      path: config.path,
+      key: config.key,
+      ...(config.secret ? { secret: config.secret.reveal() } : {}),
+      ...(config.publishUrl ? { publishUrl: config.publishUrl } : {}),
+      topology: config.topology,
+      ...(config.redisUrl ? { redisUrl: config.redisUrl.reveal() } : {}),
+    })
+  }
+}`)
+  }
 
   if (opentelemetry) {
     providers.push('ApplicationTelemetry')

@@ -69,7 +69,7 @@ Build and inspect:
   gnosis                Generate Gnosis-readable application knowledge
   gnosis:install        Register Gnosis with project MCP clients [--agent=codex,claude,cursor,vscode|all]
   mcp                   Gnosis stdio entrypoint (normally launched by an MCP client)
-  add <plugin>          Install opentelemetry, sendgrid, twilio-sms, or theoria
+  add <module>          Install keryx, opentelemetry, sendgrid, twilio-sms, or theoria
   delivery:list         List durable mail and SMS deliveries
   delivery:retry <id>   Redrive a failed or undelivered delivery
   queue:list            List durable queue jobs
@@ -190,12 +190,15 @@ export async function runPraxis(
       return await runDatabaseStudio(cwd, args, io)
     }
     if (command === 'add') {
-      const plugin = required(args[0], 'Plugin name is required.')
-      await addPlugin(cwd, plugin)
+      const moduleName = required(args[0], 'Module name is required.')
+      if (moduleName === 'keryx') await addKeryx(cwd)
+      else await addPlugin(cwd, moduleName)
       io.out(
-        plugin === 'theoria'
-          ? 'Installed Theoria. Run doxa migrate, then doxa theoria.'
-          : `Installed ${plugin}. Configure its generated environment contract before use.`,
+        moduleName === 'keryx'
+          ? 'Installed Keryx. Doxa broadcasting is enabled and deployment configuration was scaffolded.'
+          : moduleName === 'theoria'
+            ? 'Installed Theoria. Run doxa migrate, then doxa theoria.'
+            : `Installed ${moduleName}. Configure its generated environment contract before use.`,
       )
       return 0
     }
@@ -654,6 +657,81 @@ async function addPlugin(cwd: string, name: string): Promise<void> {
     return `${open}${trimmed ? `${trimmed}, ` : ''}'${packageName}'${close} as const`
   })
   await writeFile(configPath, source, 'utf8')
+}
+
+async function addKeryx(cwd: string): Promise<void> {
+  const configPath = path.join(cwd, 'app.config.ts')
+  let source = await readFile(configPath, 'utf8').catch((error: unknown) => {
+    throw new PraxisCommandError('app.config.ts is required before adding Keryx.', {
+      cause: error,
+    })
+  })
+  const packagePath = path.join(cwd, 'package.json')
+  const packageJson = JSON.parse(await readFile(packagePath, 'utf8')) as {
+    dependencies?: Record<string, string>
+  }
+  packageJson.dependencies ??= {}
+  const range = packageJson.dependencies['@doxajs/core'] ?? (await frameworkDependencyRange())
+  packageJson.dependencies['@doxajs/keryx'] = range
+  packageJson.dependencies['@doxajs/realtime'] = range
+  await writeFile(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8')
+
+  if (!/\bbroadcasting\s*:/.test(source)) {
+    if (/\n  framework\s*=\s*\{/.test(source)) {
+      source = source.replace(
+        /(\n  framework\s*=\s*\{)/,
+        '$1\n    broadcasting: { enabled: true },',
+      )
+    } else {
+      const classEnd = source.lastIndexOf('\n}')
+      if (classEnd < 0)
+        throw new PraxisCommandError('Application must be an exported DoxaApplication class.')
+      source =
+        `${source.slice(0, classEnd)}\n  framework = {\n` +
+        `    broadcasting: { enabled: true },\n` +
+        `  }\n${source.slice(classEnd)}`
+    }
+    await writeFile(configPath, source, 'utf8')
+  }
+
+  const environmentPath = path.join(cwd, '.env.example')
+  const environment = await readFile(environmentPath, 'utf8').catch(() => '')
+  if (!environment.includes('DOXA_KERYX_SECRET=')) {
+    await writeFile(
+      environmentPath,
+      `${environment.replace(/\s*$/, '\n')}DOXA_KERYX_SECRET=replace-with-at-least-32-characters\n` +
+        `DOXA_KERYX_HOST=127.0.0.1\n` +
+        `DOXA_KERYX_PORT=6001\n` +
+        `DOXA_KERYX_KEY=default\n` +
+        `DOXA_KERYX_TOPOLOGY=single\n` +
+        `# DOXA_KERYX_PUBLISH_URL=http://127.0.0.1:6001\n` +
+        `# DOXA_KERYX_REDIS_URL=redis://127.0.0.1:6379\n`,
+      'utf8',
+    )
+  }
+
+  const composePath = path.join(cwd, 'compose.production.yaml')
+  let compose = await readFile(composePath, 'utf8').catch(() => '')
+  if (compose && !compose.includes('DOXA_KERYX_SECRET:')) {
+    compose = compose.replace(
+      /(\n    DATABASE_CONNECTION_STRING:.*)/,
+      '$1\n    DOXA_KERYX_SECRET: ${DOXA_KERYX_SECRET:?DOXA_KERYX_SECRET is required}' +
+        '\n    DOXA_KERYX_HOST: 0.0.0.0' +
+        '\n    DOXA_KERYX_PORT: 6001' +
+        '\n    DOXA_KERYX_PUBLISH_URL: http://web:6001' +
+        '\n    DOXA_KERYX_TOPOLOGY: ${DOXA_KERYX_TOPOLOGY:-single}' +
+        '\n    DOXA_KERYX_REDIS_URL: ${DOXA_KERYX_REDIS_URL:-}',
+    )
+    compose = compose.replace(
+      /(\n    ports:\n      - "\$\{PORT:-3000\}:3000")/,
+      '$1\n      - "${KERYX_PORT:-6001}:6001"',
+    )
+    compose = compose.replace(
+      /fetch\('http:\/\/127\.0\.0\.1:3000\/health'\)\.then\(r=>\{if\(!r\.ok\)process\.exit\(1\)\}\)/,
+      "Promise.all([fetch('http://127.0.0.1:3000/health'),fetch('http://127.0.0.1:6001/ready')]).then(rs=>{if(rs.some(r=>!r.ok))process.exit(1)})",
+    )
+    await writeFile(composePath, compose, 'utf8')
+  }
 }
 
 async function redriveDelivery(pool: Pool, id: string): Promise<void> {
@@ -1511,13 +1589,14 @@ async function runRuntimeCommand(
   const applicationModule = await loadPrebuiltApplication(cwd)
   const environment = { ...(await dotenvEnvironment(cwd)), ...process.env }
   const worker = command === 'work'
+  const web = command === 'serve'
   const scheduler =
     command === 'schedule' || (command === 'work' && !args.includes('--without-scheduler'))
   const runtime = await Doxa.boot(applicationModule.Application, {
     artifactsDirectory: path.join(cwd, '.doxa'),
     dotenvPath: false,
     environment,
-    roles: { worker, scheduler },
+    roles: { web, worker, scheduler },
     logging: loggingOptions(environment),
   })
   let host: HonoHttpHost | undefined
@@ -1641,7 +1720,7 @@ export async function runDevelopmentRuntime(cwd: string, args: readonly string[]
     artifactsDirectory: path.join(cwd, '.doxa'),
     dotenvPath: false,
     environment,
-    roles: { worker: true, scheduler: true },
+    roles: { web: true, worker: true, scheduler: true },
     logging: loggingOptions(environment),
   })
   let host: HonoHttpHost | undefined
@@ -1674,7 +1753,7 @@ async function runApplicationCommand(
     artifactsDirectory: path.join(cwd, '.doxa'),
     dotenvPath: false,
     environment,
-    roles: { worker: false, scheduler: false },
+    roles: { web: false, worker: false, scheduler: false },
     logging: loggingOptions(environment),
   })
   try {
@@ -1712,7 +1791,7 @@ async function queryGnosisModels(
     profile: 'model-reader',
     dotenvPath: false,
     environment,
-    roles: { worker: false, scheduler: false },
+    roles: { web: false, worker: false, scheduler: false },
     logging: false,
   })
   try {
@@ -1741,7 +1820,7 @@ async function describeAuthStorage(
       ...process.env,
       DATABASE_CONNECTION_STRING: await databaseConnection(cwd, args),
     },
-    roles: { worker: false, scheduler: false },
+    roles: { web: false, worker: false, scheduler: false },
     logging: false,
   })
   try {

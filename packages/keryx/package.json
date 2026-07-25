@@ -43,6 +43,7 @@
   },
   "dependencies": {
     "@doxajs/core": "workspace:*",
+    "redis": "6.1.0",
     "ws": "8.21.0"
   },
   "devDependencies": {

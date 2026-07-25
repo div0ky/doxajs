@@ -14,6 +14,7 @@ export {
   type BroadcastDestination,
   type BroadcastGateway,
   type BroadcastMessage,
+  type BroadcastRuntimeRoles,
   type BroadcastSubscriptionAdmission,
   type BroadcastSubscriptionResource,
   type ShouldBroadcast,
@@ -262,6 +263,9 @@ export interface DoxaFrameworkConfiguration {
   readonly queue?: {
     readonly localConcurrency?: number
     readonly outboxPollingMilliseconds?: number
+  }
+  readonly broadcasting?: {
+    readonly enabled?: boolean
   }
   readonly theoria?: DoxaTheoriaConfiguration
 }

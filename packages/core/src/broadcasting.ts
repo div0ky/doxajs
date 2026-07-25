@@ -78,7 +78,15 @@ export interface BroadcastGateway {
   ): Promise<void>
 }
 
+export interface BroadcastRuntimeRoles {
+  readonly web: boolean
+  readonly worker: boolean
+  readonly scheduler: boolean
+  readonly requiresRemotePublishing: boolean
+}
+
 export abstract class BroadcastTransport {
+  selectRoles(_roles: BroadcastRuntimeRoles): void {}
   abstract bind(gateway: BroadcastGateway): void
   abstract publish(message: BroadcastMessage): Promise<void>
 }
