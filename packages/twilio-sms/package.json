@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/twilio-sms",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "description": "The first-party Twilio SMS and callback adapter for Doxa.",
   "license": "Apache-2.0",
   "repository": {
