@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/runtime",
-  "version": "0.1.0-alpha.26",
+  "version": "0.1.0-alpha.27",
   "description": "Artifact-only dependency injection, execution, dispatch, and lifecycle runtime for Doxa.",
   "license": "Apache-2.0",
   "repository": {

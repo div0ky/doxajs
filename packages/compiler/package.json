@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/compiler",
-  "version": "0.1.0-alpha.26",
+  "version": "0.1.0-alpha.27",
   "description": "The fail-closed semantic TypeScript compiler for Doxa applications.",
   "license": "Apache-2.0",
   "repository": {
