@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/postgres-drizzle",
-  "version": "0.1.0-alpha.25",
+  "version": "0.1.0-alpha.26",
   "description": "PostgreSQL durability and cache adapters for Doxa, implemented with Drizzle.",
   "license": "Apache-2.0",
   "repository": {
