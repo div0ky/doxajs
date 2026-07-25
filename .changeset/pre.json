@@ -69,6 +69,7 @@
     "harden-release-dependencies",
     "harden-security-boundaries",
     "install-pg-boss-schema",
+    "keryx-production-topology",
     "manifest-safety-and-schedule-catchup",
     "migrate-framework-application-root",
     "observability-program",
