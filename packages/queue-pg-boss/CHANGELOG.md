@@ -1,5 +1,11 @@
 # @doxajs/queue-pg-boss
 
+## 0.1.0-alpha.27
+
+### Patch Changes
+
+- @doxajs/core@0.1.0-alpha.27
+
 ## 0.1.0-alpha.26
 
 ### Patch Changes

@@ -70,6 +70,7 @@
     "harden-release-dependencies",
     "harden-security-boundaries",
     "install-pg-boss-schema",
+    "keryx-browser-admission",
     "keryx-production-topology",
     "manifest-safety-and-schedule-catchup",
     "migrate-framework-application-root",

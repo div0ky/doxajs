@@ -1,5 +1,14 @@
 # @doxajs/realtime
 
+## 0.1.0-alpha.27
+
+### Patch Changes
+
+- 5078787: Add framework-owned browser admission for separately addressed Keryx listeners. Generated
+  applications now expose a same-origin authorization route, Realtime obtains a fresh short-lived
+  ticket before each connection, and Keryx consumes encrypted, origin-bound tickets once locally or
+  atomically through Redis.
+
 ## 0.1.0-alpha.26
 
 ### Patch Changes
