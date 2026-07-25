@@ -385,6 +385,129 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     }
   })
 
+  it('authorizes a cross-origin browser socket with a single-use admission ticket', async () => {
+    const secret = 'browser-admission-secret-with-at-least-thirty-two-characters'
+    const origin = 'https://evergreen.example.test'
+    let admitted: Awaited<ReturnType<BroadcastGateway['connect']>> | undefined
+    let subscriptions = 0
+    const gateway: BroadcastGateway = {
+      connect: async () => {
+        throw new Error('The cookie admission path must not handle a ticketed connection.')
+      },
+      subscribe: async (admission) => {
+        admitted = admission
+        subscriptions += 1
+        return {}
+      },
+      unsubscribe: async () => undefined,
+    }
+    const keryx = new Keryx({
+      applicationId: 'browser-admission',
+      port: 0,
+      secret,
+    })
+    keryx.bind(gateway)
+    const lifecycle = {
+      signal: new AbortController().signal,
+      deadline: new Date(Date.now() + 2_000),
+    }
+    await keryx.start(lifecycle)
+    const grant = keryx.issueConnectionTicket({
+      actor: { kind: 'user', id: 'ada' },
+      authentication: {
+        state: 'authenticated',
+        identityId: 'ada',
+        method: 'password',
+        authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
+        sessionId: 'session-1',
+      },
+      correlationId: 'http-correlation',
+      origin,
+    })
+    const wrongOriginSocket = new WebSocket(
+      `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
+      ['doxa.realtime.v2', `doxa.ticket.${grant.ticket}`],
+      { origin: 'https://hostile.example.test' },
+    )
+    const wrongOriginFrames: Record<string, unknown>[] = []
+    wrongOriginSocket.on('message', (data) => wrongOriginFrames.push(JSON.parse(data.toString())))
+    await new Promise<void>((resolve) => wrongOriginSocket.once('close', () => resolve()))
+    expect(wrongOriginFrames).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        code: 'authentication_failed',
+        fatal: true,
+      }),
+    ])
+
+    let browserSocket: WebSocket | undefined
+    let authorizationRequests = 0
+    const realtime = new Realtime({
+      url: `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
+      authorizationEndpoint: '/canopy/broadcasting/authorize',
+      authorizationFetch: async () => {
+        authorizationRequests += 1
+        return Response.json({
+          ok: true,
+          data: { ticket: grant.ticket, expiresAt: grant.expiresAt.toISOString() },
+        })
+      },
+      socketFactory: (url, protocols) => {
+        const socket = new WebSocket(
+          url,
+          typeof protocols === 'string' ? protocols : [...(protocols ?? [])],
+          { origin },
+        )
+        browserSocket = socket
+        return socket as unknown as RealtimeSocket
+      },
+    })
+    const subscription = realtime.private('counters.ada')
+    const secondSubscription = realtime.channel('counters.public')
+    try {
+      await waitFor(
+        () => subscription.state === 'subscribed' && secondSubscription.state === 'subscribed',
+      )
+      expect(authorizationRequests).toBe(1)
+      expect(browserSocket?.protocol).toBe('doxa.realtime.v2')
+      expect(admitted).toEqual(
+        expect.objectContaining({
+          actor: { kind: 'user', id: 'ada' },
+          authentication: expect.objectContaining({
+            state: 'authenticated',
+            identityId: 'ada',
+            sessionId: 'session-1',
+            authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
+          }),
+          correlationId: 'http-correlation',
+        }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      expect(subscriptions).toBe(2)
+
+      const replay = new WebSocket(
+        `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
+        ['doxa.realtime.v2', `doxa.ticket.${grant.ticket}`],
+        { origin },
+      )
+      const replayFrames: Record<string, unknown>[] = []
+      replay.on('message', (data) => replayFrames.push(JSON.parse(data.toString())))
+      await new Promise<void>((resolve) => replay.once('close', () => resolve()))
+      expect(replayFrames).toEqual([
+        expect.objectContaining({
+          type: 'error',
+          code: 'authentication_failed',
+          fatal: true,
+        }),
+      ])
+    } finally {
+      realtime.disconnect()
+      await keryx.drain(lifecycle)
+      await keryx.stop(lifecycle)
+      keryx.dispose(lifecycle)
+    }
+  })
+
   it('publishes from a worker through signed HTTP without starting a worker listener', async () => {
     const secret = 'keryx-test-secret-with-at-least-thirty-two-characters'
     let subscribed = false
@@ -634,6 +757,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     const options = {
       applicationId: 'replicated-test',
       port: 0,
+      secret: 'replicated-admission-secret-with-at-least-thirty-two-characters',
       topology: 'redis' as const,
       redisUrl: redis.getConnectionUrl(),
       heartbeatMilliseconds: 50,
@@ -673,6 +797,43 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       .leaving((member) => left.push(member))
     let secondPresence: ReturnType<typeof secondRealtime.presence> | undefined
     try {
+      const ticket = first.issueConnectionTicket({
+        actor: { kind: 'user', id: 'ticketed' },
+        authentication: {
+          state: 'authenticated',
+          identityId: 'ticketed',
+          sessionId: 'replicated-session',
+        },
+        correlationId: 'replicated-admission',
+        origin: 'https://evergreen.example.test',
+      })
+      const ticketProtocols = ['doxa.realtime.v2', `doxa.ticket.${ticket.ticket}`]
+      const ticketedSocket = new WebSocket(
+        `ws://${second.address.host}:${second.address.port}${second.address.path}`,
+        ticketProtocols,
+        { origin: 'https://evergreen.example.test' },
+      )
+      const ticketedFrames: Record<string, unknown>[] = []
+      ticketedSocket.on('message', (data) => ticketedFrames.push(JSON.parse(data.toString())))
+      await waitFor(() => ticketedFrames.some((frame) => frame.type === 'connected'))
+      ticketedSocket.close()
+
+      const replayedSocket = new WebSocket(
+        `ws://${first.address.host}:${first.address.port}${first.address.path}`,
+        ticketProtocols,
+        { origin: 'https://evergreen.example.test' },
+      )
+      const replayedFrames: Record<string, unknown>[] = []
+      replayedSocket.on('message', (data) => replayedFrames.push(JSON.parse(data.toString())))
+      await new Promise<void>((resolve) => replayedSocket.once('close', () => resolve()))
+      expect(replayedFrames).toEqual([
+        expect.objectContaining({
+          type: 'error',
+          code: 'authentication_failed',
+          fatal: true,
+        }),
+      ])
+
       await waitFor(() => firstGateway.subscriptions >= 2 && firstHere.length === 1, 5_000)
       secondPresence = secondRealtime
         .presence('counters.online')
@@ -912,6 +1073,37 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         fatal: true,
       }),
     )
+  })
+
+  it('makes admission endpoint failures observable before opening a socket', async () => {
+    const sockets: TestSocket[] = []
+    const errors: RealtimeError[] = []
+    const realtime = new Realtime({
+      url: 'wss://realtime.example.test/app',
+      authorizationEndpoint: '/canopy/broadcasting/authorize',
+      authorizationFetch: async () =>
+        Response.json(
+          { ok: false, code: 'authorization_denied', message: 'Authentication is required.' },
+          { status: 401 },
+        ),
+      socketFactory: () => {
+        const socket = new TestSocket()
+        sockets.push(socket)
+        return socket
+      },
+    })
+    realtime.onError((error) => errors.push(error))
+    realtime.channel('counters.public')
+    await waitFor(() => realtime.connectionState === 'disconnected')
+
+    expect(sockets).toEqual([])
+    expect(errors).toEqual([
+      expect.objectContaining({
+        code: 'authorization_denied',
+        retryable: false,
+        fatal: true,
+      }),
+    ])
   })
 })
 

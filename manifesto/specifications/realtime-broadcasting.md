@@ -93,6 +93,16 @@ session unless the replacement cookie can be returned as part of the handshake; 
 adapter authenticates upgrades without rotation and refreshes ordinary session activity instead.
 Bearer-authenticated upgrades do not acquire cookie authority from the browser.
 
+A browser-facing Keryx hostname cannot receive a host-only session cookie issued through another
+hostname. For that topology, the generated web application exposes `POST /broadcasting/authorize`.
+The route uses the already admitted HTTP execution to mint an encrypted admission ticket containing
+only the connection admission context. Tickets expire after a short bounded interval, are bound to
+the exact browser `Origin` and application ID, and are single-use. They must not appear in a URL.
+`@doxajs/realtime` requests the ticket with same-origin credentials and carries it in a
+`doxa.ticket.*` WebSocket subprotocol offer alongside the stable `doxa.realtime.v2` protocol. Keryx
+echoes only the stable protocol. Single topology records ticket consumption in its web process;
+Redis topology consumes the ticket atomically across replicas.
+
 Presence membership exposes only the admitted `ActorRef`. Applications that need public profile data
 broadcast a separate, explicitly shaped event; Keryx does not serialize identities, sessions,
 credentials, policy decisions, or execution context to clients.
@@ -129,6 +139,11 @@ the new `connected` frame before resubscribing all locally active channels. Auth
 and fatal protocol errors are terminal and do not create an automatic reconnect loop. Connection and
 subscription acknowledgement deadlines produce observable errors. Explicitly leaving the final
 listener sends `unsubscribe`; explicitly disconnecting disables reconnect.
+
+When `authorizationEndpoint` is configured, each initial connection and reconnect obtains a fresh
+ticket before opening the socket. HTTP denial, malformed authorization responses, timeouts, and
+transport failures update the same observable connection error and state APIs. Authorization
+credentials are requested with `credentials: 'include'`.
 
 ## Delivery, ordering, and failures
 

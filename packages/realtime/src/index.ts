@@ -1,4 +1,6 @@
 const PROTOCOL = 2
+const KERYX_SUBPROTOCOL = 'doxa.realtime.v2'
+const KERYX_TICKET_SUBPROTOCOL_PREFIX = 'doxa.ticket.'
 
 export type RealtimeEventMap = Readonly<Record<string, unknown>>
 export type RealtimeChannelKind = 'public' | 'private' | 'presence'
@@ -44,6 +46,8 @@ export type RealtimeSocketFactory = (
 export interface RealtimeOptions {
   readonly url: string
   readonly protocols?: string | readonly string[]
+  readonly authorizationEndpoint?: string
+  readonly authorizationFetch?: typeof fetch
   readonly socketFactory?: RealtimeSocketFactory
   readonly reconnect?: boolean
   readonly reconnectMinimumMilliseconds?: number
@@ -179,9 +183,15 @@ export class Subscription<Events extends RealtimeEventMap = RealtimeEventMap> {
 }
 
 export class Realtime {
-  readonly #options: Required<Omit<RealtimeOptions, 'protocols' | 'socketFactory'>> &
-    Pick<RealtimeOptions, 'protocols'>
+  readonly #options: Required<
+    Omit<
+      RealtimeOptions,
+      'protocols' | 'authorizationEndpoint' | 'authorizationFetch' | 'socketFactory'
+    >
+  > &
+    Pick<RealtimeOptions, 'protocols' | 'authorizationEndpoint'>
   readonly #factory: RealtimeSocketFactory
+  readonly #authorizationFetch: typeof fetch | undefined
   readonly #subscriptions = new Map<string, Subscription<any>>()
   readonly #subscriptionTimers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #stateListeners = new Set<StateListener<RealtimeConnectionState>>()
@@ -190,6 +200,8 @@ export class Realtime {
   #attempt = 0
   #reconnectTimer: ReturnType<typeof setTimeout> | undefined
   #connectionTimer: ReturnType<typeof setTimeout> | undefined
+  #authorizationPending = false
+  #connectionSequence = 0
   #explicitlyDisconnected = false
   #terminalFailure = false
   #state: RealtimeConnectionState = 'idle'
@@ -199,6 +211,9 @@ export class Realtime {
     this.#options = {
       url: options.url,
       ...(options.protocols ? { protocols: options.protocols } : {}),
+      ...(options.authorizationEndpoint
+        ? { authorizationEndpoint: options.authorizationEndpoint }
+        : {}),
       reconnect: options.reconnect ?? true,
       reconnectMinimumMilliseconds: options.reconnectMinimumMilliseconds ?? 250,
       reconnectMaximumMilliseconds: options.reconnectMaximumMilliseconds ?? 10_000,
@@ -206,6 +221,7 @@ export class Realtime {
       subscriptionTimeoutMilliseconds: options.subscriptionTimeoutMilliseconds ?? 10_000,
     }
     this.#factory = options.socketFactory ?? defaultSocketFactory
+    this.#authorizationFetch = options.authorizationFetch
   }
 
   get connectionState(): RealtimeConnectionState {
@@ -227,13 +243,27 @@ export class Realtime {
   }
 
   connect(): void {
-    if (this.#socket && this.#socket.readyState < 2) return
+    if ((this.#socket && this.#socket.readyState < 2) || this.#authorizationPending) return
     this.#explicitlyDisconnected = false
     this.#terminalFailure = false
     this.#transition(this.#attempt === 0 ? 'connecting' : 'reconnecting')
+    const sequence = ++this.#connectionSequence
+    if (this.#options.authorizationEndpoint) {
+      this.#authorizationPending = true
+      void this.#authorizeAndOpen(sequence)
+      return
+    }
+    this.#openSocket(sequence)
+  }
+
+  #openSocket(sequence: number, ticket?: string): void {
+    if (sequence !== this.#connectionSequence || this.#explicitlyDisconnected) return
     let socket: RealtimeSocket
     try {
-      socket = this.#factory(this.#options.url, this.#options.protocols)
+      socket = this.#factory(
+        this.#options.url,
+        ticket ? protocolsWithTicket(this.#options.protocols, ticket) : this.#options.protocols,
+      )
     } catch (cause) {
       this.#connectionError('connection_failed', messageOf(cause), true, false, 'connect')
       this.#scheduleReconnect()
@@ -283,6 +313,8 @@ export class Realtime {
   }
 
   disconnect(): void {
+    this.#connectionSequence += 1
+    this.#authorizationPending = false
     this.#explicitlyDisconnected = true
     this.#terminalFailure = false
     if (this.#reconnectTimer) clearTimeout(this.#reconnectTimer)
@@ -295,6 +327,100 @@ export class Realtime {
       if (subscription.state !== 'left') subscription.reset()
     }
     this.#transition('disconnected')
+  }
+
+  async #authorizeAndOpen(sequence: number): Promise<void> {
+    try {
+      const ticket = await this.#requestConnectionTicket()
+      this.#openSocket(sequence, ticket)
+    } catch (cause) {
+      if (sequence !== this.#connectionSequence || this.#explicitlyDisconnected) return
+      const failure =
+        cause instanceof RealtimeAuthorizationFailure
+          ? cause
+          : new RealtimeAuthorizationFailure('authorization_failed', messageOf(cause), true, false)
+      this.#terminalFailure = failure.fatal
+      this.#connectionError(
+        failure.code,
+        failure.message,
+        failure.retryable,
+        failure.fatal,
+        'connect',
+      )
+      this.#transition('disconnected')
+      if (failure.retryable) this.#scheduleReconnect()
+    } finally {
+      if (sequence === this.#connectionSequence) this.#authorizationPending = false
+    }
+  }
+
+  async #requestConnectionTicket(): Promise<string> {
+    const endpoint = this.#options.authorizationEndpoint
+    if (!endpoint) throw new Error('Realtime authorization endpoint is not configured.')
+    const fetcher =
+      this.#authorizationFetch ??
+      (typeof globalThis.fetch === 'function' ? globalThis.fetch.bind(globalThis) : undefined)
+    if (!fetcher)
+      throw new RealtimeAuthorizationFailure(
+        'authorization_unavailable',
+        'No Fetch implementation is available for realtime authorization.',
+        false,
+        true,
+      )
+    const controller = new AbortController()
+    const timeout = setTimeout(
+      () => controller.abort(new Error('Realtime authorization timed out.')),
+      this.#options.connectionTimeoutMilliseconds,
+    )
+    let response: Response
+    try {
+      response = await fetcher(endpoint, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal,
+      })
+    } catch (cause) {
+      throw new RealtimeAuthorizationFailure('authorization_failed', messageOf(cause), true, false)
+    } finally {
+      clearTimeout(timeout)
+    }
+    if (!response.ok) {
+      const retryable = response.status === 408 || response.status === 429 || response.status >= 500
+      throw new RealtimeAuthorizationFailure(
+        response.status === 401 || response.status === 403
+          ? 'authorization_denied'
+          : 'authorization_failed',
+        `Realtime authorization failed with HTTP ${response.status}.`,
+        retryable,
+        !retryable,
+      )
+    }
+    let document: unknown
+    try {
+      document = await response.json()
+    } catch {
+      throw new RealtimeAuthorizationFailure(
+        'authorization_invalid',
+        'Realtime authorization returned malformed JSON.',
+        false,
+        true,
+      )
+    }
+    const ticket = isRecord(document) && isRecord(document.data) ? document.data.ticket : undefined
+    if (
+      typeof ticket !== 'string' ||
+      ticket.length === 0 ||
+      ticket.length > 8_192 ||
+      !/^[A-Za-z0-9._~-]+$/.test(ticket)
+    )
+      throw new RealtimeAuthorizationFailure(
+        'authorization_invalid',
+        'Realtime authorization returned an invalid connection ticket.',
+        false,
+        true,
+      )
+    return ticket
   }
 
   channel<Events extends RealtimeEventMap = RealtimeEventMap>(name: string): Subscription<Events> {
@@ -581,6 +707,33 @@ function defaultSocketFactory(url: string, protocols?: string | readonly string[
   return new Constructor(url, protocols)
 }
 
+class RealtimeAuthorizationFailure extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly retryable: boolean,
+    readonly fatal: boolean,
+  ) {
+    super(message)
+    this.name = 'RealtimeAuthorizationFailure'
+  }
+}
+
+function protocolsWithTicket(
+  configured: string | readonly string[] | undefined,
+  ticket: string,
+): readonly string[] {
+  const requested =
+    typeof configured === 'string' ? [configured] : configured ? [...configured] : []
+  if (requested.some((protocol) => protocol.startsWith(KERYX_TICKET_SUBPROTOCOL_PREFIX)))
+    throw new TypeError('Realtime protocols may not supply a Keryx admission ticket.')
+  return Object.freeze([
+    KERYX_SUBPROTOCOL,
+    ...requested.filter((protocol) => protocol !== KERYX_SUBPROTOCOL),
+    `${KERYX_TICKET_SUBPROTOCOL_PREFIX}${ticket}`,
+  ])
+}
+
 function destination(subscription: Subscription): {
   readonly name: string
   readonly kind: RealtimeChannelKind
@@ -636,6 +789,10 @@ function isEventFrame(
 
 function isOperation(value: unknown): value is NonNullable<RealtimeError['operation']> {
   return ['connect', 'subscribe', 'unsubscribe', 'receive'].includes(String(value))
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
 function messageOf(value: unknown): string {

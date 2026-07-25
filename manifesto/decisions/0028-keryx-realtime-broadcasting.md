@@ -6,6 +6,8 @@
   adoption
 - **Amended:** 2026-07-24 — Framework-owned composition, authenticated worker publishing, protocol
   v2 readiness, and Redis replication
+- **Amended:** 2026-07-25 — Origin-bound admission tickets for separately addressed browser
+  listeners
 - **Scope:** Optional post-MVP core WebSocket and broadcasting capability
 - **Decision owners:** Doxa maintainers
 
@@ -38,6 +40,13 @@ infrastructure for Keryx replication, not a requirement for the standard one-web
 Protocol v2 makes authentication readiness explicit. A WebSocket transport opening is not
 subscription permission. Keryx installs its frame buffer before asynchronous authentication, sends
 `connected` only after admission succeeds, and only then may `@doxajs/realtime` subscribe.
+
+When the browser-facing Keryx listener has a different hostname from the application's authenticated
+HTTP origin, the generated web role exposes `POST /broadcasting/authorize`. The already
+authenticated HTTP execution mints a short-lived, encrypted, origin-bound, single-use admission
+ticket. `@doxajs/realtime` presents it in the WebSocket subprotocol offer; Keryx selects only the
+stable protocol name and never echoes the credential. A single web replica consumes tickets locally.
+Redis topology consumes them atomically across replicas.
 
 _Keryx_ is the Greek word for a herald: an exact role name for a component that announces
 application events without becoming the application's event model.
@@ -88,6 +97,10 @@ without leaking its native API into actions, events, listeners, or browser code.
   only the signed worker-to-web publish path.
 - **Run an extra Keryx-only service by default:** rejected. The opt-in core module can safely own a
   second listener in each web process, while retaining explicit role and health boundaries.
+- **Share the host-only session cookie across deployment subdomains:** rejected. Widening cookie
+  scope weakens sibling-host isolation and conflicts with `__Host-` cookie guarantees.
+- **Put an admission credential in the WebSocket URL:** rejected. Query strings are routinely
+  retained by browser history, reverse-proxy access logs, and observability systems.
 
 ## Consequences
 
@@ -100,6 +113,8 @@ without leaking its native API into actions, events, listeners, or browser code.
   discovery value.
 - Production deployments with multiple web replicas require Redis and must include Keryx `/ready` in
   readiness routing.
+- A separately addressed browser listener uses the generated same-origin authorization route; it
+  does not require a shared cookie domain or an application-authored authorization endpoint.
 - Protocol v1 clients are deliberately incompatible with protocol v2 during controlled alpha
   adoption.
 - Keryx is a public package name, but alpha publication alone does not create external compatibility

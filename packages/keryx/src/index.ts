@@ -25,16 +25,29 @@ import {
   parsePublishedMessage,
 } from './protocol.js'
 import { RedisBackplane, type RedisBackplaneFrame } from './redis-backplane.js'
-import { KeryxAuthenticationError, KeryxPublishAuthenticator } from './security.js'
+import {
+  KeryxAdmissionTickets,
+  KeryxAuthenticationError,
+  KeryxPublishAuthenticator,
+  type KeryxConnectionTicketAdmission,
+  type KeryxConnectionTicketGrant,
+  type KeryxConnectionTicketInput,
+} from './security.js'
 
 export { KERYX_PROTOCOL, KeryxProtocolError } from './protocol.js'
 export {
+  KeryxAdmissionTickets,
   KeryxAuthenticationError,
   KeryxPublishAuthenticator,
+  type KeryxConnectionTicketAdmission,
+  type KeryxConnectionTicketGrant,
+  type KeryxConnectionTicketInput,
   type KeryxPublishCredentials,
 } from './security.js'
 
 export type KeryxTopology = 'single' | 'redis'
+export const KERYX_SUBPROTOCOL = 'doxa.realtime.v2'
+const KERYX_TICKET_SUBPROTOCOL_PREFIX = 'doxa.ticket.'
 
 export interface KeryxOptions {
   readonly applicationId?: string
@@ -49,6 +62,8 @@ export interface KeryxOptions {
   readonly maxPayloadBytes?: number
   readonly maxPublishPayloadBytes?: number
   readonly maxPendingFrames?: number
+  readonly admissionTicketMilliseconds?: number
+  readonly maxConsumedAdmissionTickets?: number
   readonly heartbeatMilliseconds?: number
   readonly presenceLeaseMilliseconds?: number
   readonly publishTimeoutMilliseconds?: number
@@ -84,6 +99,8 @@ interface ResolvedKeryxOptions {
   readonly maxPayloadBytes: number
   readonly maxPublishPayloadBytes: number
   readonly maxPendingFrames: number
+  readonly admissionTicketMilliseconds: number
+  readonly maxConsumedAdmissionTickets: number
   readonly heartbeatMilliseconds: number
   readonly presenceLeaseMilliseconds: number
   readonly publishTimeoutMilliseconds: number
@@ -110,12 +127,14 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   #connections = new Set<Connection>()
   #publishing = new Set<Promise<void>>()
   #publishedMessageIds = new Map<string, number>()
+  #consumedAdmissionTickets = new Map<string, number>()
   #draining = false
   #ready = false
   #backplane: RedisBackplane | undefined
   #backplaneRecovery: Promise<void> | undefined
   readonly #options: ResolvedKeryxOptions
   readonly #authenticator: KeryxPublishAuthenticator | undefined
+  readonly #admissionTickets: KeryxAdmissionTickets | undefined
 
   constructor(options: KeryxOptions = {}) {
     super()
@@ -135,6 +154,18 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
         options.maxDeduplicatedMessages <= 0)
     )
       throw new TypeError('Keryx maxDeduplicatedMessages must be a positive integer.')
+    if (
+      options.admissionTicketMilliseconds !== undefined &&
+      (!Number.isSafeInteger(options.admissionTicketMilliseconds) ||
+        options.admissionTicketMilliseconds <= 0)
+    )
+      throw new TypeError('Keryx admissionTicketMilliseconds must be a positive integer.')
+    if (
+      options.maxConsumedAdmissionTickets !== undefined &&
+      (!Number.isSafeInteger(options.maxConsumedAdmissionTickets) ||
+        options.maxConsumedAdmissionTickets <= 0)
+    )
+      throw new TypeError('Keryx maxConsumedAdmissionTickets must be a positive integer.')
     this.#options = {
       applicationId: options.applicationId ?? 'default',
       port: options.port ?? 6001,
@@ -148,6 +179,8 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
       maxPayloadBytes: options.maxPayloadBytes ?? 64 * 1024,
       maxPublishPayloadBytes: options.maxPublishPayloadBytes ?? 256 * 1024,
       maxPendingFrames: options.maxPendingFrames ?? 16,
+      admissionTicketMilliseconds: options.admissionTicketMilliseconds ?? 30_000,
+      maxConsumedAdmissionTickets: options.maxConsumedAdmissionTickets ?? 50_000,
       heartbeatMilliseconds: options.heartbeatMilliseconds ?? 30_000,
       presenceLeaseMilliseconds:
         options.presenceLeaseMilliseconds ?? (options.heartbeatMilliseconds ?? 30_000) * 3,
@@ -162,6 +195,13 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
           key: options.key ?? 'default',
           secret: options.secret,
         })
+      : undefined
+    this.#admissionTickets = options.secret
+      ? new KeryxAdmissionTickets(
+          options.applicationId ?? 'default',
+          options.secret,
+          options.admissionTicketMilliseconds ?? 30_000,
+        )
       : undefined
   }
 
@@ -207,6 +247,12 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
       path: this.#options.path,
       maxPayload: this.#options.maxPayloadBytes,
       perMessageDeflate: false,
+      handleProtocols: (protocols) =>
+        protocols.has(KERYX_SUBPROTOCOL)
+          ? KERYX_SUBPROTOCOL
+          : ([...protocols].find(
+              (protocol) => !protocol.startsWith(KERYX_TICKET_SUBPROTOCOL_PREFIX),
+            ) ?? false),
     })
     webSockets.on('connection', (socket, request) => void this.#accept(socket, request))
     try {
@@ -245,6 +291,14 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     }
   }
 
+  issueConnectionTicket(input: KeryxConnectionTicketInput): KeryxConnectionTicketGrant {
+    if (!this.#roles.web || !this.#ready || this.#draining)
+      throw new Error('Keryx is not accepting connection tickets.')
+    if (!this.#admissionTickets)
+      throw new Error('Keryx connection tickets require DOXA_KERYX_SECRET.')
+    return this.#admissionTickets.issue(input)
+  }
+
   async drain(_context: LifecycleContext): Promise<void> {
     this.#draining = true
     this.#ready = false
@@ -275,6 +329,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     for (const connection of this.#connections) connection.socket.terminate()
     this.#connections.clear()
     this.#publishedMessageIds.clear()
+    this.#consumedAdmissionTickets.clear()
   }
 
   get address(): {
@@ -332,7 +387,10 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     socket.once('close', closedPending)
     socket.once('error', () => undefined)
     try {
-      const admission = await this.#gateway!.connect(id, requestFromIncoming(incoming))
+      const ticket = admissionTicketFromIncoming(incoming)
+      const admission = ticket
+        ? await this.#admitConnectionTicket(id, ticket, incoming)
+        : await this.#gateway!.connect(id, requestFromIncoming(incoming))
       if (closed || socket.readyState !== WebSocket.OPEN) return
       socket.off('message', receivedPending)
       socket.off('close', closedPending)
@@ -367,6 +425,59 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
       )
       socket.close(4401, 'Connection admission failed')
     }
+  }
+
+  async #admitConnectionTicket(
+    connectionId: string,
+    ticket: string,
+    incoming: IncomingMessage,
+  ): Promise<BroadcastConnectionAdmission> {
+    if (!this.#admissionTickets)
+      throw new KeryxAuthenticationError(
+        'admission_ticket_unavailable',
+        401,
+        'Keryx admission credentials are not configured.',
+      )
+    const origin = incoming.headers.origin
+    if (!origin)
+      throw new KeryxAuthenticationError(
+        'admission_origin_required',
+        401,
+        'Keryx admission credentials require a browser Origin.',
+      )
+    const admission = this.#admissionTickets.open(ticket, origin)
+    if (!(await this.#consumeAdmissionTicket(admission)))
+      throw new KeryxAuthenticationError(
+        'admission_ticket_replayed',
+        409,
+        'Keryx admission credentials were already used.',
+      )
+    return Object.freeze({
+      connectionId,
+      actor: admission.actor,
+      authentication: admission.authentication,
+      ...(admission.tenant ? { tenant: admission.tenant } : {}),
+      correlationId: admission.correlationId,
+    })
+  }
+
+  async #consumeAdmissionTicket(admission: KeryxConnectionTicketAdmission): Promise<boolean> {
+    const retentionMilliseconds = Math.max(1, admission.expiresAt - Date.now())
+    if (this.#options.topology === 'redis') {
+      if (!this.#backplane) throw new Error('Keryx Redis backplane is unavailable.')
+      return await this.#backplane.consumeAdmissionTicketOnce(
+        admission.ticketId,
+        retentionMilliseconds,
+      )
+    }
+    const now = Date.now()
+    for (const [ticketId, expiresAt] of this.#consumedAdmissionTickets)
+      if (expiresAt <= now) this.#consumedAdmissionTickets.delete(ticketId)
+    if ((this.#consumedAdmissionTickets.get(admission.ticketId) ?? 0) > now) return false
+    if (this.#consumedAdmissionTickets.size >= this.#options.maxConsumedAdmissionTickets)
+      return false
+    this.#consumedAdmissionTickets.set(admission.ticketId, admission.expiresAt)
+    return true
   }
 
   #queueFrame(connection: Connection, data: WebSocket.RawData, binary: boolean): void {
@@ -923,6 +1034,28 @@ function requestFromIncoming(incoming: IncomingMessage): Request {
   return new Request(`http://${incoming.headers.host ?? 'localhost'}${incoming.url ?? '/'}`, {
     headers: requestHeaders(incoming),
   })
+}
+
+function admissionTicketFromIncoming(incoming: IncomingMessage): string | undefined {
+  const tickets = (incoming.headers['sec-websocket-protocol'] ?? '')
+    .split(',')
+    .map((protocol) => protocol.trim())
+    .filter((protocol) => protocol.startsWith(KERYX_TICKET_SUBPROTOCOL_PREFIX))
+  if (tickets.length === 0) return undefined
+  if (tickets.length !== 1)
+    throw new KeryxAuthenticationError(
+      'admission_ticket_invalid',
+      401,
+      'Keryx admission credentials are invalid.',
+    )
+  const ticket = tickets[0]!.slice(KERYX_TICKET_SUBPROTOCOL_PREFIX.length)
+  if (!ticket)
+    throw new KeryxAuthenticationError(
+      'admission_ticket_invalid',
+      401,
+      'Keryx admission credentials are invalid.',
+    )
+  return ticket
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {

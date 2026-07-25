@@ -19,6 +19,20 @@ orders.onError((error) => console.error(error.code, error.message))
 orders.listen('order.shipped', ({ orderId }) => console.log(orderId))
 ```
 
+For a production Keryx listener on a separate hostname, point authorization at the generated Doxa
+route as seen through the application's existing same-origin HTTP proxy:
+
+```ts
+const realtime = new Realtime({
+  url: 'wss://realtime.example.com/app',
+  authorizationEndpoint: '/canopy/broadcasting/authorize',
+})
+```
+
+Realtime requests a fresh short-lived ticket with same-origin credentials before every connection
+and reconnect, then presents it outside the URL in the WebSocket subprotocol offer. The endpoint
+path is an ordinary public application path, not the private worker publish backchannel.
+
 A browser WebSocket `open` event means only that the transport opened. Realtime waits for Keryx's
 authenticated `connected` frame before sending subscriptions. Connection and subscription state,
 structured errors, acknowledgement timeouts, terminal authentication failures, reconnect, and

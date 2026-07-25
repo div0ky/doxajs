@@ -35,6 +35,12 @@ Every role sharing publication authority must receive the same `DOXA_KERYX_SECRE
 characters. Do not expose the internal publish URL or Redis publicly. Route browser WebSockets to
 `/app` on the Keryx port and include `GET /ready` in load-balancer readiness.
 
+If the browser reaches Keryx on a different hostname from authenticated application HTTP, use the
+generated `POST /broadcasting/authorize` route. The route mints a 30-second, encrypted,
+origin-bound, single-use admission ticket. The realtime client presents that ticket in the WebSocket
+subprotocol offer, so production does not widen the Doxa session cookie to sibling subdomains or put
+credentials in a URL. In Redis topology, ticket consumption is atomic across web replicas.
+
 Keryx protocol v2 waits for Doxa authentication before emitting `connected`. Signed publication,
-bounded message-ID deduplication, Redis fanout, distributed presence leases, and backplane recovery
-are framework behavior; applications do not implement a backchannel.
+bounded message-ID deduplication, admission tickets, Redis fanout, distributed presence leases, and
+backplane recovery are framework behavior; applications do not implement a backchannel.
