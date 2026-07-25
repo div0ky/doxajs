@@ -37,5 +37,6 @@ jobs:
           publish: pnpm release
           commit: 'chore: version Doxa packages'
           title: 'chore: version Doxa packages'
+          createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
