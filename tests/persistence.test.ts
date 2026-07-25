@@ -879,7 +879,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       artifactsDirectory,
       dotenvPath: false,
       environment,
-      roles: { worker: false, scheduler: false },
+      roles: { web: false, worker: false, scheduler: false },
     })
     runtimes.push(producer)
     const jobId = await runAction(producer, DispatchProcessCounter, {
@@ -901,7 +901,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       artifactsDirectory,
       dotenvPath: false,
       environment,
-      roles: { worker: false, scheduler: true },
+      roles: { web: false, worker: false, scheduler: true },
     })
     runtimes.push(scheduler)
     await new Promise((resolve) => setTimeout(resolve, 150))
@@ -911,7 +911,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       artifactsDirectory,
       dotenvPath: false,
       environment,
-      roles: { worker: true, scheduler: false },
+      roles: { web: false, worker: true, scheduler: false },
     })
     runtimes.push(worker)
     await waitFor(

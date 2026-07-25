@@ -205,6 +205,7 @@ export class DoxaTestHarness {
         : { level: 'debug' as const, ...options.logging, sink: logs }
     const runtime = await Doxa.boot(application, {
       ...options,
+      roles: options.roles ?? { web: false, worker: false, scheduler: false },
       providerOverrides: overrides,
       eventTestHook: events,
       logging,

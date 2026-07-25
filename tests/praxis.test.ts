@@ -849,6 +849,49 @@ describe('Praxis command suite', () => {
     expect(messages.at(-1)).toContain('Run doxa migrate, then doxa theoria')
   })
 
+  it('installs Keryx as a framework-owned core module and generates its provider', async () => {
+    const root = await temporaryDirectory()
+    const destination = path.join(root, 'garden')
+    const messages: string[] = []
+    const io = {
+      out: (message: string) => messages.push(message),
+      error: (message: string) => {
+        throw new Error(message)
+      },
+    }
+
+    expect(await runPraxis(['new', 'Garden', `--directory=${destination}`], root, io)).toBe(0)
+    expect(await runPraxis(['add', 'keryx'], destination, io)).toBe(0)
+
+    const packageJson = JSON.parse(
+      await readFile(path.join(destination, 'package.json'), 'utf8'),
+    ) as { dependencies: Record<string, string> }
+    expect(packageJson.dependencies['@doxajs/keryx']).toBe(packageJson.dependencies['@doxajs/core'])
+    expect(packageJson.dependencies['@doxajs/realtime']).toBe(
+      packageJson.dependencies['@doxajs/core'],
+    )
+
+    const application = await readFile(path.join(destination, 'app.config.ts'), 'utf8')
+    expect(application).toContain('broadcasting: { enabled: true }')
+    expect(application).toContain('plugins = [] as const')
+    const environment = await readFile(path.join(destination, '.env.example'), 'utf8')
+    expect(environment).toContain('DOXA_KERYX_SECRET=')
+    expect(environment).toContain('DOXA_KERYX_TOPOLOGY=single')
+    expect(environment).toContain('# DOXA_KERYX_REDIS_URL=redis://127.0.0.1:6379')
+    const compose = await readFile(path.join(destination, 'compose.production.yaml'), 'utf8')
+    expect(compose).toContain('DOXA_KERYX_PUBLISH_URL: http://web:6001')
+    expect(compose).toContain('"${KERYX_PORT:-6001}:6001"')
+    expect(compose).toContain("fetch('http://127.0.0.1:6001/ready')")
+
+    await symlink(path.join(workspace, 'node_modules'), path.join(destination, 'node_modules'))
+    expect(await runPraxis(['build'], destination, io)).toBe(0)
+    const framework = await readFile(path.join(destination, '.doxa/framework.ts'), 'utf8')
+    expect(framework).toContain("import { Keryx } from '@doxajs/keryx'")
+    expect(framework).toContain('export class ApplicationBroadcasting extends Keryx')
+    expect(framework).toContain("static override readonly id = 'broadcasting'")
+    expect(messages.at(-1)).toContain('Built garden')
+  })
+
   it('accepts an explicit Theoria operator option before enforcing non-loopback access', async () => {
     const root = await temporaryDirectory()
     const errors: string[] = []

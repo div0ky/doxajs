@@ -180,7 +180,11 @@ export interface BootOptions {
   readonly dotenvPath?: string | false
   readonly configurationOverrides?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
   readonly deadlines?: Partial<LifecycleDeadlines>
-  readonly roles?: Partial<{ readonly worker: boolean; readonly scheduler: boolean }>
+  readonly roles?: Partial<{
+    readonly web: boolean
+    readonly worker: boolean
+    readonly scheduler: boolean
+  }>
   readonly providerOverrides?: Readonly<Record<string, object>>
   /** Used by @doxajs/testing to record and selectively fake Event delivery before boot. */
   readonly eventTestHook?: EventTestHook
@@ -625,6 +629,15 @@ export class DoxaRuntime {
     queues?.selectRoles({
       worker: options.roles?.worker ?? true,
       scheduler: options.roles?.scheduler ?? true,
+    })
+    broadcastTransport?.selectRoles({
+      web: options.roles?.web ?? true,
+      worker: options.roles?.worker ?? true,
+      scheduler: options.roles?.scheduler ?? true,
+      requiresRemotePublishing:
+        !(options.roles?.web ?? true) &&
+        (options.roles?.worker ?? true) &&
+        artifacts.manifest.events.some((event) => event.broadcast !== false),
     })
     const started: LifecycleParticipant[] = []
     const bootStartedAt = performance.now()
@@ -1782,6 +1795,7 @@ export class DoxaRuntime {
   private async publishBroadcast(
     manifest: EventManifestEntry,
     event: Event<unknown>,
+    messageId: string = randomUUID(),
   ): Promise<void> {
     if (!this.broadcastTransport) {
       throw new OperationDispatchError('No broadcasting transport is configured.')
@@ -1813,7 +1827,7 @@ export class DoxaRuntime {
       throw new OperationDispatchError(`${manifest.id}.broadcastAs() returned an invalid name.`)
     }
     const message: BroadcastMessage = Object.freeze({
-      id: randomUUID(),
+      id: messageId,
       event: eventName,
       channels: Object.freeze(channels),
       data: serializeQueuePayload(candidate.broadcastWith?.() ?? event.payload),
@@ -2184,7 +2198,7 @@ export class DoxaRuntime {
                   )
                 }
                 const event = rehydrateEvent(eventManifest, EventConstructor, envelope.payload)
-                await this.publishBroadcast(eventManifest, event)
+                await this.publishBroadcast(eventManifest, event, envelope.id)
                 return
               }
               const listener = this.manifest.listeners.find(
