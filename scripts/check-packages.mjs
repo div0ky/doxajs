@@ -18,6 +18,7 @@ const packageDirectories = (await readdir(packagesRoot, { withFileTypes: true })
 try {
   await execute('mkdir', ['-p', archivesDirectory])
   const archives = []
+  const packedPackages = []
   for (const packageDirectory of packageDirectories) {
     const source = JSON.parse(await readFile(path.join(packageDirectory, 'package.json'), 'utf8'))
     assertPackageMetadata(source, packageDirectory)
@@ -56,11 +57,17 @@ try {
     if (packedJson.includes('workspace:')) {
       throw new Error(`${source.name} contains an unresolved workspace dependency.`)
     }
+    const packedPackage = JSON.parse(packedJson)
+    if (packedPackage.name !== source.name || packedPackage.version !== source.version) {
+      throw new Error(`${source.name} packed with mismatched package identity or version.`)
+    }
+    packedPackages.push(packedPackage)
     await execute('pnpm', ['exec', 'publint', '--strict', archive], { cwd: root })
     await execute('pnpm', ['exec', 'attw', '--profile', 'esm-only', '--quiet', archive], {
       cwd: root,
     })
   }
+  assertPackedPackageAlignment(packedPackages)
 
   const consumer = path.join(temporary, 'consumer')
   await execute('mkdir', ['-p', consumer])
@@ -156,6 +163,31 @@ try {
   console.log(`Package audit passed for ${packageDirectories.length} Doxa packages.`)
 } finally {
   await rm(temporary, { recursive: true, force: true })
+}
+
+function assertPackedPackageAlignment(packages) {
+  const names = new Set(packages.map((packageJson) => packageJson.name))
+  const versions = new Set(packages.map((packageJson) => packageJson.version))
+  if (versions.size !== 1) {
+    throw new Error(`Packed Doxa packages have mismatched versions: ${[...versions].join(', ')}.`)
+  }
+  const [version] = versions
+  for (const packageJson of packages) {
+    for (const field of [
+      'dependencies',
+      'devDependencies',
+      'optionalDependencies',
+      'peerDependencies',
+    ]) {
+      for (const [name, range] of Object.entries(packageJson[field] ?? {})) {
+        if (names.has(name) && range !== version) {
+          throw new Error(
+            `${packageJson.name} packed ${field}.${name} as ${range}; expected ${version}.`,
+          )
+        }
+      }
+    }
+  }
 }
 
 function assertPackageMetadata(packageJson, directory) {

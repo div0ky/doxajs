@@ -3,51 +3,108 @@ name: Release
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full version-commit SHA to retry
+        required: true
+        type: string
 
-permissions:
-  contents: write
-  id-token: write
-  pull-requests: write
+permissions: {}
 
 concurrency:
   group: release
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Version or publish
+  version:
+    name: Create or update version PR
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: npm
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Check out main
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11.18.0
           run_install: false
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+      - name: Install Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version-file: .node-version
-          registry-url: https://registry.npmjs.org
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - name: Restore release build outputs
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            .cache/tsbuildinfo
-            packages/*/dist
-          key:
-            release-build-${{ runner.os }}-${{ hashFiles('.node-version', 'package.json',
-            'pnpm-lock.yaml', 'tsconfig*.json', 'packages/*/package.json',
-            'packages/*/tsconfig.json', 'packages/*/src/**') }}
-      - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Create or update Changesets version PR
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm version:packages
-          publish: pnpm release
           commit: 'chore: version Doxa packages'
           title: 'chore: version Doxa packages'
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  detect:
+    name: Select immutable release commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      should_publish: ${{ steps.release.outputs.should_publish }}
+    steps:
+      - name: Check out selected commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.commit || github.sha }}
+          fetch-depth: 0
+      - name: Select release candidate
+        id: release
+        run: node scripts/select-release-commit.mjs
+        env:
+          RELEASE_COMMIT_INPUT: ${{ inputs.commit }}
+
+  publish:
+    name: Publish immutable alpha candidate
+    needs: detect
+    if: needs.detect.outputs.should_publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.detect.outputs.commit }}
+          fetch-depth: 0
+      - name: Install pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 11.18.0
+          run_install: false
+      - name: Install Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version-file: .node-version
+          registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Validate and publish exact candidate
+        run: pnpm release:publish
+        env:
+          DOXA_RELEASE_COMMIT: ${{ needs.detect.outputs.commit }}

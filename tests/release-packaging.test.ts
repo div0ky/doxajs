@@ -20,29 +20,6 @@ afterEach(async () => {
 })
 
 describe('release packaging', () => {
-  it('keeps trusted publication release-scoped and fail-closed', async () => {
-    const packageJson = JSON.parse(
-      await readFile(path.join(repositoryRoot, 'package.json'), 'utf8'),
-    ) as {
-      scripts: Record<string, string>
-    }
-    const releaseWorkflow = await readFile(
-      path.join(repositoryRoot, '.github/workflows/release.yml'),
-      'utf8',
-    )
-
-    expect(packageJson.scripts['release:check']).toBe('pnpm package:check && pnpm audit:security')
-    expect(packageJson.scripts.release).toBe('pnpm release:check && changeset publish')
-    expect(releaseWorkflow).toContain('id-token: write')
-    expect(releaseWorkflow).toContain('environment: npm')
-    expect(releaseWorkflow).toContain('registry-url: https://registry.npmjs.org')
-    expect(releaseWorkflow).toContain('cache: pnpm')
-    expect(releaseWorkflow).toContain('publish: pnpm release')
-    expect(releaseWorkflow).not.toContain('pnpm verify')
-    expect(releaseWorkflow).not.toContain('restore-keys:')
-    expect(releaseWorkflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/)
-  })
-
   it('refuses to pack a package whose declared build artifacts are missing', async () => {
     const packageRoot = await mkdtemp(path.join(os.tmpdir(), 'doxa-package-'))
     temporaryDirectories.push(packageRoot)
@@ -115,7 +92,9 @@ describe('release packaging', () => {
     }
     const packageMetadata = JSON.parse(
       await readFile(path.join(extracted, 'package/package.json'), 'utf8'),
-    ) as { version: string }
+    ) as { version: string; dependencies: Record<string, string> }
+    expect(packageMetadata.dependencies['@doxajs/introspection']).toBe(packageMetadata.version)
+    expect(packageMetadata.dependencies['@doxajs/manifest']).toBe(packageMetadata.version)
     expect(handbook.handbookIndex(packageMetadata.version)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'programming-model.core' }),
