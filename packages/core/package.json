@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/core",
-  "version": "0.1.0-alpha.27",
+  "version": "0.1.0-alpha.28",
   "description": "The application-facing programming model and contracts for the Doxa.js framework.",
   "license": "Apache-2.0",
   "repository": {

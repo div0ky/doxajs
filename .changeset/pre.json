@@ -76,10 +76,12 @@
     "migrate-framework-application-root",
     "observability-program",
     "open-source-foundation",
+    "portable-gnosis-mcp-registration",
     "reject-stale-package-collisions",
     "remove-auth-verification-sidecars",
     "remove-praxis-install-scripts",
     "typed-model-queries",
-    "version-aligned-praxis-test"
+    "version-aligned-praxis-test",
+    "wise-gnosis-architecture"
   ]
 }

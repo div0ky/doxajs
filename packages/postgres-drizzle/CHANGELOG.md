@@ -1,5 +1,11 @@
 # @doxajs/postgres-drizzle
 
+## 0.1.0-alpha.28
+
+### Patch Changes
+
+- @doxajs/core@0.1.0-alpha.28
+
 ## 0.1.0-alpha.27
 
 ### Patch Changes
