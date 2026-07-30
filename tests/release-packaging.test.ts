@@ -92,7 +92,9 @@ describe('release packaging', () => {
     }
     const packageMetadata = JSON.parse(
       await readFile(path.join(extracted, 'package/package.json'), 'utf8'),
-    ) as { version: string }
+    ) as { version: string; dependencies: Record<string, string> }
+    expect(packageMetadata.dependencies['@doxajs/introspection']).toBe(packageMetadata.version)
+    expect(packageMetadata.dependencies['@doxajs/manifest']).toBe(packageMetadata.version)
     expect(handbook.handbookIndex(packageMetadata.version)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'programming-model.core' }),

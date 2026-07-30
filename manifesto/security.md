@@ -70,7 +70,11 @@ The MVP uses a frozen pnpm lockfile and exact root toolchain versions. Applicati
 own their contracts; Hono, Drizzle, pg-boss, Argon2 primitives, SendGrid, and Twilio remain behind
 adapter packages. `pnpm audit:boundaries` fails when reference application code imports a vendor
 runtime directly. `pnpm audit:docs` verifies local knowledge-base links. Release artifacts must be
-built from the reviewed lockfile and publish only declared package output and migrations.
+built from the reviewed lockfile and publish only declared package output and migrations. Ordinary
+feature pull requests own comprehensive behavioral verification. A generated version commit records
+one coordinated release candidate; trusted publication checks out that immutable commit, rebuilds
+and inspects its package artifacts, and refuses mismatched versions, package sets, internal
+dependencies, provenance configuration, or alpha tags.
 
 ## Release gate
 
