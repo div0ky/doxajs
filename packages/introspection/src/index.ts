@@ -598,16 +598,27 @@ function transactionFor(
   }
   if (kind === 'observer') {
     const phases = Array.isArray(entry.phases) ? entry.phases : []
-    return phases.includes('committed')
-      ? {
-          mode: 'delivery-dependent',
-          description:
-            'Persistence phases before committed join the active unit of work. The committed phase runs after durability and cannot roll back the write.',
-        }
-      : {
-          mode: 'joins-caller',
-          description: 'The Observer phases join the active model persistence unit of work.',
-        }
+    const includesRetrieved = phases.includes('retrieved')
+    const includesCommitted = phases.includes('committed')
+    const includesPersistence = phases.some(
+      (phase) => phase !== 'retrieved' && phase !== 'committed',
+    )
+    const descriptions = [
+      ...(includesRetrieved
+        ? ['The retrieved phase joins the caller’s active read-only or writable model session.']
+        : []),
+      ...(includesPersistence
+        ? ['Persistence phases join the active writable model unit of work.']
+        : []),
+      ...(includesCommitted
+        ? ['The committed phase runs after durability and cannot roll back the write.']
+        : []),
+    ]
+    return {
+      mode: includesCommitted ? 'delivery-dependent' : 'joins-caller',
+      description:
+        descriptions.join(' ') || 'The Observer joins the caller’s active model session.',
+    }
   }
   if (
     kind === 'model' ||

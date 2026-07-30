@@ -469,6 +469,25 @@ describe('Gnosis read-only local engineering server', () => {
         },
       }),
     )
+    expect(explainComponent(manifest, committedObserver.id).transaction.description).toContain(
+      'retrieved phase joins the caller’s active read-only or writable model session',
+    )
+    const retrievedObserverManifest = rehashManifest({
+      ...manifest,
+      observers: manifest.observers.map((entry) =>
+        entry.id === committedObserver.id ? { ...entry, phases: ['retrieved'] as const } : entry,
+      ),
+    })
+    expect(explainComponent(retrievedObserverManifest, committedObserver.id)).toEqual(
+      expect.objectContaining({
+        kind: 'observer',
+        transaction: {
+          mode: 'joins-caller',
+          description:
+            'The retrieved phase joins the caller’s active read-only or writable model session.',
+        },
+      }),
+    )
 
     const diagnosticManifest = rehashManifest({
       ...manifest,

@@ -16,4 +16,6 @@ not produce false architecture warnings. Keep role lifecycle guidance aligned wi
 execution-local disposal contract, and distinguish after-durability Observer phases in component
 transaction explanations. Traverse shared dependency graphs once per operation when enforcing the
 nested `ActionBus` rule. Reject application lifecycle phases on ordinary services while retaining
-scope-local disposal, and exclude role-like Feature directory names from folder advisories.
+explicit scope-local disposal without reserving ordinary business-method names. Exclude role-like
+Feature directory names from folder advisories, and explain retrieved Observer phases across
+read-only and writable model sessions.

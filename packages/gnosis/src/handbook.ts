@@ -200,7 +200,7 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       scope:
         'Transient by default; implement ExecutionScoped only for per-execution identity or caching.',
       lifecycle:
-        'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
+        'May implement Disposes to dispose scope-local resources; cannot own application start, drain, or stop phases.',
       dependencies:
         'May depend on scope-safe services, ports, configuration, and selected providers.',
       rationale:
@@ -411,23 +411,28 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     testing: ['Test compiled cadence and target', 'Test manual firing and overlap behavior'],
   }),
   role('role.observer', 'observer', 'Observer', ['model observer', 'persistence phase'], {
-    purpose: 'Observe named model persistence phases.',
-    useWhen: 'Cross-cutting model behavior belongs immediately around persistence.',
+    purpose: 'Observe named model retrieval and persistence phases.',
+    useWhen:
+      'Cross-cutting model behavior belongs during retrieval or immediately around persistence.',
     registration: 'Declare the Observer in Feature.observers and bind one Model.',
     generator: 'doxa make:observer Feature/Name --model=<Model>',
     canonicalFolder: 'src/features/<feature>/observers',
     invocation: 'The model session invokes declared phases.',
     authorization: 'Observers inherit the owning operation; they are not entry points.',
     transaction:
-      'Before/after-persist phases share the unit of work; after-commit is materially later.',
+      'Retrieved joins the caller’s read-only or writable model session. Before/after-persist phases share the writable unit of work; committed is materially later.',
     injection: 'Extend Observer and use this.inject().',
     scope: 'Transient in the current execution.',
     lifecycle: 'No application lifecycle.',
     dependencies: 'Must not create hidden operation boundaries.',
     rationale: 'Named phases make durability guarantees explicit.',
-    example: 'Normalize a model before persistence; publish non-critical work after commit.',
+    example:
+      'Decorate a model after retrieval, normalize it before persistence, or publish non-critical work after commit.',
     antiPatterns: ['Ambiguous save hooks', 'Authorization policy in observers'],
-    testing: ['Test ordering', 'Test rollback and after-commit failure semantics'],
+    testing: [
+      'Test retrieval in read-only and writable sessions',
+      'Test ordering, rollback, and after-commit failure semantics',
+    ],
   }),
   role('role.policy', 'policy', 'Policy', ['ability', 'resource authorization'], {
     purpose: 'Make one resource-aware authorization decision.',

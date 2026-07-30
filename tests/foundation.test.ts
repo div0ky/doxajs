@@ -694,6 +694,10 @@ describe('foundational compile-to-boot slice', () => {
         targetId: 'doxa:current-execution',
       }),
     ])
+    expect(
+      first.manifest.providers.find((provider) => provider.id.endsWith('/execution-counter'))
+        ?.lifecycle,
+    ).toEqual({ start: false, drain: false, stop: false, dispose: true })
     expect(firstRegistry).not.toContain('dependencies')
     expect(firstRegistry).not.toContain('lifecycle')
   })
@@ -1207,6 +1211,27 @@ describe('foundational compile-to-boot slice', () => {
     ).rejects.toThrow(
       '[DOXA-COMPILER-LIFECYCLE-001] InvalidService may define dispose(), but ordinary services cannot own application lifecycle phases. See Gnosis guide role.service.',
     )
+
+    const validService = await compileFixture(`
+      import { DoxaApplication, Feature } from '@doxajs/core'
+
+      class CampaignService {
+        start(id: string): string { return id }
+        drain(id: string): string { return id }
+        stop(id: string): string { return id }
+        dispose(id: string): string { return id }
+      }
+      class AppFeature extends Feature { id = 'app'; provides = [CampaignService] }
+      export class Application extends DoxaApplication {
+        id = 'valid-service-method-names'
+        features = [AppFeature]
+      }
+    `)
+    expect(
+      validService.manifest.providers.find(
+        (provider) => provider.id === 'service:app/campaign-service',
+      )?.lifecycle,
+    ).toEqual({ start: false, drain: false, stop: false, dispose: false })
   })
 
   it('composes an application PermissionSource with resource policies once per execution', async () => {

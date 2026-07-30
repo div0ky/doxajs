@@ -232,24 +232,24 @@ Testing: Test mapping and relationships; Test read-only and rollback behavior
 
 Stable guide: `role.observer`
 
-Observe named model persistence phases.
+Observe named model retrieval and persistence phases.
 
-Purpose: Observe named model persistence phases.
-Use when: Cross-cutting model behavior belongs immediately around persistence.
+Purpose: Observe named model retrieval and persistence phases.
+Use when: Cross-cutting model behavior belongs during retrieval or immediately around persistence.
 Registration: Declare the Observer in Feature.observers and bind one Model.
 Generator: doxa make:observer Feature/Name --model=<Model>
 Canonical folder: src/features/<feature>/observers
 Invocation: The model session invokes declared phases.
 Authorization: Observers inherit the owning operation; they are not entry points.
-Transaction: Before/after-persist phases share the unit of work; after-commit is materially later.
+Transaction: Retrieved joins the caller’s read-only or writable model session. Before/after-persist phases share the writable unit of work; committed is materially later.
 Injection: Extend Observer and use this.inject().
 Scope: Transient in the current execution.
 Lifecycle: No application lifecycle.
 Dependencies: Must not create hidden operation boundaries.
 Rationale: Named phases make durability guarantees explicit.
-Example: Normalize a model before persistence; publish non-critical work after commit.
+Example: Decorate a model after retrieval, normalize it before persistence, or publish non-critical work after commit.
 Anti-patterns: Ambiguous save hooks; Authorization policy in observers
-Testing: Test ordering; Test rollback and after-commit failure semantics
+Testing: Test retrieval in read-only and writable sessions; Test ordering, rollback, and after-commit failure semantics
 
 ### PermissionSource
 
@@ -405,7 +405,7 @@ Authorization: The admitted entry role owns authorization; a service may enforce
 Transaction: It never opens or owns a transaction. It joins the caller’s active execution and unit of work.
 Injection: Plain class with constructor injection.
 Scope: Transient by default; implement ExecutionScoped only for per-execution identity or caching.
-Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
+Lifecycle: May implement Disposes to dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: May depend on scope-safe services, ports, configuration, and selected providers.
 Rationale: A shared service preserves reuse without nesting operation boundaries or weakening atomicity.
 Example: CreateNotification Action and DeliverDueReminders Job both call NotificationCreator.

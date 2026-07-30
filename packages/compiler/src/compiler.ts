@@ -1076,7 +1076,15 @@ export async function compileApplication(
     }
 
     const name = requiredClassName(declaration)
-    const lifecycle = lifecycleOf(declaration, checker)
+    const lifecycle =
+      role === 'service'
+        ? {
+            start: implementsNamedInterface(declaration, 'Starts', checker),
+            drain: implementsNamedInterface(declaration, 'Drains', checker),
+            stop: implementsNamedInterface(declaration, 'Stops', checker),
+            dispose: implementsNamedInterface(declaration, 'Disposes', checker),
+          }
+        : lifecycleOf(declaration, checker)
     if (role === 'service' && (lifecycle.start || lifecycle.drain || lifecycle.stop)) {
       fail(
         declaration,
