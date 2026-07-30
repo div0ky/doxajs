@@ -29,8 +29,19 @@ jobs:
         with:
           node-version-file: .node-version
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Restore release build outputs
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            .cache/tsbuildinfo
+            packages/*/dist
+          key:
+            release-build-${{ runner.os }}-${{ hashFiles('.node-version', 'package.json',
+            'pnpm-lock.yaml', 'tsconfig*.json', 'packages/*/package.json',
+            'packages/*/tsconfig.json', 'packages/*/src/**') }}
       - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm version:packages
