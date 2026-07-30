@@ -76,13 +76,13 @@ applications and tools do not depend on undocumented behavior.
 
 ## Communications and infrastructure
 
-| Capability         | State    | Acceptance evidence                                                                                                          |
-| ------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Doxa mail contract | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                       |
-| SendGrid adapter   | Complete | Request translation, failure classes, signed timestamp-bounded webhooks, deduplication, and conformance fixtures are proven. |
-| Doxa SMS contract  | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                       |
-| Twilio adapter     | Complete | Messaging Service translation, opt-out classification, signed callbacks, and conformance fixtures are proven.                |
-| Cache              | Complete | Doxa port, memory/PostgreSQL adapters, TTL, atomic operations, injection, inspection, forget, and prune are proven.          |
+| Capability         | State    | Acceptance evidence                                                                                                                                                              |
+| ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Doxa mail contract | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                           |
+| SendGrid adapter   | Complete | Request translation, failure classes, signed timestamp-bounded webhooks, deduplication, and conformance fixtures are proven.                                                     |
+| Doxa SMS contract  | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                           |
+| Twilio adapter     | Complete | Messaging Service and explicit E.164 sender translation, precedence, permanent sender validation, signed callbacks, opt-out classification, and conformance fixtures are proven. |
+| Cache              | Complete | Doxa port, memory/PostgreSQL adapters, TTL, atomic operations, injection, inspection, forget, and prune are proven.                                                              |
 
 ## Observability and operability
 

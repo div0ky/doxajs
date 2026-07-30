@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
+- **Amended:** 2026-07-30 — Support application-selected per-message Twilio SMS senders.
 - **Decision owners:** Doxa maintainers
 
 ## Decision

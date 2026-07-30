@@ -127,7 +127,7 @@ observable programming contract remains to be specified.
 7. [Use the accepted MVP repository and testing toolchain](0007-mvp-toolchain.md) — Accepted on
    2026-07-10.
 8. [Provide SendGrid email and Twilio SMS plugins in the MVP](0008-sendgrid-twilio-communications.md)
-   — Accepted on 2026-07-10.
+   — Accepted on 2026-07-10; amended on 2026-07-30.
 9. [Adopt the initial action, query, transaction, and lifecycle defaults](0009-operation-lifecycle-defaults.md)
    — Accepted on 2026-07-10.
 10. [Use pg-boss for queueing and scheduling with at-least-once execution](0010-pg-boss-queue-scheduling.md)
