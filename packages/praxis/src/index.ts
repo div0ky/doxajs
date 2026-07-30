@@ -1310,7 +1310,7 @@ async function makeApplication(directory: string, rawName: string): Promise<void
         version: '0.1.0',
         private: true,
         type: 'module',
-        packageManager: 'pnpm@11.10.0',
+        packageManager: 'pnpm@11.18.0',
         scripts: {
           doxa: 'doxa',
           build: 'doxa build',
