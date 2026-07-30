@@ -199,7 +199,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       injection: 'Plain class with constructor injection.',
       scope:
         'Transient by default; implement ExecutionScoped only for per-execution identity or caching.',
-      lifecycle: 'Ordinary services do not own application lifecycle phases.',
+      lifecycle:
+        'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
       dependencies:
         'May depend on scope-safe services, ports, configuration, and selected providers.',
       rationale:
@@ -276,7 +277,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     transaction: 'Owns a bounded read-only model session; create/save/delete fail closed.',
     injection: 'Extend Query and use this.inject().',
     scope: 'Transient handler inside one admitted execution.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies:
       'May call read-only services; must not reach ActionBus or mutation-only behavior.',
     rationale: 'A read boundary prevents durable side effects from hiding behind retrieval.',
@@ -295,7 +297,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     transaction: 'Dispatch an Action or Query; the route does not own an independent transaction.',
     injection: 'Extend Route and use this.inject(ActionBus or QueryBus).',
     scope: 'Transient per request.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies: 'Prefer operation buses over direct domain mutation.',
     rationale:
       'Thin transport adapters preserve automatic envelopes and reusable application boundaries.',
@@ -343,7 +346,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       'Local delivery can share the current unit of work. After-commit has no rollback path. Queued delivery gets a fresh execution but must dispatch an Action or use a Job for writable model work.',
     injection: 'Extend Listener and use this.inject().',
     scope: 'Transient; queued listeners reconstruct dependencies in a fresh scope.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies:
       'Use services for reusable work. A queued Listener may dispatch an Action as a new top-level operation; local and after-commit Listeners may not nest one.',
     rationale:
@@ -370,7 +374,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     transaction: 'Every attempt owns one writable transaction. Services called by the Job join it.',
     injection: 'Extend Job and use this.inject().',
     scope: 'Fresh execution per attempt with explicitly propagated actor and causality.',
-    lifecycle: 'No application lifecycle; worker draining owns attempt completion.',
+    lifecycle:
+      'May dispose attempt-local resources; cannot own application start, drain, or stop phases. Worker draining owns attempt completion.',
     dependencies: 'Use ordinary services. Never dispatch an Action from inside handle().',
     rationale:
       'A Job is already a complete mutation boundary; nesting an Action would create competing ownership.',
@@ -437,7 +442,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       'Shares an owning operation session or uses a bounded read-only authorization session.',
     injection: 'Extend Policy and use this.inject().',
     scope: 'Transient per authorization evaluation.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies: 'Use read-only models and services; recursive authorization is prohibited.',
     rationale: 'One decision point keeps access explainable and default-deny.',
     example: 'ContactPolicy decides contact.update for the admitted actor and Contact.',
@@ -461,7 +467,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
         'Shares the owning operation session or a bounded read-only authorization session.',
       injection: 'Extend PermissionSource and use this.inject().',
       scope: 'Execution-scoped.',
-      lifecycle: 'No application lifecycle.',
+      lifecycle:
+        'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
       dependencies: 'May use read-only models and exported ordinary services.',
       rationale: 'A stable catalog separates authentication from application permission storage.',
       example: 'ApplicationPermissionSource returns declared contact.read grants.',
@@ -506,7 +513,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     transaction: 'Shares the caller’s current execution and unit of work.',
     injection: 'Extend SignalHandler and use this.inject().',
     scope: 'Transient in the current execution.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies: 'Use services; do not create nested operation boundaries.',
     rationale: 'A declared handler keeps synchronous coupling visible in the manifest.',
     example: 'A handler calls an ordinary service under the caller’s transaction.',
@@ -524,7 +532,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     transaction: 'Dispatch an Action or Query when operation semantics are required.',
     injection: 'Extend Command and use this.inject().',
     scope: 'Transient per console execution.',
-    lifecycle: 'No application lifecycle.',
+    lifecycle:
+      'May dispose scope-local resources; cannot own application start, drain, or stop phases.',
     dependencies: 'Prefer reusable operations and services over duplicate business logic.',
     rationale:
       'Declared commands preserve authorization, observability, and deterministic discovery.',
