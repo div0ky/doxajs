@@ -81,6 +81,7 @@
     "reject-stale-package-collisions",
     "remove-auth-verification-sidecars",
     "remove-praxis-install-scripts",
+    "twilio-explicit-sms-sender",
     "typed-model-queries",
     "version-aligned-praxis-test",
     "wise-gnosis-architecture"

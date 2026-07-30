@@ -1,5 +1,16 @@
 # @doxajs/gnosis
 
+## 0.1.0-alpha.30
+
+### Patch Changes
+
+- 3ffb46f: Add an optional provider-independent SMS sender and support application-selected E.164
+  Twilio `From` delivery. Explicit senders take precedence over a configured Messaging Service,
+  survive transactional queueing and redrive, and fail permanently before HTTP delivery when invalid
+  or missing.
+  - @doxajs/manifest@0.1.0-alpha.30
+  - @doxajs/introspection@0.1.0-alpha.30
+
 ## 0.1.0-alpha.29
 
 ### Patch Changes
