@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/auth-postgres",
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.31",
   "description": "First-party PostgreSQL email/password, session, and bearer authentication for Doxa.",
   "license": "Apache-2.0",
   "repository": {

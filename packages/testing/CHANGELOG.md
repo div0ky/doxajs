@@ -1,5 +1,13 @@
 # @doxajs/testing
 
+## 0.1.0-alpha.31
+
+### Patch Changes
+
+- @doxajs/core@0.1.0-alpha.31
+- @doxajs/http-hono@0.1.0-alpha.31
+- @doxajs/runtime@0.1.0-alpha.31
+
 ## 0.1.0-alpha.30
 
 ### Patch Changes

@@ -1,5 +1,11 @@
 # @doxajs/auth-postgres
 
+## 0.1.0-alpha.31
+
+### Patch Changes
+
+- @doxajs/core@0.1.0-alpha.31
+
 ## 0.1.0-alpha.30
 
 ### Patch Changes

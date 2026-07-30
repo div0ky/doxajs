@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/opentelemetry",
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.31",
   "description": "Doxa's first-party OpenTelemetry tracing and metrics adapter.",
   "license": "Apache-2.0",
   "repository": {

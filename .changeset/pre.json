@@ -83,6 +83,7 @@
     "remove-praxis-install-scripts",
     "twilio-explicit-sms-sender",
     "typed-model-queries",
+    "upgrade-pnpm-eleven-eighteen",
     "version-aligned-praxis-test",
     "wise-gnosis-architecture"
   ]

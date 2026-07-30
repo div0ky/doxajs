@@ -1,5 +1,7 @@
 # @doxajs/core
 
+## 0.1.0-alpha.31
+
 ## 0.1.0-alpha.30
 
 ### Minor Changes

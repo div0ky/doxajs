@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/theoria",
-  "version": "0.1.0-alpha.30",
+  "version": "0.1.0-alpha.31",
   "description": "The first-party causal execution debugger for Doxa development.",
   "license": "Apache-2.0",
   "repository": {
