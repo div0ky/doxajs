@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
+- **Amended:** 2026-07-30 — Support application-selected per-message Twilio SMS senders.
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -56,7 +57,10 @@ The SendGrid plugin will:
 
 The Twilio plugin will:
 
-- Use Twilio Programmable Messaging through a Messaging Service for production SMS.
+- Use Twilio Programmable Messaging through either a configured Messaging Service or an explicit
+  application-selected E.164 sender on an individual provider-independent SMS message.
+- Prefer an explicit per-message sender when both delivery modes are available and never send both
+  `From` and `MessagingServiceSid` in one Twilio request.
 - Normalize destination phone numbers to the Doxa phone-number contract and transmit E.164 to
   Twilio.
 - Track queued, sent, delivered, undelivered, and failed outcomes through status callbacks.
@@ -66,6 +70,8 @@ The Twilio plugin will:
 
 Compliance onboarding, sender registration, consent, quiet hours, and opt-out behavior are
 configuration and operational requirements of the plugin, not details applications may bypass.
+Applications may select a sender to preserve product-level routing invariants such as a durable
+contact-specific number, but may not bypass E.164 validation or Twilio compliance requirements.
 
 ## Testing
 

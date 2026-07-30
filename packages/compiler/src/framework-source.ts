@@ -311,7 +311,7 @@ export class ApplicationMail extends SendGridMailTransport {
     providerSources.push(`export class TwilioSmsConfig extends Configuration {
   declare accountSid: string
   declare authToken: SecretString
-  declare messagingServiceSid: string
+  declare messagingServiceSid?: string
   declare statusCallback: string
 }
 
@@ -321,7 +321,7 @@ export class ApplicationSms extends TwilioSmsTransport {
     super({
       accountSid: config.accountSid,
       authToken: config.authToken.reveal(),
-      messagingServiceSid: config.messagingServiceSid,
+      ...(config.messagingServiceSid ? { messagingServiceSid: config.messagingServiceSid } : {}),
       statusCallback: config.statusCallback,
     })
   }

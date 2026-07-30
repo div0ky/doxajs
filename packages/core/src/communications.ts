@@ -37,6 +37,7 @@ export interface MailMessage {
 
 export interface SmsMessage {
   readonly id: string
+  readonly from?: string
   readonly to: string
   readonly text: string
 }

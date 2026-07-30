@@ -162,6 +162,22 @@ describe('foundational compile-to-boot slice', () => {
     ).toThrow('duration filtering requires started, completed, and failed phases')
   })
 
+  it('generates optional Messaging Service configuration for explicit-sender Twilio SMS', () => {
+    const prepared = prepareFrameworkSource(
+      'app.config.ts',
+      `export class Application {
+        id = 'explicit-sender-sms'
+        features = []
+        plugins = ['@doxajs/twilio-sms']
+      }`,
+    )
+
+    expect(prepared.source).toContain('declare messagingServiceSid?: string')
+    expect(prepared.source).toContain(
+      '...(config.messagingServiceSid ? { messagingServiceSid: config.messagingServiceSid } : {})',
+    )
+  })
+
   it('generates only authentication routes that login-only identities can support', () => {
     const prepared = prepareFrameworkSource(
       'app.config.ts',

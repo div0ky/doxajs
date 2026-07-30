@@ -705,19 +705,27 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
 
   it('inspects and safely redrives failed communications through Praxis', async () => {
     const runtime = await bootPersistenceRuntime()
-    const queued = await runAction(runtime, QueueNotifications, undefined)
+    const queued = await runAction(runtime, QueueNotifications, { smsFrom: '+13125550000' })
     await waitFor(
       async () =>
         (
           await pool.query(
             `SELECT 1 FROM doxa_delivery_messages WHERE id = $1 AND state = 'accepted'`,
-            [queued.mailId],
+            [queued.smsId],
           )
         ).rowCount === 1,
     )
+    expect(
+      (
+        await pool.query<{ payload: { from?: string } }>(
+          `SELECT payload FROM doxa_delivery_messages WHERE id = $1`,
+          [queued.smsId],
+        )
+      ).rows[0]?.payload.from,
+    ).toBe('+13125550000')
     await pool.query(
       `UPDATE doxa_delivery_messages SET state = 'undelivered', failure_kind = 'transient', failure_code = 'test' WHERE id = $1`,
-      [queued.mailId],
+      [queued.smsId],
     )
     const output: string[] = []
     const errors: string[] = []
@@ -727,12 +735,12 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         error: (message) => errors.push(message),
       }),
     ).toBe(0)
-    expect(
-      output.some((line) => line.includes(queued.mailId) && line.includes('undelivered')),
-    ).toBe(true)
+    expect(output.some((line) => line.includes(queued.smsId) && line.includes('undelivered'))).toBe(
+      true,
+    )
     expect(
       await runPraxis(
-        ['delivery:retry', queued.mailId, `--database=${connectionString}`],
+        ['delivery:retry', queued.smsId, `--database=${connectionString}`],
         workspace,
         {
           out: (message) => output.push(message),
@@ -740,19 +748,33 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         },
       ),
     ).toBe(0)
+    expect(
+      (
+        await pool.query<{ sender: string | null }>(
+          `
+          SELECT payload->'payload'->>'from' AS sender
+          FROM doxa_outbox_messages
+          WHERE payload->>'kind' = 'sms' AND payload->'payload'->>'id' = $1
+          ORDER BY created_at DESC
+          LIMIT 1
+        `,
+          [queued.smsId],
+        )
+      ).rows[0]?.sender,
+    ).toBe('+13125550000')
     await waitFor(
       async () =>
         (
           await pool.query(
             `SELECT 1 FROM doxa_delivery_messages WHERE id = $1 AND state = 'accepted'`,
-            [queued.mailId],
+            [queued.smsId],
           )
         ).rowCount === 1,
     )
     expect(errors).toEqual([])
     expect(
       await runPraxis(
-        ['delivery:retry', queued.mailId, `--database=${connectionString}`],
+        ['delivery:retry', queued.smsId, `--database=${connectionString}`],
         workspace,
         {
           out: () => undefined,

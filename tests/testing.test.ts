@@ -158,12 +158,19 @@ describe('@doxajs/testing', () => {
         ]),
       )
 
-      const ids = await harness.action(QueueNotifications, undefined)
+      const ids = await harness.action(QueueNotifications, { smsFrom: '+13125550000' })
       expect(queue.queued).toHaveLength(2)
+      expect(transactions.state.deliveries.get(ids.smsId)?.payload).toEqual(
+        expect.objectContaining({ from: '+13125550000' }),
+      )
+      expect(queue.queued.find((envelope) => envelope.kind === 'sms')?.payload).toEqual(
+        expect.objectContaining({ from: '+13125550000' }),
+      )
       await queue.runNext()
       await queue.runNext()
       expect(mail.sent).toHaveLength(1)
       expect(sms.sent).toHaveLength(1)
+      expect(sms.sent[0]?.from).toBe('+13125550000')
       expect(transactions.state.deliveries.get(ids.mailId)?.state).toBe('accepted')
       expect(transactions.state.deliveries.get(ids.smsId)?.state).toBe('accepted')
       expect(telemetry.records.some((record) => record.kind === 'span')).toBe(true)

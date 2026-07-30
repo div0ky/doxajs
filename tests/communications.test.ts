@@ -1,6 +1,6 @@
 import { generateKeyPairSync, sign, createHmac } from 'node:crypto'
 
-import { FakeMailTransport, FakeSmsTransport } from '@doxajs/core'
+import { FakeMailTransport, FakeSmsTransport, type SmsMessage } from '@doxajs/core'
 import {
   normalizeSendGridEvents,
   SendGridMailTransport,
@@ -10,6 +10,12 @@ import { normalizeTwilioStatus, TwilioSmsTransport, verifyTwilioWebhook } from '
 import { describe, expect, it, vi } from 'vitest'
 
 describe('communications adapters', () => {
+  const messageWithoutSender = {
+    id: 'sms-compatible',
+    to: '+13125551212',
+    text: 'Existing consumer',
+  } satisfies SmsMessage
+
   it('provides provider-independent mail and SMS fakes', async () => {
     const mail = new FakeMailTransport()
     const sms = new FakeSmsTransport()
@@ -88,7 +94,7 @@ describe('communications adapters', () => {
     ])
   })
 
-  it('uses Twilio Messaging Services, normalizes status, and validates webhook signatures', async () => {
+  it('uses Twilio Messaging Services without sending From', async () => {
     const request = vi
       .fn<typeof fetch>()
       .mockResolvedValue(Response.json({ sid: 'SM123', status: 'queued' }))
@@ -99,13 +105,79 @@ describe('communications adapters', () => {
       statusCallback: 'https://example.test/status',
       fetch: request,
     })
-    expect(await transport.send({ id: 'sms-2', to: '+13125551212', text: 'Hello' })).toEqual({
-      messageId: 'sms-2',
+    expect(await transport.send(messageWithoutSender)).toEqual({
+      messageId: 'sms-compatible',
       providerMessageId: 'SM123',
       state: 'accepted',
     })
-    expect(String(request.mock.calls[0]?.[1]?.body)).toContain('MessagingServiceSid=MG123')
+    const body = new URLSearchParams(String(request.mock.calls[0]?.[1]?.body))
+    expect(body.get('To')).toBe(messageWithoutSender.to)
+    expect(body.get('Body')).toBe(messageWithoutSender.text)
+    expect(body.get('MessagingServiceSid')).toBe('MG123')
+    expect(body.has('From')).toBe(false)
+    expect(body.get('StatusCallback')).toBe(
+      'https://example.test/status?doxa_message_id=sms-compatible',
+    )
+  })
 
+  it('uses an explicit E.164 sender and gives it precedence over a Messaging Service', async () => {
+    for (const messagingServiceSid of [undefined, 'MG123']) {
+      const request = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json({ sid: 'SM123', status: 'queued' }))
+      const transport = new TwilioSmsTransport({
+        accountSid: 'AC123',
+        authToken: 'secret',
+        ...(messagingServiceSid ? { messagingServiceSid } : {}),
+        statusCallback: 'https://example.test/status',
+        fetch: request,
+      })
+      expect(
+        await transport.send({
+          id: 'sms-explicit',
+          from: '+13125550000',
+          to: '+13125551212',
+          text: 'Hello',
+        }),
+      ).toEqual({
+        messageId: 'sms-explicit',
+        providerMessageId: 'SM123',
+        state: 'accepted',
+      })
+      const body = new URLSearchParams(String(request.mock.calls[0]?.[1]?.body))
+      expect(body.get('To')).toBe('+13125551212')
+      expect(body.get('Body')).toBe('Hello')
+      expect(body.get('From')).toBe('+13125550000')
+      expect(body.has('MessagingServiceSid')).toBe(false)
+      expect(body.get('StatusCallback')).toBe(
+        'https://example.test/status?doxa_message_id=sms-explicit',
+      )
+    }
+  })
+
+  it('rejects invalid and missing senders permanently without making an HTTP request', async () => {
+    const request = vi.fn<typeof fetch>()
+    const transport = new TwilioSmsTransport({
+      accountSid: 'AC123',
+      authToken: 'secret',
+      statusCallback: 'https://example.test/status',
+      fetch: request,
+    })
+    await expect(
+      transport.send({
+        id: 'sms-invalid-sender',
+        from: '312-555-0000',
+        to: '+13125551212',
+        text: 'Hello',
+      }),
+    ).rejects.toMatchObject({ kind: 'permanent', code: 'invalid_sender' })
+    await expect(
+      transport.send({ id: 'sms-missing-sender', to: '+13125551212', text: 'Hello' }),
+    ).rejects.toMatchObject({ kind: 'permanent', code: 'missing_sender' })
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('preserves callback correlation, status normalization, and webhook signatures', () => {
     const url = 'https://example.test/status'
     const parameters = { DoxaMessageId: 'sms-2', MessageSid: 'SM123', MessageStatus: 'delivered' }
     const content =
@@ -121,6 +193,21 @@ describe('communications adapters', () => {
       providerMessageId: 'SM123',
       eventId: 'SM123:delivered',
       state: 'delivered',
+    })
+    expect(
+      normalizeTwilioStatus({
+        DoxaMessageId: 'sms-opt-out',
+        MessageSid: 'SM21610',
+        MessageStatus: 'failed',
+        ErrorCode: '21610',
+      }),
+    ).toEqual({
+      messageId: 'sms-opt-out',
+      providerMessageId: 'SM21610',
+      eventId: 'SM21610:failed',
+      state: 'failed',
+      failureKind: 'opt-out',
+      code: '21610',
     })
   })
 
