@@ -9,13 +9,15 @@
 
 Praxis implements application creation; every canonical `make:*` role; compilation; migrations;
 serve, worker, scheduler, combined development, and test processes; application commands; graph and
-role inspection; Gnosis metadata; and queue, delivery, auth, journal, outbox, cache, and schedule
-operations. `doxa db:studio` launches the framework-pinned Drizzle Studio using the declared `.env`
-database without placing credentials in command arguments. Generators use the canonical Feature
-declaration, add imports and role-array entries automatically, and reject overwrites. Route
-generation requires an explicit path, defaults to `GET`, and emits explicitly public access unless
-`--ability=...` protects it. Other generated entry points continue to require an explicit `--public`
-or `--ability=...` posture.
+role inspection; Gnosis registration and version-matched knowledge generation; and queue, delivery,
+auth, journal, outbox, cache, and schedule operations. Human-facing builds print the compiler's
+handbook-linked architecture advisories without changing the successful build result.
+`doxa db:studio` launches the framework-pinned Drizzle Studio using the declared `.env` database
+without placing credentials in command arguments. Generators use the canonical Feature declaration,
+add imports and role-array entries automatically, and reject overwrites. Route generation requires
+an explicit path, defaults to `GET`, and emits explicitly public access unless `--ability=...`
+protects it. Other generated entry points continue to require an explicit `--public` or
+`--ability=...` posture.
 
 `make:permission-source` generates and registers the application's static ability catalog.
 `make:service --provide` creates an ordinary service and intentionally exports it without promoting

@@ -5,11 +5,11 @@
 Doxa.js 0.1 has reached the viability bar defined by this knowledge base. Its connected acceptance
 flow proves compile-to-boot composition, execution and authorization, PostgreSQL-backed atomic
 durability, Eloquent-style models and observers, events and signals, Hono-backed HTTP, auth, pg-boss
-workers and schedules, communications, observability, testing, Praxis, and Gnosis metadata. It
-remains a controlled-adoption alpha rather than a production-proven 1.0 release. Doxa is
-independently owned and maintained by div0ky, with Midtown Home Improvements as its sole supported
-consumer. Public npm availability does not open the supported adoption program or create external
-compatibility and support commitments.
+workers and schedules, communications, observability, testing, Praxis, and the Gnosis read-only
+architectural authority. It remains a controlled-adoption alpha rather than a production-proven 1.0
+release. Doxa is independently owned and maintained by div0ky, with Midtown Home Improvements as its
+sole supported consumer. Public npm availability does not open the supported adoption program or
+create external compatibility and support commitments.
 
 ## Using this knowledge base
 
@@ -42,8 +42,10 @@ those convictions into decision rules and, eventually, executable specifications
   background, and migration production topology.
 - [Implementation proofs](implementation/index.md) record which accepted contracts have executable
   evidence without overstating the completeness of their specifications.
-- [Gnosis AI-assisted engineering](future/ai-assisted-engineering.md) describes the accepted,
-  deferred first-party MCP and agent-context direction.
+- [Gnosis](specifications/gnosis.md) defines the active read-only local engineering server and
+  version-matched architectural authority; its
+  [product direction](future/ai-assisted-engineering.md) separates shipped capabilities from future
+  extensions.
 
 These documents have different authority:
 
