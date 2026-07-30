@@ -405,6 +405,9 @@ describe('Gnosis read-only local engineering server', () => {
       'utf8',
     )
     expect(publicHandbook).toBe(renderHandbookMarkdown(manifest.frameworkVersion))
+    const testingGuidance =
+      'Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.'
+    expect(publicHandbook.match(new RegExp(testingGuidance, 'g'))).toHaveLength(1)
   })
 
   it('explains component transaction behavior and emits advisory-only structure diagnostics', () => {
