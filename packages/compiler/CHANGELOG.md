@@ -1,5 +1,11 @@
 # @doxajs/compiler
 
+## 0.1.0-alpha.29
+
+### Patch Changes
+
+- @doxajs/manifest@0.1.0-alpha.29
+
 ## 0.1.0-alpha.28
 
 ### Patch Changes
