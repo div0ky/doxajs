@@ -28,7 +28,10 @@ export function publicationDecision(candidate, registryPackages) {
         `${name} already has newer alpha ${registry.alpha}; refusing to move its tag backward.`,
       )
     }
-    return { name, published: registry.version === candidate.version }
+    return {
+      name,
+      published: registry.version === candidate.version && registry.alpha === candidate.version,
+    }
   })
   return {
     alreadyComplete: states.every(({ published }) => published),

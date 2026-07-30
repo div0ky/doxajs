@@ -152,6 +152,12 @@ describe('alpha release state machine', () => {
     ).toEqual({ alreadyComplete: false, missing: ['@doxajs/gnosis'] })
     expect(
       publicationDecision(candidate, {
+        '@doxajs/core': { version: candidate.version },
+        '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
+      }),
+    ).toEqual({ alreadyComplete: false, missing: ['@doxajs/core'] })
+    expect(
+      publicationDecision(candidate, {
         '@doxajs/core': { version: candidate.version, alpha: candidate.version },
         '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
       }),
