@@ -1040,16 +1040,12 @@ describe('Gnosis read-only local engineering server', () => {
     const registration = await readFile(registrationFile, 'utf8')
     expect(registration).toContain('command = "node"')
     expect(registration).toContain('args = ["./node_modules/@doxajs/praxis/dist/bin.js","mcp"]')
-    expect(registration).toContain(`cwd = ${JSON.stringify(generatedApplication)}`)
-    const cwd = registration.match(/^cwd = "([^"]+)"$/m)?.[1]
-    if (cwd === undefined) throw new Error('generated Codex registration is missing cwd')
-    expect(cwd).toBe(generatedApplication)
-    expect(path.isAbsolute(cwd)).toBe(true)
+    expect(registration).not.toContain('cwd = ')
     const client = new Client({ name: 'gnosis-stdio-test', version: '1.0.0' })
     const transport = new StdioClientTransport({
       command: 'node',
       args: ['./node_modules/@doxajs/praxis/dist/bin.js', 'mcp'],
-      cwd,
+      cwd: generatedApplication,
       env: { ...getDefaultEnvironment(), CI: '1' },
       stderr: 'pipe',
     })

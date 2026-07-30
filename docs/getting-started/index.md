@@ -92,9 +92,10 @@ discovered when the client opens the workspace or starts a task. If creation, up
 `gnosis:install` ran inside an existing agent task, reload or reopen the client and start a new
 task; the current task cannot gain newly registered tools. If a new task still lacks them, inspect
 the client's MCP startup error; registration files alone do not prove that the server initialized.
-Codex currently passes a configured relative MCP working directory directly to its process launcher
-instead of anchoring it to the task workspace, so Praxis writes an absolute application path for
-Codex.
+Praxis uses a portable repository-relative Node launcher for Codex, Claude Code, Cursor, and VS
+Code. Nested applications pass their repository-relative root to `doxa mcp --cwd=...`; generated
+configuration stays portable across machines without relying on an undocumented client-specific
+`cwd` field.
 
 If Gnosis is absent or version-mismatched, agents must stop Doxa-specific structural and
 architectural changes until the startup problem is resolved. The manifest explains application

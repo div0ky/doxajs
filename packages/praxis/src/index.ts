@@ -63,7 +63,7 @@ Build and inspect:
   graph                 Summarize the compiled application graph
   gnosis                Generate Gnosis-readable application knowledge
   gnosis:install        Register Gnosis with project MCP clients [--agent=codex,claude,cursor,vscode|all]
-  mcp                   Gnosis stdio entrypoint (normally launched by an MCP client)
+  mcp [--cwd=path]      Gnosis stdio entrypoint (normally launched by an MCP client)
   add <module>          Install keryx, opentelemetry, sendgrid, twilio-sms, or theoria
   delivery:list         List durable mail and SMS deliveries
   delivery:retry <id>   Redrive a failed or undelivered delivery
@@ -171,11 +171,12 @@ export async function runPraxis(
       return 0
     }
     if (command === 'mcp') {
-      if (args.length > 0) throw new PraxisCommandError(`Unknown mcp option ${args[0]}.`)
-      const result = await buildApplication(cwd, true)
+      const applicationCwd = mcpApplicationCwd(cwd, args)
+      const result = await buildApplication(applicationCwd, true)
       const { startGnosisServer } = await loadGnosisTools()
       await startGnosisServer(result.manifest, {
-        queryModels: (request) => queryGnosisModels(cwd, result.manifest.buildHash, request),
+        queryModels: (request) =>
+          queryGnosisModels(applicationCwd, result.manifest.buildHash, request),
       })
       return 0
     }
@@ -432,6 +433,19 @@ export async function runPraxis(
     io.error(error instanceof Error ? error.message : String(error))
     return 1
   }
+}
+
+function mcpApplicationCwd(cwd: string, args: readonly string[]): string {
+  if (args.length === 0) return cwd
+  if (!args[0]!.startsWith('--cwd=')) {
+    throw new PraxisCommandError(`Unknown mcp option ${args[0]}.`)
+  }
+  if (args.length > 1) {
+    throw new PraxisCommandError(`Unknown mcp option ${args[1]}.`)
+  }
+  const value = args[0]!.slice('--cwd='.length)
+  if (value.length === 0) throw new PraxisCommandError('MCP application cwd cannot be empty.')
+  return path.resolve(cwd, value)
 }
 
 function reportCompilerAdvisories(

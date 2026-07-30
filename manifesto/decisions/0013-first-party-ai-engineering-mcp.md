@@ -91,10 +91,12 @@ the application's installed Praxis package. `doxa mcp` remains available for pro
 but documentation must not instruct developers to start it as a standing process. Project MCP
 configuration is discovered when the client opens the workspace or starts a task. Praxis must tell
 developers to reload or reopen the client and begin a new task after registration changes, because
-an already-running task cannot acquire a new tool surface. Praxis must also honor each client's path
-behavior: Codex passes a configured relative MCP working directory directly to its process launcher
-instead of anchoring it to the task workspace, so Praxis must register an absolute application
-working directory for Codex.
+an already-running task cannot acquire a new tool surface. MCP clients do not share one
+working-directory contract, so Praxis must register a portable repository-relative Node launcher.
+Root applications use `./node_modules/@doxajs/praxis/dist/bin.js mcp`; nested applications use the
+repository-relative installed binary plus `mcp --cwd=<application>`. This selects the application
+before starting the installed Praxis package instead of embedding a machine-specific absolute path
+or relying on an undocumented client-specific `cwd` field.
 
 Doxa should use the official TypeScript MCP SDK behind a small protocol adapter and pin its version
 through the Doxa compatibility contract.
