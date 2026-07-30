@@ -524,7 +524,7 @@ describe('Praxis command suite', () => {
       `packages:\n  - .\n\nallowBuilds:\n  esbuild: true\n`,
     )
     expect(await readFile(path.join(destination, '.codex/config.toml'), 'utf8')).toBe(
-      `[mcp_servers.gnosis]\ncommand = "node"\nargs = ["./node_modules/@doxajs/praxis/dist/bin.js","mcp"]\ncwd = ${JSON.stringify(destination)}\nstartup_timeout_sec = 120\n`,
+      `[mcp_servers.gnosis]\ncommand = "node"\nargs = ["./node_modules/@doxajs/praxis/dist/bin.js","mcp"]\nstartup_timeout_sec = 120\n`,
     )
     const agents = await readFile(path.join(destination, 'AGENTS.md'), 'utf8')
     expect(agents).toContain('<doxa-gnosis-guidelines>')
@@ -540,7 +540,6 @@ describe('Praxis command suite', () => {
         gnosis: {
           command: 'node',
           args: ['./node_modules/@doxajs/praxis/dist/bin.js', 'mcp'],
-          cwd: '.',
           env: {},
         },
       },
@@ -550,7 +549,6 @@ describe('Praxis command suite', () => {
         gnosis: {
           command: 'node',
           args: ['./node_modules/@doxajs/praxis/dist/bin.js', 'mcp'],
-          cwd: '.',
           env: {},
         },
       },
@@ -730,21 +728,43 @@ describe('Praxis command suite', () => {
       '# Monorepo guidance\n\n<doxa-gnosis-guidelines>',
     )
     expect(await readFile(path.join(root, '.codex/config.toml'), 'utf8')).toContain(
-      `cwd = ${JSON.stringify(destination)}`,
+      'args = ["./apps/doxaapp/node_modules/@doxajs/praxis/dist/bin.js","mcp","--cwd=apps/doxaapp"]',
     )
     expect(JSON.parse(await readFile(path.join(root, '.mcp.json'), 'utf8'))).toEqual({
       mcpServers: {
-        gnosis: expect.objectContaining({ cwd: 'apps/doxaapp' }),
+        gnosis: expect.objectContaining({
+          command: 'node',
+          args: [
+            './apps/doxaapp/node_modules/@doxajs/praxis/dist/bin.js',
+            'mcp',
+            '--cwd=apps/doxaapp',
+          ],
+        }),
       },
     })
     expect(JSON.parse(await readFile(path.join(root, '.cursor/mcp.json'), 'utf8'))).toEqual({
       mcpServers: {
-        gnosis: expect.objectContaining({ cwd: 'apps/doxaapp' }),
+        gnosis: expect.objectContaining({
+          command: 'node',
+          args: [
+            './apps/doxaapp/node_modules/@doxajs/praxis/dist/bin.js',
+            'mcp',
+            '--cwd=apps/doxaapp',
+          ],
+        }),
       },
     })
     expect(JSON.parse(await readFile(path.join(root, '.vscode/mcp.json'), 'utf8'))).toEqual({
       servers: {
-        gnosis: expect.objectContaining({ cwd: '${workspaceFolder}/apps/doxaapp' }),
+        gnosis: expect.objectContaining({
+          command: 'node',
+          args: [
+            './apps/doxaapp/node_modules/@doxajs/praxis/dist/bin.js',
+            'mcp',
+            '--cwd=apps/doxaapp',
+          ],
+          cwd: '${workspaceFolder}',
+        }),
       },
     })
 
@@ -785,14 +805,14 @@ describe('Praxis command suite', () => {
     expect(codex).toContain('model = "gpt-example"')
     expect(codex).toContain('[mcp_servers.existing]')
     expect(codex.match(/\[mcp_servers\.gnosis\]/g)).toHaveLength(1)
-    expect(codex).toContain(`cwd = ${JSON.stringify(root)}`)
+    expect(codex).toContain('args = ["./node_modules/@doxajs/praxis/dist/bin.js","mcp"]')
+    expect(codex).not.toContain('cwd = ')
     expect(JSON.parse(claude)).toEqual({
       mcpServers: {
         existing: { command: 'existing-server' },
         gnosis: {
           command: 'node',
           args: ['./node_modules/@doxajs/praxis/dist/bin.js', 'mcp'],
-          cwd: '.',
           env: {},
         },
       },
@@ -1204,7 +1224,7 @@ describe('Praxis command suite', () => {
     expect(await fileExists(path.join(root, '.vscode/mcp.json'))).toBe(true)
     expect(await fileExists(path.join(application, '.codex/config.toml'))).toBe(false)
     expect(await readFile(path.join(root, '.codex/config.toml'), 'utf8')).toContain(
-      `cwd = ${JSON.stringify(application)}`,
+      'args = ["./apps/doxaapp/node_modules/@doxajs/praxis/dist/bin.js","mcp","--cwd=apps/doxaapp"]',
     )
     expect(output).toContainEqual(
       expect.stringContaining(

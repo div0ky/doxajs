@@ -49,9 +49,9 @@ the first time they use it. Clients discover project MCP configuration when open
 starting a task. After creation, upgrade, or `gnosis:install`, reload or reopen the client and start
 a new task; an already-running task cannot acquire the newly registered tools. If a new task still
 lacks them, inspect the client's MCP startup error; registration files alone do not prove that the
-server initialized. Praxis writes Codex's application working directory as an absolute path because
-Codex does not anchor a configured relative MCP working directory to the task workspace, while
-preserving each other client's own path convention.
+server initialized. Registrations use a portable repository-relative Node launcher rather than a
+machine-specific absolute path or an undocumented `cwd` field; nested registrations pass the app
+root explicitly to `doxa mcp --cwd=...` before starting the installed Praxis package.
 
 The managed guidance and MCP initialization disclose Doxa's packaged programming model
 automatically. Gnosis explains roles, components, transaction ownership, provider/service
