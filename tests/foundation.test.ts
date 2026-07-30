@@ -1106,17 +1106,19 @@ describe('foundational compile-to-boot slice', () => {
     expect(result.advisories).toEqual(inspectArchitectureDiagnostics(result.manifest).items)
   })
 
-  it('ignores role-like feature path segments when the nearest role folder is canonical', async () => {
+  it('ignores role-like Feature directories with or without a canonical role subfolder', async () => {
     const result = await compileFixture(
       `
         import { DoxaApplication, Feature } from '@doxajs/core'
+        import { DirectJobCreated } from './features/jobs/direct-job-created.js'
         import { JobCreated } from './features/jobs/events/job-created.js'
+        import { DirectNotificationSender } from './features/providers/direct-notification-sender.js'
         import { NotificationSender } from './features/providers/services/notification-sender.js'
 
         class AppFeature extends Feature {
           id = 'app'
-          events = [JobCreated]
-          provides = [NotificationSender]
+          events = [DirectJobCreated, JobCreated]
+          provides = [DirectNotificationSender, NotificationSender]
         }
         export class Application extends DoxaApplication {
           id = 'canonical-role-folders'
@@ -1124,11 +1126,20 @@ describe('foundational compile-to-boot slice', () => {
         }
       `,
       {
+        'features/jobs/direct-job-created.ts': `
+          import { Event } from '@doxajs/core'
+          export class DirectJobCreated extends Event<void> {
+            static readonly id = 'direct-job-created'
+          }
+        `,
         'features/jobs/events/job-created.ts': `
           import { Event } from '@doxajs/core'
           export class JobCreated extends Event<void> {
             static readonly id = 'job-created'
           }
+        `,
+        'features/providers/direct-notification-sender.ts': `
+          export class DirectNotificationSender {}
         `,
         'features/providers/services/notification-sender.ts': `
           export class NotificationSender {}
@@ -1178,6 +1189,23 @@ describe('foundational compile-to-boot slice', () => {
       `),
     ).rejects.toThrow(
       '[DOXA-COMPILER-LIFECYCLE-001] InvalidJob may define dispose(), but jobs cannot own application lifecycle phases. See Gnosis guide role.job.',
+    )
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, type LifecycleContext, type Starts } from '@doxajs/core'
+
+        class InvalidService implements Starts {
+          start(_context: LifecycleContext): void {}
+        }
+        class AppFeature extends Feature { id = 'app'; provides = [InvalidService] }
+        export class Application extends DoxaApplication {
+          id = 'invalid-service-lifecycle'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-LIFECYCLE-001] InvalidService may define dispose(), but ordinary services cannot own application lifecycle phases. See Gnosis guide role.service.',
     )
   })
 

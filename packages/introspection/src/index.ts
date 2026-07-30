@@ -755,7 +755,9 @@ const canonicalRoleFolders = new Set([
 
 function nearestRoleFolder(file: string): string | undefined {
   const segments = file.replaceAll('\\', '/').toLowerCase().split('/')
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
+  const featuresIndex = segments.lastIndexOf('features')
+  const firstRoleIndex = featuresIndex >= 0 ? featuresIndex + 2 : 0
+  for (let index = segments.length - 1; index >= firstRoleIndex; index -= 1) {
     const segment = segments[index]
     if (segment && canonicalRoleFolders.has(segment)) return segment
   }

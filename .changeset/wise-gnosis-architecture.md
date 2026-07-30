@@ -15,4 +15,5 @@ Limit folder advisories to the nearest role-like path segment so Features with r
 not produce false architecture warnings. Keep role lifecycle guidance aligned with the compiler's
 execution-local disposal contract, and distinguish after-durability Observer phases in component
 transaction explanations. Traverse shared dependency graphs once per operation when enforcing the
-nested `ActionBus` rule.
+nested `ActionBus` rule. Reject application lifecycle phases on ordinary services while retaining
+scope-local disposal, and exclude role-like Feature directory names from folder advisories.

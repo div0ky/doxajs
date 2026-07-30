@@ -1076,6 +1076,13 @@ export async function compileApplication(
     }
 
     const name = requiredClassName(declaration)
+    const lifecycle = lifecycleOf(declaration, checker)
+    if (role === 'service' && (lifecycle.start || lifecycle.drain || lifecycle.stop)) {
+      fail(
+        declaration,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${name} may define dispose(), but ordinary services cannot own application lifecycle phases. See Gnosis guide role.service.`,
+      )
+    }
     const localId =
       role === 'provider' ? readRequiredStaticString(declaration, 'id') : toKebabCase(name)
     const id = `${role}:${ownerId}/${localId}`
@@ -1111,7 +1118,7 @@ export async function compileApplication(
       ],
       source: sourceOf(declaration, normalized.projectRoot),
       dependencies: [],
-      lifecycle: lifecycleOf(declaration, checker),
+      lifecycle,
     }
     providerByDeclaration.set(declaration, placeholder)
     providers.push(placeholder)
