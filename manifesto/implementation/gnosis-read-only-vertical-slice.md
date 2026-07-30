@@ -7,15 +7,16 @@
 Gnosis now runs as a client-owned local MCP stdio process. Praxis creates project-scoped
 registration for Codex, Claude Code, Cursor, and VS Code in new applications and applies the same
 registration as an upgrade recipe. Each client launches the application's installed Praxis
-`doxa mcp` entrypoint on demand; developers do not start a daemon or standing process. The installer
-updates only the Gnosis entry and preserves unrelated agent configuration. It also creates or
-updates one marked Doxa guidance block in the root `AGENTS.md`, preserving guidance outside that
-block and failing closed on malformed or duplicate markers. Registration is discovered when a client
-opens the workspace or starts a task; Praxis output and the managed guidance now state that creation
-or upgrade inside an existing task requires a client reload or reopen and a new task before Gnosis
-tools can appear. Codex passes a configured relative MCP working directory directly to its process
-launcher instead of anchoring it to the task workspace, so Praxis emits an absolute application
-`cwd` for both root and nested applications.
+`doxa mcp` entrypoint on demand through a portable repository-relative Node command; developers do
+not start a daemon or standing process. The installer updates only the Gnosis entry and preserves
+unrelated agent configuration. It also creates or updates one marked Doxa guidance block in the root
+`AGENTS.md`, preserving guidance outside that block and failing closed on malformed or duplicate
+markers. Registration is discovered when a client opens the workspace or starts a task; Praxis
+output and the managed guidance now state that creation or upgrade inside an existing task requires
+a client reload or reopen and a new task before Gnosis tools can appear. The generated launcher
+selects the application with a repository-relative binary path and an explicit
+`mcp --cwd=<application>` argument, so registration files contain no machine-specific absolute paths
+and do not depend on an undocumented client-specific `cwd` field.
 
 Praxis compiles the application through the ordinary development build path and passes the resulting
 manifest directly to Gnosis; the server never scans source, boots the application, or trusts a

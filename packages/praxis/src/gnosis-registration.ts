@@ -7,7 +7,6 @@ export const GNOSIS_AGENTS = ['codex', 'claude', 'cursor', 'vscode'] as const
 export type GnosisAgent = (typeof GNOSIS_AGENTS)[number]
 
 const serverCommand = 'node'
-const serverArguments = ['./node_modules/@doxajs/praxis/dist/bin.js', 'mcp'] as const
 
 export const GNOSIS_CLIENT_RELOAD_GUIDANCE =
   'Reload or reopen your MCP client, approve project trust if prompted, and start a new agent task. Existing tasks do not acquire newly registered tools. If a new task still lacks them, inspect the client startup error; registration files alone do not prove that the server initialized.'
@@ -124,40 +123,32 @@ async function registerAgent(
   if (agent === 'claude') {
     return registerJson(repositoryRoot, '.mcp.json', 'mcpServers', {
       command: serverCommand,
-      args: serverArguments,
-      cwd: applicationCwd,
+      args: serverArguments(applicationCwd),
       env: {},
     })
   }
   if (agent === 'cursor') {
     return registerJson(repositoryRoot, '.cursor/mcp.json', 'mcpServers', {
       command: serverCommand,
-      args: serverArguments,
-      cwd: applicationCwd,
+      args: serverArguments(applicationCwd),
       env: {},
     })
   }
-  const workspaceCwd =
-    applicationCwd === '.'
-      ? '${workspaceFolder}'
-      : `\${workspaceFolder}/${applicationCwd.split(path.sep).join('/')}`
   return registerJson(repositoryRoot, '.vscode/mcp.json', 'servers', {
     type: 'stdio',
     command: serverCommand,
-    args: serverArguments,
-    cwd: workspaceCwd,
+    args: serverArguments(applicationCwd),
+    cwd: '${workspaceFolder}',
   })
 }
 
 async function registerCodex(repositoryRoot: string, applicationCwd: string): Promise<string> {
   const file = path.join(repositoryRoot, '.codex/config.toml')
   const header = '[mcp_servers.gnosis]'
-  const configCwd = path.resolve(repositoryRoot, applicationCwd)
   const block = [
     header,
     `command = ${JSON.stringify(serverCommand)}`,
-    `args = ${JSON.stringify(serverArguments)}`,
-    `cwd = ${JSON.stringify(configCwd)}`,
+    `args = ${JSON.stringify(serverArguments(applicationCwd))}`,
     'startup_timeout_sec = 120',
   ].join('\n')
   const existing = await readOptional(file)
@@ -187,6 +178,20 @@ async function registerCodex(repositoryRoot: string, applicationCwd: string): Pr
   }
   await writeChanged(file, content)
   return file
+}
+
+function serverArguments(applicationCwd: string): readonly string[] {
+  const normalizedApplicationCwd =
+    applicationCwd === '.' ? '.' : applicationCwd.split(path.sep).join('/')
+  const script =
+    normalizedApplicationCwd === '.'
+      ? './node_modules/@doxajs/praxis/dist/bin.js'
+      : `./${normalizedApplicationCwd}/node_modules/@doxajs/praxis/dist/bin.js`
+  return [
+    script,
+    'mcp',
+    ...(normalizedApplicationCwd === '.' ? [] : [`--cwd=${normalizedApplicationCwd}`]),
+  ]
 }
 
 async function registerJson(

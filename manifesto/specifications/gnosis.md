@@ -49,8 +49,9 @@ workspace trust confirmation. Project MCP registration is discovered at client w
 startup. A task already running when Praxis creates or updates registration does not acquire the new
 tool surface; the developer must reload or reopen the client and start a new task. Registration
 files do not prove successful initialization, so continued absence requires inspecting the client's
-MCP startup error. Codex does not anchor a configured relative MCP working directory to the task
-workspace, so its registered application `cwd` must be absolute.
+MCP startup error. Each registration uses a repository-relative Node launcher that selects the
+application directory before starting the installed Praxis package. Registrations must not embed a
+machine-specific absolute path or rely on an undocumented client-specific `cwd` field.
 
 `doxa mcp` is an integration and diagnostic entrypoint, not the ordinary developer workflow. It
 compiles the development application through the ordinary Praxis build path before starting Gnosis.
@@ -228,8 +229,8 @@ Protocol changes remain isolated inside `@doxajs/gnosis`.
     the same registration through the Doxa upgrade path.
 12. Registration and upgrade output state that project MCP configuration requires a client reload or
     reopen and a new agent task before newly registered tools become available.
-13. Codex registration writes the absolute application working directory, including both root
-    applications and applications nested in monorepos.
+13. Codex, Claude Code, Cursor, and VS Code registrations use a portable repository-relative Node
+    launcher for both root applications and applications nested in monorepos.
 14. MCP initialization and managed guidance disclose the core programming model without an agent
     reading source or the manifesto.
 15. Every framework role has a complete structured guide, and installed-module filtering is
