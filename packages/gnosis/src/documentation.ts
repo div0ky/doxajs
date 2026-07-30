@@ -32,6 +32,7 @@ export function searchDocumentation(
       .map((entry) => {
         const heading = entry.heading.toLowerCase()
         const exact = entry.id.toLowerCase() === normalized || entry.role === normalized
+        const exactAlias = entry.aliases.some((alias) => alias.toLowerCase() === normalized)
         const haystack = [
           entry.id,
           entry.kind,
@@ -47,6 +48,7 @@ export function searchDocumentation(
           .toLowerCase()
         const score =
           (exact ? 20 : 0) +
+          (exactAlias ? 15 : 0) +
           tokens.reduce(
             (total, token) =>
               total +

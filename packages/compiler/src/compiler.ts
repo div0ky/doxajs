@@ -36,10 +36,12 @@ import {
 import { DoxaCompilationError } from './errors.js'
 import { prepareFrameworkSource } from './framework-source.js'
 import {
+  architectureAdvisories,
   assertAcyclicProviderGraph,
   assertNoNestedActionBusReachability,
   assertScopeSafety,
   assertUnique,
+  type CompilerArchitectureAdvisory,
 } from './manifest-validation.js'
 
 export { DoxaCompilationError } from './errors.js'
@@ -87,6 +89,7 @@ export interface CompileApplicationResult {
   readonly manifest: DoxaManifest
   readonly manifestPath: string
   readonly registryPath: string
+  readonly advisories: readonly CompilerArchitectureAdvisory[]
 }
 
 interface RegisteredClass {
@@ -548,6 +551,7 @@ export async function compileApplication(
   }
   const buildHash = createHash('sha256').update(canonicalJson(semanticManifest)).digest('hex')
   const manifest: DoxaManifest = { ...semanticManifest, buildHash }
+  const advisories = architectureAdvisories(manifest)
 
   await mkdir(normalized.artifactsDirectory, { recursive: true })
   const manifestPath = path.join(normalized.artifactsDirectory, 'manifest.json')
@@ -626,7 +630,7 @@ export async function compileApplication(
     'utf8',
   )
 
-  return { manifest, manifestPath, registryPath }
+  return { manifest, manifestPath, registryPath, advisories }
 
   function compileAuthentication(): AuthenticationManifestEntry {
     const framework = instanceObject(applicationDeclaration, 'framework')

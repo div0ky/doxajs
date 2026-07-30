@@ -507,6 +507,14 @@ Eventual: use queued delivery when the consequence is independently retryable an
 Events represent accepted facts and genuine reactions. Do not introduce asynchronous events merely to bypass nested Action dispatch.
 Example: if a reminder is removed if and only if a notification is created, DeliverDueReminders owns one transaction, calls NotificationCreator, dispatches NotificationCreated, deletes the reminder, and commits or rolls back everything.
 
+### Praxis generator catalog
+
+Stable guide: `concept.praxis-generators`
+
+Praxis is the canonical way to create Doxa declarations, migrations, and architectural tests.
+
+Use doxa new for an application; make:feature, make:model, make:action, make:query, make:route, make:event, make:listener, make:signal, make:signal-handler, make:observer, make:job, make:schedule, make:policy, make:permission-source, make:config, make:provider, make:service, and make:command for declared architecture; make:migration for application-owned schema changes; and make:test for admitted feature tests. Read the matching role guide before choosing role-specific flags.
+
 ### Providers, services, and Feature exports
 
 Stable guide: `concept.providers-provides`
@@ -532,7 +540,7 @@ Use the Doxa harness for Actions, Queries, events, jobs, HTTP, fakes, and transa
 
 Stable guide: `diagnostic.canonical-folder`
 
-Gnosis warns when a component is placed in another role’s canonical folder.
+Compilation and Gnosis warn when a component is placed in another role’s canonical folder.
 
 Move the component to the canonical folder reported by explain_component, or keep the explicit registration and document the deliberate exception.
 
@@ -548,7 +556,7 @@ Move reusable mutation behavior into an ordinary service. Let each top-level Act
 
 Stable guide: `diagnostic.provider-service-location`
 
-Gnosis warns when provider/service names or opposite canonical folders communicate the wrong role.
+Compilation and Gnosis warn when provider/service names or opposite canonical folders communicate the wrong role.
 
 Move ordinary services from providers to services and infrastructure providers from services to providers. The advisory never changes compiled ownership or scope.
 

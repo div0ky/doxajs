@@ -59,6 +59,9 @@ boundaries, and atomic versus after-commit versus eventual orchestration. If mat
 guidance is unavailable, agents are instructed to stop Doxa-specific structural and architectural
 changes until the startup or version issue is resolved.
 
+Human-facing builds print handbook-linked provider/service and canonical-folder advisories returned
+by the compiler. These warnings communicate intent without giving paths runtime meaning.
+
 Regenerate one or more project registrations after removing or customizing them:
 
 ```sh

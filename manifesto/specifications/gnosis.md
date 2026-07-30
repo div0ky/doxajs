@@ -132,7 +132,9 @@ invariant from the manifest.
 `explain_component` combines the protocol-independent component record, dependencies, consumers,
 effective transaction behavior, canonical folder, diagnostics, and installed handbook entries.
 Provider/service location and naming diagnostics are warnings only. They may explain canonical
-organization but may not alter path-independent runtime behavior.
+organization but may not alter path-independent runtime behavior. The compiler returns matching
+handbook-linked advisory records with its build result, and Praxis prints them during human-facing
+compilation commands.
 
 `query_models` requires a stable model ID, one through fifty logical fields, at most twenty
 comparison predicates, at most five logical ordering entries, and a row limit from one through one
@@ -239,7 +241,7 @@ Protocol changes remain isolated inside `@doxajs/gnosis`.
     unspecified.
 18. Direct and transitive `ActionBus` reachability from Actions, Queries, and Jobs fails compilation
     with `DOXA-COMPILER-ARCH-001` and the shared-service remedy.
-19. Provider/service naming and unambiguous role-folder diagnostics remain advisory and never change
-    manifest or runtime semantics.
+19. Compilation and Gnosis report handbook-linked provider/service naming and unambiguous
+    role-folder diagnostics as advisories that never change manifest or runtime semantics.
 20. The published Gnosis tarball contains the executable handbook and works without repository docs
     or manifesto files.

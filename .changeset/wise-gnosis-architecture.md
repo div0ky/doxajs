@@ -9,4 +9,5 @@ Make Gnosis Doxa's version-matched architectural authority. Ship a comprehensive
 handbook, automatic MCP and managed-agent programming-model guidance, role and component
 explanations, consistency-aware architecture review, provider/service diagnostics, and unified
 Praxis knowledge generation. Reject direct and transitive `ActionBus` reachability from Actions,
-Queries, and Jobs at compilation with the ordinary-service remedy.
+Queries, and Jobs at compilation with the ordinary-service remedy. Return matching handbook-linked
+provider/service and canonical-folder advisories from compilation and print them through Praxis.

@@ -27,7 +27,7 @@ import {
   RuntimeIntegrityError,
 } from '@doxajs/runtime'
 import { PostgresTheoria } from '@doxajs/theoria'
-import { inspectSurface } from '@doxajs/introspection'
+import { inspectArchitectureDiagnostics, inspectSurface } from '@doxajs/introspection'
 import { DoxaOpenTelemetry } from '@doxajs/opentelemetry'
 import { trace } from '@opentelemetry/api'
 import {
@@ -1002,6 +1002,71 @@ describe('foundational compile-to-boot slice', () => {
     ).rejects.toThrow('job:app/invalid -> service:app/action-invoker -> doxa:action-bus')
   })
 
+  it('reports handbook-linked provider, service, and canonical-folder advisories at compilation', async () => {
+    const result = await compileFixture(
+      `
+        import { DoxaApplication, Feature } from '@doxajs/core'
+        import { MisplacedEvent } from './queries/misplaced-event.js'
+        import { DatabaseService } from './services/database-service.js'
+        import { NotificationProvider } from './providers/notification-provider.js'
+
+        class AppFeature extends Feature {
+          id = 'app'
+          events = [MisplacedEvent]
+          providers = [DatabaseService]
+          provides = [NotificationProvider]
+        }
+        export class Application extends DoxaApplication {
+          id = 'architecture-advisories'
+          features = [AppFeature]
+        }
+      `,
+      {
+        'queries/misplaced-event.ts': `
+          import { Event } from '@doxajs/core'
+          export class MisplacedEvent extends Event<void> {
+            static readonly id = 'misplaced'
+          }
+        `,
+        'services/database-service.ts': `
+          export class DatabaseService { static readonly id = 'database' }
+        `,
+        'providers/notification-provider.ts': `
+          export class NotificationProvider {}
+        `,
+      },
+    )
+
+    expect(result.advisories).toEqual([
+      expect.objectContaining({
+        code: 'DOXA-GNOSIS-STRUCTURE-005',
+        componentId: 'event:app/misplaced',
+        guideId: 'diagnostic.canonical-folder',
+      }),
+      expect.objectContaining({
+        code: 'DOXA-GNOSIS-STRUCTURE-002',
+        componentId: 'provider:app/database',
+        guideId: 'diagnostic.provider-service-location',
+      }),
+      expect.objectContaining({
+        code: 'DOXA-GNOSIS-STRUCTURE-004',
+        componentId: 'provider:app/database',
+        guideId: 'diagnostic.provider-service-location',
+      }),
+      expect.objectContaining({
+        code: 'DOXA-GNOSIS-STRUCTURE-001',
+        componentId: 'service:app/notification-provider',
+        guideId: 'diagnostic.provider-service-location',
+      }),
+      expect.objectContaining({
+        code: 'DOXA-GNOSIS-STRUCTURE-003',
+        componentId: 'service:app/notification-provider',
+        guideId: 'diagnostic.provider-service-location',
+      }),
+    ])
+    expect(result.advisories).toEqual(inspectArchitectureDiagnostics(result.manifest).items)
+  })
+
   it('links scope and lifecycle compiler diagnostics to the matching handbook guides', async () => {
     await expect(
       compileFixture(`
@@ -1849,7 +1914,7 @@ async function compile(artifactsDirectory: string) {
   })
 }
 
-async function compileFixture(source: string) {
+async function compileFixture(source: string, files: Readonly<Record<string, string>> = {}) {
   const root = await mkdtemp(path.join(workspace, '.foundation-fixture-'))
   temporaryDirectories.push(root)
   await mkdir(path.join(root, 'src'))
@@ -1868,6 +1933,11 @@ async function compileFixture(source: string) {
     }),
   )
   await writeFile(path.join(root, 'src/application.ts'), source)
+  for (const [relativePath, content] of Object.entries(files)) {
+    const file = path.join(root, 'src', relativePath)
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, content)
+  }
   return await compileApplication({
     tsconfigPath: path.join(root, 'tsconfig.json'),
     applicationFile: path.join(root, 'src/application.ts'),

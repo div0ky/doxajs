@@ -147,6 +147,7 @@ export async function runPraxis(
     }
     if (command === 'build') {
       const result = await buildApplication(cwd)
+      reportCompilerAdvisories(result.advisories, io)
       io.out(`Built ${result.manifest.applicationId} (${result.manifest.buildHash.slice(0, 12)})`)
       return 0
     }
@@ -160,6 +161,7 @@ export async function runPraxis(
     }
     if (command === 'gnosis') {
       const result = await buildApplication(cwd)
+      reportCompilerAdvisories(result.advisories, io)
       io.out(`Generated Gnosis knowledge for ${result.manifest.applicationId} at .doxa/gnosis.json`)
       return 0
     }
@@ -429,6 +431,17 @@ export async function runPraxis(
   } catch (error) {
     io.error(error instanceof Error ? error.message : String(error))
     return 1
+  }
+}
+
+function reportCompilerAdvisories(
+  advisories: readonly import('@doxajs/compiler').CompilerArchitectureAdvisory[],
+  io: PraxisIo,
+): void {
+  for (const advisory of advisories) {
+    io.error(
+      `${advisory.source.file}:${advisory.source.line}:${advisory.source.column} [${advisory.code}] ${advisory.message} See Gnosis guide ${advisory.guideId}.`,
+    )
   }
 }
 

@@ -359,6 +359,22 @@ export function reviewArchitecture(
     )
   }
   const goal = sanitizeInspectionValue(rawGoal) as string
+  if ((request.invariants?.length ?? 0) > 10) {
+    throw new IntrospectionError(
+      'invalid_input',
+      'Architecture review accepts at most 10 invariants.',
+    )
+  }
+  const invalidInvariant = request.invariants?.find((invariant) => {
+    const length = invariant.trim().length
+    return length === 0 || length > 1_000
+  })
+  if (invalidInvariant !== undefined) {
+    throw new IntrospectionError(
+      'invalid_input',
+      'Each architecture invariant must contain 1 through 1,000 characters.',
+    )
+  }
   const invariants = Object.freeze([
     ...new Set(
       (request.invariants ?? [])
@@ -367,6 +383,19 @@ export function reviewArchitecture(
         .map((invariant) => sanitizeInspectionValue(invariant) as string),
     ),
   ])
+  if ((request.componentIds?.length ?? 0) > 20) {
+    throw new IntrospectionError(
+      'invalid_input',
+      'Architecture review accepts at most 20 component IDs.',
+    )
+  }
+  const invalidComponentId = request.componentIds?.find((id) => id.length === 0 || id.length > 256)
+  if (invalidComponentId !== undefined) {
+    throw new IntrospectionError(
+      'invalid_input',
+      'Each component ID must contain 1 through 256 characters.',
+    )
+  }
   const componentIds = [...new Set(request.componentIds ?? [])]
   const components = Object.freeze(componentIds.map((id) => explainComponent(manifest, id)))
   const diagnostics = inspectArchitectureDiagnostics(manifest)

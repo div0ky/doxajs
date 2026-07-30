@@ -284,6 +284,29 @@ describe('Gnosis read-only local engineering server', () => {
         'Disposes',
       ]),
     )
+    expect(entries.find((entry) => entry.id === 'concept.praxis-generators')?.aliases).toEqual([
+      'doxa new',
+      'doxa make:feature',
+      'doxa make:model',
+      'doxa make:action',
+      'doxa make:query',
+      'doxa make:route',
+      'doxa make:event',
+      'doxa make:listener',
+      'doxa make:signal',
+      'doxa make:signal-handler',
+      'doxa make:observer',
+      'doxa make:job',
+      'doxa make:schedule',
+      'doxa make:policy',
+      'doxa make:permission-source',
+      'doxa make:config',
+      'doxa make:provider',
+      'doxa make:service',
+      'doxa make:command',
+      'doxa make:migration',
+      'doxa make:test',
+    ])
     expect(roles.find((entry) => entry.role === 'action')?.details?.canonicalFolder).toBe(
       'src/features/<feature>/actions',
     )
@@ -299,6 +322,9 @@ describe('Gnosis read-only local engineering server', () => {
     ] as const) {
       expect(searchDocumentation(entries, query, 5).map((entry) => entry.id)).toContain(expectedId)
     }
+    expect(searchDocumentation(entries, 'folders runtime meaning', 1)[0]?.id).toBe(
+      'programming-model.core',
+    )
     expect(entries.filter((entry) => entry.kind === 'module').map((entry) => entry.id)).toEqual([
       'module.auth-postgres',
       'module.compiler',
@@ -547,6 +573,22 @@ describe('Gnosis read-only local engineering server', () => {
         transactionOwnership: expect.stringContaining('no automatic writable transaction'),
       }),
     )
+
+    expect(() =>
+      reviewArchitecture(manifest, {
+        goal: 'Too many invariants',
+        invariants: Array.from({ length: 11 }, (_, index) => `Invariant ${index}`),
+        consistency: 'atomic',
+      }),
+    ).toThrow('Architecture review accepts at most 10 invariants.')
+    expect(() =>
+      reviewArchitecture(manifest, {
+        goal: 'Invalid component',
+        invariants: ['The operation is atomic.'],
+        consistency: 'atomic',
+        componentIds: [''],
+      }),
+    ).toThrow('Each component ID must contain 1 through 256 characters.')
   })
 
   it('compiles and explains the canonical Action and Job shared-service reminder architecture', async () => {

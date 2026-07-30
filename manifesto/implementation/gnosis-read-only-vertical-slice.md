@@ -53,9 +53,10 @@ the writable transaction and the service joins it. Atomic review rejects nested 
 queued-listener substitution. Missing consistency returns `insufficient-intent`.
 
 The compiler now rejects direct and transitive `ActionBus` reachability from Actions, Queries, and
-Jobs through `DOXA-COMPILER-ARCH-001`. Introspection warns when provider/service names or an
-unambiguous role-folder mismatch miscommunicates the compiled role, but paths remain semantically
-inert.
+Jobs through `DOXA-COMPILER-ARCH-001`. The compiler build result and Introspection expose matching
+handbook-linked warnings when provider/service names or an unambiguous role-folder mismatch
+miscommunicates the compiled role. Praxis prints those advisories for human-facing builds, while
+paths remain semantically inert.
 
 The sole application-data capability is `query_models`. It accepts a stable model ID, explicitly
 selected logical fields, bounded comparison filters and ordering, and at most 100 rows. Praxis boots

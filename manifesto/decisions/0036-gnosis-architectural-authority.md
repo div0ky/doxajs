@@ -42,9 +42,10 @@ directly.
 ## Enforcement and diagnostics
 
 The compiler rejects direct and transitive `ActionBus` reachability from Actions, Queries, and Jobs
-with a stable diagnostic and the ordinary-service remedy. Gnosis derives advisory diagnostics when
-provider/service names or an unambiguous role-folder mismatch miscommunicates the compiled role.
-Folder advisories never change ownership, registration, scope, or runtime behavior.
+with a stable diagnostic and the ordinary-service remedy. Compilation and Gnosis derive the same
+handbook-linked advisory diagnostics when provider/service names or an unambiguous role-folder
+mismatch miscommunicates the compiled role. Praxis prints compilation advisories for human-facing
+builds. Folder advisories never change ownership, registration, scope, or runtime behavior.
 
 Every diagnostic links to a stable handbook guide. The compiler and Praxis enforce validity; Gnosis
 explains the rule, rationale, alternatives, and effective application behavior.

@@ -14,5 +14,9 @@ rejects direct and transitive `ActionBus` reachability from Actions, Queries, an
 `DOXA-COMPILER-ARCH-001`; reusable mutation behavior belongs in an ordinary service called by each
 top-level boundary.
 
+Successful compilation also returns handbook-linked advisory warnings for misleading
+provider/service names and unambiguous canonical-folder deviations. Praxis prints them during
+human-facing builds; they never change registration or runtime behavior.
+
 Application code should use `@doxajs/core`; application developers normally invoke this package
 through `doxa build` and `doxa dev`.
