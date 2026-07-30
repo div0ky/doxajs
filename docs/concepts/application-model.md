@@ -90,6 +90,16 @@ loads; the static identity fast path remains available. Actions and jobs query m
 writable transaction. Query handlers receive the same identity-mapped model experience through a
 read-only session; `create`, `save`, and `delete` throw `ReadOnlyExecutionError` there.
 
+Actions and Job attempts are independent top-level mutation boundaries. Neither may dispatch an
+Action from inside its handler, directly or through an injected service. Put reusable behavior in an
+ordinary service instead: the Action or Job owns the transaction and the service joins it. If
+multiple mutations form one invariant, call that service directly in the owning boundary so all
+writes and staged facts commit or roll back together.
+
+Use `Feature.provides` when another Feature must inject that ordinary service. Do not register it in
+`Feature.providers`; providers are singleton infrastructure and may not hold execution-specific
+transaction or model-session state.
+
 ## Mapped tables
 
 A model's declaration is its complete persistence projection:

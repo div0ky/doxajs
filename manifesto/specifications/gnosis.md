@@ -4,12 +4,17 @@
 - **Accepted:** 2026-07-13
 - **Decision:**
   [0013: first-party AI engineering MCP](../decisions/0013-first-party-ai-engineering-mcp.md)
+- **Architectural authority:**
+  [0036: version-matched architectural authority](../decisions/0036-gnosis-architectural-authority.md)
 
 ## Purpose and boundary
 
-Gnosis is Doxa's local AI engineering server. Phase 1 exposes the compiled application graph and
-version-matched Doxa guidance through MCP over stdio. It is a development tool, never a production
-runtime role, and never a source of truth for application discovery.
+Gnosis is Doxa's local AI engineering server and version-matched architectural authority. It exposes
+the compiled application graph and a comprehensive package-owned Doxa handbook through MCP over
+stdio. Agents receive the core programming model through initialization and managed guidance, then
+use stable tools for role, component, consistency, and application-specific explanations. It is a
+development tool, never a production runtime role, and never a source of truth for application
+discovery.
 
 Gnosis does not scan source, run arbitrary code, accept SQL, or mutate the workspace. Remote
 transport, test execution, logs, generators, migrations, redrive, and operation application are
@@ -24,13 +29,15 @@ TypeScript application
   -> Doxa compiler
   -> validated versioned manifest
   -> @doxajs/introspection
-  -> Praxis text or JSON
-  -> @doxajs/gnosis MCP adapter
+  -> @doxajs/gnosis knowledge assembly + packaged handbook
+  -> doxa gnosis JSON or MCP adapter
 ```
 
 `@doxajs/introspection` owns typed inspection records and deterministic views. Praxis and Gnosis
-must consume those records rather than independently interpreting manifest entries. MCP protocol
-types may not leak into the introspection package or manifest.
+must consume those records rather than independently interpreting manifest entries. Praxis
+inspection commands use the same introspection records, while `doxa gnosis` and MCP use the same
+Gnosis knowledge assembly. MCP protocol types may not leak into the introspection package or
+manifest.
 
 ## Launch and lifecycle
 
@@ -55,6 +62,12 @@ Application creation, upgrades, and `doxa gnosis:install` also create or refresh
 is preserved. Missing guidance is appended; malformed or duplicate managed markers fail without
 rewriting the file.
 
+The managed block requires `application_info` and `get_programming_model` before substantial Doxa
+work. It states the Action, Query, Job, service, provider, transaction, consistency, and folder
+rules needed to avoid architectural inference. If Gnosis is absent or version-mismatched, the block
+requires agents to stop Doxa-specific structural and architectural changes, report the startup or
+version failure, and continue only unrelated work.
+
 The server uses the official pinned TypeScript MCP SDK and stdio transport. It writes no protocol
 information to stdout outside the MCP transport. Ordinary shutdown does not boot an application
 runtime. A `query_models` call delegates one bounded `model-reader` profile boot, execution, and
@@ -71,6 +84,11 @@ Phase 1 provides these resources:
 - `doxa://application/routes`
 - `doxa://application/models`
 - `doxa://documentation/index`
+- `doxa://guidance/programming-model`
+- `doxa://guidance/roles`
+- `doxa://guidance/modules`
+- `doxa://guidance/consistency`
+- `doxa://application/diagnostics`
 
 Phase 1 provides these read-only tools:
 
@@ -88,6 +106,13 @@ Phase 1 provides these read-only tools:
 - `list_permission_sources`
 - `list_policies`
 - `list_commands`
+- `list_providers`
+- `list_services`
+- `get_programming_model`
+- `explain_role`
+- `explain_component`
+- `review_architecture`
+- `read_doc`
 - `search_docs`
 - `query_models`
 
@@ -96,6 +121,20 @@ queries are bounded to 200 characters and results to 20 sections. Unknown model 
 results with stable JSON error bodies; malformed arguments fail through MCP schema validation rather
 than reaching tool handlers or raw internal exceptions. Error results do not include
 `structuredContent`, because MCP output schemas describe successful tool output.
+
+`review_architecture` accepts a bounded intended outcome, up to ten explicit business invariants, an
+optional required consistency level (`atomic`, `after-commit`, or `eventual`), and up to twenty
+manifest component IDs. It returns the recommended boundary, transaction owner, collaboration shape,
+guarantees, rejected alternatives, diagnostics, and stable handbook references. When the invariant
+or consistency requirement is absent, it returns `insufficient-intent`; it never derives a business
+invariant from the manifest.
+
+`explain_component` combines the protocol-independent component record, dependencies, consumers,
+effective transaction behavior, canonical folder, diagnostics, and installed handbook entries.
+Provider/service location and naming diagnostics are warnings only. They may explain canonical
+organization but may not alter path-independent runtime behavior. The compiler returns matching
+handbook-linked advisory records with its build result, and Praxis prints them during human-facing
+compilation commands.
 
 `query_models` requires a stable model ID, one through fifty logical fields, at most twenty
 comparison predicates, at most five logical ordering entries, and a row limit from one through one
@@ -122,11 +161,27 @@ mapping, migration-management status, read-only status, source provenance, and d
 relationships. Relationship records identify kind, related model, optional pivot model, and logical
 key names. They never expose database contents or undeclared physical columns.
 
-## Documentation
+## Canonical handbook and documentation
 
-Gnosis ships a local documentation index with the exact Gnosis release. Each searchable section
-records the owning package, exact framework version, source document, heading, and text. Search is
-deterministic and lexical in Phase 1; embeddings and hosted services are unnecessary.
+Gnosis ships one structured handbook with the exact Gnosis release. It covers the programming model,
+every framework role and generator, framework scope/delivery/broadcast/lifecycle capability,
+dependency injection, scope, transaction ownership, models, events, orchestration, authorization,
+lifecycle, testing, deployment, diagnostics, and installed first-party modules. Every role records
+its purpose, selection criteria, registration, generator, canonical folder, invocation,
+authorization, transaction behavior, injection, scope, lifecycle, dependencies, rationale, example,
+anti-patterns, and testing expectations.
+
+Each searchable entry records a stable guide ID, kind, aliases, summary, rationale, owning package,
+exact framework version, source document, heading, and text. Search is deterministic and lexical;
+embeddings and hosted services are unnecessary. Public handbook documentation renders from the same
+catalog and is checked for exact parity.
+
+The handbook explicitly distinguishes `Feature.providers` from `Feature.provides`, top-level Actions
+and Jobs from reusable services, atomic collaboration from after-commit and queued reactions, and
+canonical folder guidance from runtime semantics. It also states that queued Listeners receive a
+fresh execution but no automatic writable transaction: eventual mutation uses a later top-level
+Action or a Job attempt. Installed module entries are selected only from compiled plugin package
+names and provider capabilities.
 
 Search results may only come from the installed Gnosis documentation bundle and must report the
 exact version. Plugins may contribute documentation only through a later package-verifiable metadata
@@ -149,7 +204,9 @@ contract.
 
 ## Compatibility
 
-The introspection schema and Gnosis knowledge schema are independently versioned. A Gnosis release
+The introspection schema, Gnosis knowledge schema, handbook schema, and protocol adapter are
+independently versioned. This release uses introspection schema 2, Gnosis knowledge schema 3,
+handbook schema 1, and protocol adapter 2 while retaining manifest format 7. A Gnosis release
 declares the manifest format it accepts. Unsupported formats fail closed before tool registration.
 Protocol changes remain isolated inside `@doxajs/gnosis`.
 
@@ -157,7 +214,8 @@ Protocol changes remain isolated inside `@doxajs/gnosis`.
 
 1. Praxis JSON and MCP return the same typed application facts.
 2. Manifest and graph resources are deterministic for the same build hash.
-3. A stale or unsupported manifest is rejected before the server connects.
+3. A stale or unsupported manifest, including a framework/Gnosis package version mismatch, is
+   rejected before the server connects.
 4. Configuration secrets and credential-shaped nested values are recursively redacted.
 5. Every list and documentation result respects its fixed bound.
 6. Model inspection includes declared relationships and rejects unknown model IDs.
@@ -172,3 +230,18 @@ Protocol changes remain isolated inside `@doxajs/gnosis`.
     reopen and a new agent task before newly registered tools become available.
 13. Codex registration writes the absolute application working directory, including both root
     applications and applications nested in monorepos.
+14. MCP initialization and managed guidance disclose the core programming model without an agent
+    reading source or the manifesto.
+15. Every framework role has a complete structured guide, and installed-module filtering is
+    deterministic from compiled metadata.
+16. `explain_component` reports provider/service identity, dependencies, consumers, effective
+    transaction behavior, canonical organization, and stable diagnostics.
+17. `review_architecture` recommends one shared ordinary service for an atomic Action/Job invariant,
+    rejects queued delivery as equivalent, and reports insufficient intent when consistency is
+    unspecified.
+18. Direct and transitive `ActionBus` reachability from Actions, Queries, and Jobs fails compilation
+    with `DOXA-COMPILER-ARCH-001` and the shared-service remedy.
+19. Compilation and Gnosis report handbook-linked provider/service naming and unambiguous
+    role-folder diagnostics as advisories that never change manifest or runtime semantics.
+20. The published Gnosis tarball contains the executable handbook and works without repository docs
+    or manifesto files.

@@ -7,8 +7,8 @@ import {
   type ModelManifestEntry,
 } from '@doxajs/manifest'
 
-export const INTROSPECTION_SCHEMA_VERSION = 1 as const
-export const GNOSIS_KNOWLEDGE_SCHEMA_VERSION = 2 as const
+export const INTROSPECTION_SCHEMA_VERSION = 2 as const
+export const GNOSIS_KNOWLEDGE_SCHEMA_VERSION = 3 as const
 export const MAX_INSPECTION_RESULTS = 100
 export const MAX_INSPECTION_OBJECT_PROPERTIES = 100
 
@@ -22,9 +22,11 @@ export type InspectionSurface =
   | 'observers'
   | 'permissionSources'
   | 'policies'
+  | 'providers'
   | 'queries'
   | 'routes'
   | 'schedules'
+  | 'services'
 
 export type IntrospectionErrorCode =
   'invalid_manifest' | 'stale_manifest' | 'not_found' | 'invalid_input'
@@ -63,6 +65,69 @@ export interface BoundedInspection<T> {
   readonly truncated: boolean
 }
 
+export type ArchitectureDiagnosticCode =
+  | 'DOXA-GNOSIS-STRUCTURE-001'
+  | 'DOXA-GNOSIS-STRUCTURE-002'
+  | 'DOXA-GNOSIS-STRUCTURE-003'
+  | 'DOXA-GNOSIS-STRUCTURE-004'
+  | 'DOXA-GNOSIS-STRUCTURE-005'
+
+export interface ArchitectureDiagnostic {
+  readonly code: ArchitectureDiagnosticCode
+  readonly severity: 'warning'
+  readonly componentId: string
+  readonly message: string
+  readonly guideId: 'diagnostic.provider-service-location' | 'diagnostic.canonical-folder'
+  readonly source: Readonly<{
+    readonly file: string
+    readonly line: number
+    readonly column: number
+  }>
+}
+
+export type ComponentKind =
+  | 'action'
+  | 'command'
+  | 'configuration'
+  | 'event'
+  | 'job'
+  | 'listener'
+  | 'model'
+  | 'observer'
+  | 'permission-source'
+  | 'policy'
+  | 'provider'
+  | 'query'
+  | 'route'
+  | 'schedule'
+  | 'service'
+  | 'signal'
+  | 'signal-handler'
+
+export interface ComponentExplanation {
+  readonly schemaVersion: typeof INTROSPECTION_SCHEMA_VERSION
+  readonly id: string
+  readonly kind: ComponentKind
+  readonly ownerId: string
+  readonly name: string
+  readonly source: Readonly<{
+    readonly file: string
+    readonly line: number
+    readonly column: number
+  }>
+  readonly component: Readonly<Record<string, unknown>>
+  readonly dependencies: readonly Readonly<Record<string, unknown>>[]
+  readonly consumers: readonly string[]
+  readonly transaction: Readonly<{
+    readonly mode:
+      'owns-writable' | 'owns-read-only' | 'joins-caller' | 'delivery-dependent' | 'none'
+    readonly description: string
+  }>
+  readonly canonicalFolder: string
+  readonly guideIds: readonly string[]
+  readonly diagnostics: readonly ArchitectureDiagnostic[]
+}
+
 export interface GnosisKnowledge {
   readonly schemaVersion: typeof GNOSIS_KNOWLEDGE_SCHEMA_VERSION
   readonly framework: 'Doxa'
@@ -73,6 +138,9 @@ export interface GnosisKnowledge {
   readonly principles: readonly string[]
   readonly conventions: Readonly<Record<string, string>>
   readonly roles: Readonly<Record<string, unknown>>
+  readonly providers: BoundedInspection<Readonly<Record<string, unknown>>>
+  readonly services: BoundedInspection<Readonly<Record<string, unknown>>>
+  readonly diagnostics: BoundedInspection<ArchitectureDiagnostic>
   readonly theoria: Readonly<Record<string, unknown>>
   readonly deployment: Readonly<Record<string, unknown>>
   readonly praxis: Readonly<Record<string, readonly string[]>>
@@ -88,9 +156,11 @@ const surfaces: Readonly<Record<InspectionSurface, keyof DoxaManifest>> = {
   observers: 'observers',
   permissionSources: 'permissionSource',
   policies: 'policies',
+  providers: 'providers',
   queries: 'queries',
   routes: 'routes',
   schedules: 'schedules',
+  services: 'providers',
 }
 
 const graphSections = [
@@ -172,14 +242,79 @@ export function inspectSurface(
   const entries = (
     Array.isArray(section) ? section : section === null ? [] : [section]
   ) as readonly unknown[]
-  const items = entries
+  const filtered =
+    surface === 'providers' || surface === 'services'
+      ? entries.filter(
+          (entry) =>
+            isRecord(entry) && entry.role === (surface === 'providers' ? 'provider' : 'service'),
+        )
+      : entries
+  const items = filtered
     .map((entry) => sanitizeInspectionValue(entry) as Readonly<Record<string, unknown>>)
     .sort((left, right) => String(left.id).localeCompare(String(right.id)))
     .slice(0, MAX_INSPECTION_RESULTS)
   return Object.freeze({
     items: Object.freeze(items),
-    total: entries.length,
-    truncated: entries.length > items.length,
+    total: filtered.length,
+    truncated: filtered.length > items.length,
+  })
+}
+
+export function inspectArchitectureDiagnostics(
+  manifest: DoxaManifest,
+): BoundedInspection<ArchitectureDiagnostic> {
+  assertCurrentManifest(manifest)
+  const diagnostics = componentEntries(manifest)
+    .flatMap(({ kind, entry }) => componentDiagnostics(kind, entry))
+    .sort(
+      (left, right) =>
+        left.componentId.localeCompare(right.componentId) || left.code.localeCompare(right.code),
+    )
+  const items = diagnostics.slice(0, MAX_INSPECTION_RESULTS)
+  return Object.freeze({
+    items: Object.freeze(items),
+    total: diagnostics.length,
+    truncated: diagnostics.length > items.length,
+  })
+}
+
+export function explainComponent(manifest: DoxaManifest, id: string): ComponentExplanation {
+  assertCurrentManifest(manifest)
+  if (id.length === 0 || id.length > 256) {
+    throw new IntrospectionError(
+      'invalid_input',
+      'Component ID must contain 1 through 256 characters.',
+    )
+  }
+  const components = componentEntries(manifest)
+  const selected = components.find((component) => component.entry.id === id)
+  if (!selected) throw new IntrospectionError('not_found', `Component ${id} is not declared.`)
+  const dependencies = Array.isArray(selected.entry.dependencies) ? selected.entry.dependencies : []
+  const consumers = components
+    .filter((component) => referencesComponent(component.entry, id))
+    .map((component) => component.entry.id)
+    .sort()
+  const diagnostics = inspectArchitectureDiagnostics(manifest).items.filter(
+    (diagnostic) => diagnostic.componentId === id,
+  )
+  return Object.freeze({
+    schemaVersion: INTROSPECTION_SCHEMA_VERSION,
+    id,
+    kind: selected.kind,
+    ownerId: selected.entry.ownerId,
+    name: selected.entry.name,
+    source: selected.entry.source,
+    component: sanitizeInspectionValue(selected.entry) as Readonly<Record<string, unknown>>,
+    dependencies: Object.freeze(
+      dependencies.map(
+        (dependency) => sanitizeInspectionValue(dependency) as Readonly<Record<string, unknown>>,
+      ),
+    ),
+    consumers: Object.freeze(consumers),
+    transaction: Object.freeze(transactionFor(selected.kind, selected.entry)),
+    canonicalFolder: canonicalFolderFor(selected.kind),
+    guideIds: Object.freeze(guideIdsFor(selected.kind)),
+    diagnostics: Object.freeze(diagnostics),
   })
 }
 
@@ -291,6 +426,9 @@ export function createGnosisKnowledge(manifest: DoxaManifest): GnosisKnowledge {
         graphSections.map((role) => [role, sanitizeInspectionValue(manifest[role])]),
       ),
     ),
+    providers: inspectSurface(manifest, 'providers'),
+    services: inspectSurface(manifest, 'services'),
+    diagnostics: inspectArchitectureDiagnostics(manifest),
     theoria: Object.freeze({
       installed: hasTheoria,
       purpose: 'Read-only correlation and causation debugger for framework executions.',
@@ -345,6 +483,266 @@ export function createGnosisKnowledge(manifest: DoxaManifest): GnosisKnowledge {
       ]),
     }),
   })
+}
+
+interface ManifestComponent {
+  readonly id: string
+  readonly ownerId: string
+  readonly name: string
+  readonly source: Readonly<{
+    readonly file: string
+    readonly line: number
+    readonly column: number
+  }>
+  readonly dependencies?: readonly Readonly<Record<string, unknown>>[]
+  readonly [key: string]: unknown
+}
+
+function componentEntries(
+  manifest: DoxaManifest,
+): readonly { readonly kind: ComponentKind; readonly entry: ManifestComponent }[] {
+  const entries: { kind: ComponentKind; entry: ManifestComponent }[] = []
+  const add = (kind: ComponentKind, values: readonly unknown[]): void => {
+    for (const value of values) entries.push({ kind, entry: value as ManifestComponent })
+  }
+  add('action', manifest.actions)
+  add('command', manifest.commands)
+  add('configuration', manifest.configurations)
+  add('event', manifest.events)
+  add('job', manifest.jobs)
+  add('listener', manifest.listeners)
+  add('model', manifest.models)
+  add('observer', manifest.observers)
+  if (manifest.permissionSource) add('permission-source', [manifest.permissionSource])
+  add('policy', manifest.policies)
+  add(
+    'provider',
+    manifest.providers.filter((provider) => provider.role === 'provider'),
+  )
+  add('query', manifest.queries)
+  add('route', manifest.routes)
+  add('schedule', manifest.schedules)
+  add(
+    'service',
+    manifest.providers.filter((provider) => provider.role === 'service'),
+  )
+  add('signal', manifest.signals)
+  add('signal-handler', manifest.signalHandlers)
+  return entries.sort((left, right) => left.entry.id.localeCompare(right.entry.id))
+}
+
+function referencesComponent(entry: ManifestComponent, id: string): boolean {
+  if (entry.dependencies?.some((dependency) => dependency.targetId === id)) return true
+  for (const field of ['eventId', 'jobId', 'modelId', 'signalId'] as const) {
+    if (entry[field] === id) return true
+  }
+  const relationships = entry.relationships
+  return (
+    Array.isArray(relationships) &&
+    relationships.some(
+      (relationship) =>
+        isRecord(relationship) &&
+        (relationship.relatedModelId === id || relationship.throughModelId === id),
+    )
+  )
+}
+
+function transactionFor(
+  kind: ComponentKind,
+  entry: ManifestComponent,
+): ComponentExplanation['transaction'] {
+  if (kind === 'action') {
+    return {
+      mode: 'owns-writable',
+      description: 'The Action owns one writable unit of work and commits or rolls it back.',
+    }
+  }
+  if (kind === 'job') {
+    return {
+      mode: 'owns-writable',
+      description:
+        'Each Job attempt owns one fresh writable execution and unit of work; called services join it.',
+    }
+  }
+  if (kind === 'query') {
+    return {
+      mode: 'owns-read-only',
+      description:
+        'The Query owns a bounded read-only model session; durable mutation fails closed.',
+    }
+  }
+  if (kind === 'service') {
+    return {
+      mode: 'joins-caller',
+      description:
+        'The ordinary service has no transaction of its own and joins the execution and unit of work of its caller.',
+    }
+  }
+  if (kind === 'listener') {
+    return {
+      mode: 'delivery-dependent',
+      description:
+        entry.delivery === 'local'
+          ? 'The local Listener joins the producer execution and may participate in its unit of work.'
+          : entry.delivery === 'after-commit'
+            ? 'The after-commit Listener runs only after durability and cannot roll back the committed mutation.'
+            : 'The queued Listener runs later in a fresh execution with no automatic writable transaction and cannot share the producer transaction. It must dispatch an Action as a new top-level operation or use a Job for writable model work.',
+    }
+  }
+  if (kind === 'event') {
+    return {
+      mode: 'delivery-dependent',
+      description:
+        'Event facts and queued intent may stage in the active unit of work; each Listener delivery mode determines when reactions execute.',
+    }
+  }
+  if (
+    kind === 'model' ||
+    kind === 'observer' ||
+    kind === 'policy' ||
+    kind === 'permission-source' ||
+    kind === 'signal' ||
+    kind === 'signal-handler'
+  ) {
+    return {
+      mode: 'joins-caller',
+      description: 'This component participates in its admitted caller’s execution semantics.',
+    }
+  }
+  return {
+    mode: 'none',
+    description: 'This component does not own an application transaction.',
+  }
+}
+
+function canonicalFolderFor(kind: ComponentKind): string {
+  return (
+    {
+      action: 'actions',
+      command: 'commands',
+      configuration: 'config',
+      event: 'events',
+      job: 'jobs',
+      listener: 'listeners',
+      model: 'models',
+      observer: 'observers',
+      'permission-source': 'permission-sources',
+      policy: 'policies',
+      provider: 'providers',
+      query: 'queries',
+      route: 'http',
+      schedule: 'schedules',
+      service: 'services',
+      signal: 'signals',
+      'signal-handler': 'signal-handlers',
+    } satisfies Record<ComponentKind, string>
+  )[kind]
+}
+
+function guideIdsFor(kind: ComponentKind): readonly string[] {
+  const guideIds = [`role.${kind}`]
+  if (kind === 'action' || kind === 'job' || kind === 'service') {
+    guideIds.push('concept.orchestration-consistency', 'concept.execution-transactions')
+  }
+  if (kind === 'provider' || kind === 'service') guideIds.push('concept.providers-provides')
+  if (kind === 'event' || kind === 'listener') guideIds.push('concept.orchestration-consistency')
+  return guideIds
+}
+
+function providerServiceDiagnostics(
+  entry: ManifestComponent,
+  role: 'provider' | 'service',
+): readonly ArchitectureDiagnostic[] {
+  const normalizedFile = `/${entry.source.file.replaceAll('\\', '/')}/`.toLowerCase()
+  const diagnostics: ArchitectureDiagnostic[] = []
+  const add = (code: ArchitectureDiagnosticCode, message: string): void => {
+    diagnostics.push(
+      Object.freeze({
+        code,
+        severity: 'warning',
+        componentId: entry.id,
+        message,
+        guideId: 'diagnostic.provider-service-location',
+        source: entry.source,
+      }),
+    )
+  }
+  if (role === 'service' && normalizedFile.includes('/providers/')) {
+    add(
+      'DOXA-GNOSIS-STRUCTURE-001',
+      `${entry.name} is an ordinary service under a providers folder. Move it to services so its path communicates its compiled role; folders do not change runtime behavior.`,
+    )
+  }
+  if (role === 'provider' && normalizedFile.includes('/services/')) {
+    add(
+      'DOXA-GNOSIS-STRUCTURE-002',
+      `${entry.name} is an infrastructure provider under a services folder. Move it to providers so its path communicates its compiled role; folders do not change runtime behavior.`,
+    )
+  }
+  if (role === 'service' && /Provider$/.test(entry.name)) {
+    add(
+      'DOXA-GNOSIS-STRUCTURE-003',
+      `${entry.name} is compiled as an ordinary service but its name implies singleton infrastructure.`,
+    )
+  }
+  if (role === 'provider' && /Service$/.test(entry.name)) {
+    add(
+      'DOXA-GNOSIS-STRUCTURE-004',
+      `${entry.name} is compiled as singleton infrastructure but its name implies an ordinary service.`,
+    )
+  }
+  return diagnostics
+}
+
+function componentDiagnostics(
+  kind: ComponentKind,
+  entry: ManifestComponent,
+): readonly ArchitectureDiagnostic[] {
+  const diagnostics =
+    kind === 'provider' || kind === 'service' ? [...providerServiceDiagnostics(entry, kind)] : []
+  const expectedFolder = canonicalFolderFor(kind)
+  const otherRoleFolders = new Set(
+    [
+      'actions',
+      'commands',
+      'config',
+      'events',
+      'http',
+      'jobs',
+      'listeners',
+      'models',
+      'observers',
+      'permission-sources',
+      'policies',
+      'providers',
+      'queries',
+      'schedules',
+      'services',
+      'signals',
+      'signal-handlers',
+    ].filter((folder) => folder !== expectedFolder),
+  )
+  const conflictingFolder = entry.source.file
+    .replaceAll('\\', '/')
+    .toLowerCase()
+    .split('/')
+    .find((segment) => otherRoleFolders.has(segment))
+  const alreadyReportedOpposite =
+    (kind === 'service' && conflictingFolder === 'providers') ||
+    (kind === 'provider' && conflictingFolder === 'services')
+  if (conflictingFolder && !alreadyReportedOpposite) {
+    diagnostics.push(
+      Object.freeze({
+        code: 'DOXA-GNOSIS-STRUCTURE-005',
+        severity: 'warning',
+        componentId: entry.id,
+        message: `${entry.name} is compiled as ${kind} but is under the canonical ${conflictingFolder} folder. Move it to ${expectedFolder} so its path communicates its role; folders do not change runtime behavior.`,
+        guideId: 'diagnostic.canonical-folder',
+        source: entry.source,
+      }),
+    )
+  }
+  return diagnostics
 }
 
 export function sanitizeInspectionValue(value: unknown, key?: string, depth = 0): unknown {

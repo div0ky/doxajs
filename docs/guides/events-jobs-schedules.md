@@ -56,6 +56,14 @@ Doxa guarantees at-least-once execution. Jobs should be idempotent and may decla
 delay, timeout, and overlap behavior. Actor, tenant, authentication, correlation, causation, and
 trace context cross the durable boundary.
 
+Every Job attempt is already a top-level writable execution. A Job must not dispatch an Action to
+reuse mutation behavior. Extract the behavior into an ordinary service and call it from both the
+Action and Job; each boundary supplies its own transaction. Use a queued Listener only when the
+reaction is independently retryable and eventually consistent, not when its mutations must commit
+atomically with the Job. A queued Listener receives a fresh execution but no automatic writable
+transaction; it may dispatch an Action as a new top-level operation, or the producer may queue a Job
+whose attempt owns the transaction.
+
 ## Schedules
 
 Schedules target Jobs rather than inventing a second execution model. They may use cron or fixed

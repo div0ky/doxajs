@@ -5,12 +5,7 @@ import { fork, spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { HonoHttpHost } from '@doxajs/http-hono'
-import {
-  createGnosisKnowledge,
-  inspectGraph,
-  inspectSurface,
-  type InspectionSurface,
-} from '@doxajs/introspection'
+import { inspectGraph, inspectSurface, type InspectionSurface } from '@doxajs/introspection'
 import {
   cancelQueueJob,
   installQueueSchema,
@@ -152,6 +147,7 @@ export async function runPraxis(
     }
     if (command === 'build') {
       const result = await buildApplication(cwd)
+      reportCompilerAdvisories(result.advisories, io)
       io.out(`Built ${result.manifest.applicationId} (${result.manifest.buildHash.slice(0, 12)})`)
       return 0
     }
@@ -165,6 +161,7 @@ export async function runPraxis(
     }
     if (command === 'gnosis') {
       const result = await buildApplication(cwd)
+      reportCompilerAdvisories(result.advisories, io)
       io.out(`Generated Gnosis knowledge for ${result.manifest.applicationId} at .doxa/gnosis.json`)
       return 0
     }
@@ -434,6 +431,17 @@ export async function runPraxis(
   } catch (error) {
     io.error(error instanceof Error ? error.message : String(error))
     return 1
+  }
+}
+
+function reportCompilerAdvisories(
+  advisories: readonly import('@doxajs/compiler').CompilerArchitectureAdvisory[],
+  io: PraxisIo,
+): void {
+  for (const advisory of advisories) {
+    io.error(
+      `${advisory.source.file}:${advisory.source.line}:${advisory.source.column} [${advisory.code}] ${advisory.message} See Gnosis guide ${advisory.guideId}.`,
+    )
   }
 }
 
@@ -1565,8 +1573,17 @@ async function loadPrebuiltApplication(cwd: string): Promise<PrebuiltApplication
 
 async function writeGnosisKnowledge(
   cwd: string,
-  manifest: Parameters<typeof createGnosisKnowledge>[0],
+  manifest: Parameters<typeof inspectGraph>[0],
 ): Promise<void> {
+  let createGnosisKnowledge: typeof import('@doxajs/gnosis').createGnosisKnowledge
+  try {
+    ;({ createGnosisKnowledge } = await import('@doxajs/gnosis'))
+  } catch (error) {
+    throw new PraxisCommandError(
+      'Gnosis tooling is not installed. Reinstall development dependencies before generating agent knowledge.',
+      { cause: error },
+    )
+  }
   const knowledge = createGnosisKnowledge(manifest)
   await mkdir(path.join(cwd, '.doxa'), { recursive: true })
   await writeFile(

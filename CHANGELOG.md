@@ -9,6 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- A comprehensive version-matched Gnosis agent handbook with automatic MCP instructions, role and
+  component explanations, consistency-aware architecture review, provider/service diagnostics,
+  shared Praxis knowledge generation, and compiler rejection of direct or transitive nested Action
+  dispatch.
 - The initial pnpm, native ESM, strict TypeScript workspace.
 - Application-facing `@doxajs/core` declaration and lifecycle contracts.
 - A versioned manifest package and semantic TypeScript compiler.

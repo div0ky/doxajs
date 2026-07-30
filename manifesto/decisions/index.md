@@ -137,7 +137,8 @@ observable programming contract remains to be specified.
 12. [Provide an Eloquent-style persistent model runtime](0012-eloquent-style-model-runtime.md) —
     Accepted on 2026-07-10.
 13. [Build Gnosis as Doxa's first-party AI engineering product](0013-first-party-ai-engineering-mcp.md)
-    — Accepted on 2026-07-10; implementation is deferred pending manifest and diagnostics stability.
+    — Accepted on 2026-07-10; read-only MCP activated on 2026-07-13 and comprehensive architectural
+    guidance activated on 2026-07-30.
 14. [Compose explicit features into one generated application manifest](0014-explicit-features-generated-manifest.md)
     — Accepted for the MVP on 2026-07-10.
 15. [Provide Laravel-like class events throughout the application](0015-laravel-like-class-events.md)
@@ -183,6 +184,8 @@ observable programming contract remains to be specified.
 35. [Provide read-only model sessions during authorization](0035-read-only-model-sessions-during-authorization.md)
     — Accepted on 2026-07-23; authorization shares an owning operation's persistence boundary or
     opens one bounded read transaction.
+36. [Make Gnosis Doxa's version-matched architectural authority](0036-gnosis-architectural-authority.md)
+    — Accepted on 2026-07-30.
 
 ## Adding a decision
 

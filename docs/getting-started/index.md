@@ -80,18 +80,26 @@ migration, Gnosis, and runtime commands.
 ## Gnosis and coding agents
 
 Generated applications include project-scoped Gnosis registration for Codex, Claude Code, Cursor,
-and VS Code plus a managed Doxa guidance block in the root `AGENTS.md`. After `pnpm install`, open
-the application in a supported client. The client launches Gnosis over stdio when it needs Doxa
-inspection, documentation, or a bounded non-production model read and stops it with the client
-session; there is no Gnosis daemon to start. Model reads use stable model IDs and logical
-attributes, never raw SQL, and run through a fresh read-only execution. A client may ask you to
-trust the project MCP server on first use. Project MCP configuration is discovered when the client
-opens the workspace or starts a task. If creation, upgrade, or `gnosis:install` ran inside an
-existing agent task, reload or reopen the client and start a new task; the current task cannot gain
-newly registered tools. If a new task still lacks them, inspect the client's MCP startup error;
-registration files alone do not prove that the server initialized. Codex currently passes a
-configured relative MCP working directory directly to its process launcher instead of anchoring it
-to the task workspace, so Praxis writes an absolute application path for Codex.
+and VS Code plus a managed Doxa guidance block in the root `AGENTS.md`. Gnosis automatically gives
+agents the [Doxa agent handbook](../guides/doxa-agent-handbook.md), including role selection,
+transactions, service/provider boundaries, consistency, diagnostics, and installed-module guidance.
+After `pnpm install`, open the application in a supported client. The client launches Gnosis over
+stdio when it needs Doxa inspection, architecture review, documentation, or a bounded non-production
+model read and stops it with the client session; there is no Gnosis daemon to start. Model reads use
+stable model IDs and logical attributes, never raw SQL, and run through a fresh read-only execution.
+A client may ask you to trust the project MCP server on first use. Project MCP configuration is
+discovered when the client opens the workspace or starts a task. If creation, upgrade, or
+`gnosis:install` ran inside an existing agent task, reload or reopen the client and start a new
+task; the current task cannot gain newly registered tools. If a new task still lacks them, inspect
+the client's MCP startup error; registration files alone do not prove that the server initialized.
+Codex currently passes a configured relative MCP working directory directly to its process launcher
+instead of anchoring it to the task workspace, so Praxis writes an absolute application path for
+Codex.
+
+If Gnosis is absent or version-mismatched, agents must stop Doxa-specific structural and
+architectural changes until the startup problem is resolved. The manifest explains application
+structure but cannot reveal an unstated business invariant, so architecture review also requires an
+explicit atomic, after-commit, or eventual consistency requirement.
 
 Run `pnpm doxa gnosis:install --agent=all` only to regenerate deleted or customized registration.
 `doxa mcp` is the client entrypoint and protocol-debugging command, not an ordinary startup step.

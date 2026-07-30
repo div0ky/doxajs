@@ -108,20 +108,20 @@ complete in the MVP ledger.
 
 ## Operations and developer experience
 
-| Area                           | Status                          | Contract or evidence                                                                   |
-| ------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------- |
-| Configuration and secrets      | Implemented                     | [Injectable configuration classes](decisions/0021-injectable-configuration-classes.md) |
-| Logging                        | Implemented                     | [Logging contract](specifications/logging.md)                                          |
-| Metrics and tracing            | Implemented                     | [Telemetry and distributed tracing](specifications/telemetry-and-tracing.md)           |
-| Testing applications and fakes | Implemented                     | [First-party testing harness proof](implementation/testing-harness-vertical-slice.md)  |
-| CLI and generators             | Implemented                     | [Praxis command kernel proof](implementation/praxis-command-kernel-vertical-slice.md)  |
-| Execution debugger             | Implemented                     | [Theoria contract](specifications/theoria.md)                                          |
-| AI observations                | Implemented                     | [AI observation contract](specifications/ai-observations.md)                           |
-| Diagnostics                    | Implemented                     | [Operational control proof](implementation/operational-control-vertical-slice.md)      |
-| Adapter contracts              | Implemented                     | [MVP completion ledger](implementation/mvp-completion-ledger.md)                       |
-| Compatibility releases         | Implemented                     | [Upgrade workflow](../docs/upgrading/index.md)                                         |
-| Gnosis AI-assisted engineering | Implemented (read-only Phase 1) | [Gnosis contract](specifications/gnosis.md)                                            |
-| Container deployment           | Implemented                     | [Container deployment contract](specifications/container-deployment.md)                |
+| Area                           | Status                                          | Contract or evidence                                                                   |
+| ------------------------------ | ----------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Configuration and secrets      | Implemented                                     | [Injectable configuration classes](decisions/0021-injectable-configuration-classes.md) |
+| Logging                        | Implemented                                     | [Logging contract](specifications/logging.md)                                          |
+| Metrics and tracing            | Implemented                                     | [Telemetry and distributed tracing](specifications/telemetry-and-tracing.md)           |
+| Testing applications and fakes | Implemented                                     | [First-party testing harness proof](implementation/testing-harness-vertical-slice.md)  |
+| CLI and generators             | Implemented                                     | [Praxis command kernel proof](implementation/praxis-command-kernel-vertical-slice.md)  |
+| Execution debugger             | Implemented                                     | [Theoria contract](specifications/theoria.md)                                          |
+| AI observations                | Implemented                                     | [AI observation contract](specifications/ai-observations.md)                           |
+| Diagnostics                    | Implemented                                     | [Operational control proof](implementation/operational-control-vertical-slice.md)      |
+| Adapter contracts              | Implemented                                     | [MVP completion ledger](implementation/mvp-completion-ledger.md)                       |
+| Compatibility releases         | Implemented                                     | [Upgrade workflow](../docs/upgrading/index.md)                                         |
+| Gnosis AI-assisted engineering | Implemented (read-only architectural authority) | [Gnosis contract](specifications/gnosis.md)                                            |
+| Container deployment           | Implemented                                     | [Container deployment contract](specifications/container-deployment.md)                |
 
 ## Maintenance order
 
