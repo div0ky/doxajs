@@ -42,7 +42,6 @@ import { ContactDetails } from '../examples/reference-app/dist/contact-details.j
 import { FailCounter } from '../examples/reference-app/dist/fail-counter.js'
 import { IncrementCounter } from '../examples/reference-app/dist/increment-counter.js'
 import { lifecycleLog, resetLifecycleLog } from '../examples/reference-app/dist/lifecycle-log.js'
-import { NestedCounter } from '../examples/reference-app/dist/nested-counter.js'
 import { ObserveAi } from '../examples/reference-app/dist/observe-ai.js'
 import { MutateCounterQuery } from '../examples/reference-app/dist/mutate-counter-query.js'
 import { operationLog, resetOperationLog } from '../examples/reference-app/dist/operation-log.js'
@@ -662,7 +661,6 @@ describe('foundational compile-to-boot slice', () => {
     expect(first.manifest.actions.map((action) => [action.id, action.transactional])).toEqual([
       ['action:operations/fail-counter', true],
       ['action:operations/increment-counter', true],
-      ['action:operations/nested-counter', true],
       ['action:operations/observe-ai', true],
     ])
     expect(first.manifest.queries.map((query) => [query.id, query.transactional])).toEqual([
@@ -900,7 +898,9 @@ describe('foundational compile-to-boot slice', () => {
           features = [AccessFeature]
         }
       `),
-    ).rejects.toThrow('cannot be exported as an ordinary service through provides')
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-ROLE-001] ReadAccess is framework-facing and cannot be exported as an ordinary service through provides',
+    )
   })
 
   it('rejects ambiguous and provider-promoted provides declarations', async () => {
@@ -934,7 +934,112 @@ describe('foundational compile-to-boot slice', () => {
         }
       `),
     ).rejects.toThrow(
-      'SharedAccess cannot be both an infrastructure provider and an exported ordinary service',
+      '[DOXA-COMPILER-ROLE-002] SharedAccess cannot be both an infrastructure provider and an exported ordinary service',
+    )
+  })
+
+  it('rejects direct and transitive ActionBus reachability from operation boundaries', async () => {
+    await expect(
+      compileFixture(`
+        import { Action, ActionBus, DoxaApplication, Feature } from '@doxajs/core'
+
+        class InvalidAction extends Action<void, void> {
+          static readonly id = 'invalid'
+          static override readonly access = 'public'
+          private readonly actions = this.inject(ActionBus)
+          async handle(): Promise<void> { await this.actions.execute(InvalidAction, undefined) }
+        }
+        class AppFeature extends Feature { id = 'app'; actions = [InvalidAction] }
+        export class Application extends DoxaApplication {
+          id = 'nested-action-direct'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-ARCH-001] action:app/invalid reaches ActionBus through action:app/invalid -> doxa:action-bus',
+    )
+
+    await expect(
+      compileFixture(`
+        import { ActionBus, DoxaApplication, Feature, Query } from '@doxajs/core'
+
+        class ActionInvoker {
+          constructor(readonly actions: ActionBus) {}
+        }
+        class InvalidQuery extends Query<void, void> {
+          static readonly id = 'invalid'
+          static override readonly access = 'public'
+          private readonly invoker = this.inject(ActionInvoker)
+          handle(): void { void this.invoker }
+        }
+        class AppFeature extends Feature { id = 'app'; queries = [InvalidQuery] }
+        export class Application extends DoxaApplication {
+          id = 'nested-action-transitive-query'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow('query:app/invalid -> service:app/action-invoker -> doxa:action-bus')
+
+    await expect(
+      compileFixture(`
+        import { ActionBus, DoxaApplication, Feature, Job } from '@doxajs/core'
+
+        class ActionInvoker {
+          constructor(readonly actions: ActionBus) {}
+        }
+        class InvalidJob extends Job<void> {
+          static readonly id = 'invalid'
+          static override readonly access = 'public'
+          private readonly invoker = this.inject(ActionInvoker)
+          handle(_input: void): void { void this.invoker }
+        }
+        class AppFeature extends Feature { id = 'app'; jobs = [InvalidJob] }
+        export class Application extends DoxaApplication {
+          id = 'nested-action-transitive-job'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow('job:app/invalid -> service:app/action-invoker -> doxa:action-bus')
+  })
+
+  it('links scope and lifecycle compiler diagnostics to the matching handbook guides', async () => {
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, type ExecutionScoped } from '@doxajs/core'
+
+        class RequestCache implements ExecutionScoped {}
+        class InvalidProvider {
+          static readonly id = 'invalid-provider'
+          constructor(readonly cache: RequestCache) {}
+        }
+        class AppFeature extends Feature { id = 'app'; providers = [InvalidProvider] }
+        export class Application extends DoxaApplication {
+          id = 'invalid-provider-scope'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-SCOPE-001] Singleton provider:app/invalid-provider cannot depend on execution-scoped service:app/request-cache. See Gnosis guide concept.providers-provides.',
+    )
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, Job, type LifecycleContext, type Starts } from '@doxajs/core'
+
+        class InvalidJob extends Job<void> implements Starts {
+          static readonly id = 'invalid'
+          static override readonly access = 'public'
+          start(_context: LifecycleContext): void {}
+          handle(_input: void): void {}
+        }
+        class AppFeature extends Feature { id = 'app'; jobs = [InvalidJob] }
+        export class Application extends DoxaApplication {
+          id = 'invalid-job-lifecycle'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-LIFECYCLE-001] InvalidJob may define dispose(), but jobs cannot own application lifecycle phases. See Gnosis guide role.job.',
     )
   })
 
@@ -1608,22 +1713,11 @@ describe('foundational compile-to-boot slice', () => {
     await runtime.shutdown()
   })
 
-  it('prohibits nested action dispatch and dispatch outside an execution', async () => {
+  it('prohibits action dispatch outside an execution', async () => {
     const runtime = await bootRuntime()
     await expect(runtime.actions.execute(IncrementCounter, { amount: 1 })).rejects.toBeInstanceOf(
       OperationDispatchError,
     )
-
-    await expect(
-      runtime.admit(
-        {
-          actor: { kind: 'system', id: 'nested-test' },
-          transport: { kind: 'test' },
-        },
-        () => runtime.actions.execute(NestedCounter, 1),
-      ),
-    ).rejects.toThrow('Nested action dispatch is prohibited')
-    expect(operationLog.some((entry) => entry.startsWith('transaction:rollback:'))).toBe(true)
     await runtime.shutdown()
   })
 

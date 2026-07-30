@@ -1,4 +1,8 @@
-import type { ProviderManifestEntry } from '@doxajs/manifest'
+import type {
+  JobManifestEntry,
+  OperationManifestEntry,
+  ProviderManifestEntry,
+} from '@doxajs/manifest'
 
 import { DoxaCompilationError } from './errors.js'
 
@@ -59,9 +63,38 @@ export function assertScopeSafety(providers: readonly ProviderManifestEntry[]): 
     for (const dependency of provider.dependencies) {
       if (dependency.targetId && reachesExecutionScope(dependency.targetId, new Set())) {
         throw new DoxaCompilationError(
-          `Singleton ${provider.id} cannot depend on execution-scoped ${dependency.targetId}.`,
+          `[DOXA-COMPILER-SCOPE-001] Singleton ${provider.id} cannot depend on execution-scoped ${dependency.targetId}. See Gnosis guide concept.providers-provides.`,
         )
       }
+    }
+  }
+}
+
+export function assertNoNestedActionBusReachability(
+  providers: readonly ProviderManifestEntry[],
+  operations: readonly OperationManifestEntry[],
+  jobs: readonly JobManifestEntry[],
+): void {
+  const providersById = new Map(providers.map((provider) => [provider.id, provider]))
+  for (const root of [...operations, ...jobs]) {
+    const visit = (targetId: string, path: readonly string[], seen: Set<string>): void => {
+      if (targetId === 'doxa:action-bus') {
+        throw new DoxaCompilationError(
+          `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, and Jobs is prohibited. Move reusable mutation behavior into an ordinary service and let each top-level Action or Job call it inside its own transaction. See Gnosis guide diagnostic.nested-action-dispatch.`,
+        )
+      }
+      if (seen.has(targetId)) return
+      seen.add(targetId)
+      const provider = providersById.get(targetId)
+      if (!provider) return
+      for (const dependency of provider.dependencies) {
+        if (dependency.targetId) {
+          visit(dependency.targetId, [...path, targetId], new Set(seen))
+        }
+      }
+    }
+    for (const dependency of root.dependencies) {
+      if (dependency.targetId) visit(dependency.targetId, [root.id], new Set())
     }
   }
 }

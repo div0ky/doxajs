@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 
@@ -56,5 +57,51 @@ describe('release packaging', () => {
     await execFileAsync(process.execPath, [preparePackageScript], { cwd: packageRoot })
 
     await expect(readFile(path.join(packageRoot, 'NOTICE'), 'utf8')).resolves.toContain('Doxa')
+  })
+
+  it('bundles the executable Gnosis handbook without repository documentation or manifesto files', async () => {
+    const archives = await mkdtemp(path.join(os.tmpdir(), 'doxa-gnosis-package-'))
+    temporaryDirectories.push(archives)
+    const { stdout } = await execFileAsync('pnpm', ['pack', '--pack-destination', archives], {
+      cwd: path.join(repositoryRoot, 'packages/gnosis'),
+    })
+    const archive = stdout
+      .trim()
+      .split(/\r?\n/)
+      .findLast((line) => line.endsWith('.tgz'))
+    if (!archive) throw new Error('Gnosis package archive was not reported.')
+    const { stdout: listing } = await execFileAsync('tar', ['-tzf', archive])
+    const files = listing.trim().split(/\r?\n/)
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'package/dist/handbook.js',
+        'package/dist/handbook.d.ts',
+        'package/dist/documentation.js',
+      ]),
+    )
+    expect(files.some((file) => file.startsWith('package/manifesto/'))).toBe(false)
+    expect(files.some((file) => file.startsWith('package/docs/'))).toBe(false)
+    const extracted = path.join(archives, 'extracted')
+    await mkdir(extracted)
+    await execFileAsync('tar', ['-xzf', archive, '-C', extracted])
+    const handbook = (await import(
+      pathToFileURL(path.join(extracted, 'package/dist/handbook.js')).href
+    )) as {
+      handbookIndex(version: string): readonly { readonly id: string }[]
+      renderHandbookMarkdown(version: string): string
+    }
+    const packageMetadata = JSON.parse(
+      await readFile(path.join(extracted, 'package/package.json'), 'utf8'),
+    ) as { version: string }
+    expect(handbook.handbookIndex(packageMetadata.version)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'programming-model.core' }),
+        expect.objectContaining({ id: 'concept.orchestration-consistency' }),
+        expect.objectContaining({ id: 'role.service' }),
+      ]),
+    )
+    expect(handbook.renderHandbookMarkdown(packageMetadata.version)).toContain(
+      'CreateNotification Action and DeliverDueReminders Job both call NotificationCreator.',
+    )
   })
 })

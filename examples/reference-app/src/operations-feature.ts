@@ -3,7 +3,6 @@ import { Feature } from '@doxajs/core'
 import { DatabaseConnection } from './database-connection.js'
 import { FailCounter } from './fail-counter.js'
 import { IncrementCounter } from './increment-counter.js'
-import { NestedCounter } from './nested-counter.js'
 import { MutateCounterQuery } from './mutate-counter-query.js'
 import { ObserveAi } from './observe-ai.js'
 import { ReadCounter } from './read-counter.js'
@@ -22,6 +21,6 @@ export class OperationsFeature extends Feature {
     ReferenceObservationRecorder,
     ReferenceTelemetry,
   ]
-  actions = [IncrementCounter, FailCounter, NestedCounter, ObserveAi]
+  actions = [IncrementCounter, FailCounter, ObserveAi]
   queries = [ReadCounter, MutateCounterQuery]
 }

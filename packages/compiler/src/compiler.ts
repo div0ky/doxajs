@@ -37,6 +37,7 @@ import { DoxaCompilationError } from './errors.js'
 import { prepareFrameworkSource } from './framework-source.js'
 import {
   assertAcyclicProviderGraph,
+  assertNoNestedActionBusReachability,
   assertScopeSafety,
   assertUnique,
 } from './manifest-validation.js'
@@ -254,7 +255,7 @@ export async function compileApplication(
       if (sharedServiceRoots.has(providerDeclaration)) {
         fail(
           providerDeclaration,
-          `${requiredClassName(providerDeclaration)} cannot be both an infrastructure provider and an exported ordinary service.`,
+          `[DOXA-COMPILER-ROLE-002] ${requiredClassName(providerDeclaration)} cannot be both an infrastructure provider and an exported ordinary service. See Gnosis guide concept.providers-provides.`,
         )
       }
       providerRoots.set(providerDeclaration, { ownerId: feature.id })
@@ -288,7 +289,7 @@ export async function compileApplication(
       if (frameworkBase || configurationByDeclaration.has(serviceDeclaration)) {
         fail(
           serviceDeclaration,
-          `${requiredClassName(serviceDeclaration)} is framework-facing and cannot be exported as an ordinary service through provides.`,
+          `[DOXA-COMPILER-ROLE-001] ${requiredClassName(serviceDeclaration)} is framework-facing and cannot be exported as an ordinary service through provides. See Gnosis guide role.service.`,
         )
       }
       const existing = sharedServiceRoots.get(serviceDeclaration)
@@ -301,7 +302,7 @@ export async function compileApplication(
       if (providerRoots.has(serviceDeclaration)) {
         fail(
           serviceDeclaration,
-          `${requiredClassName(serviceDeclaration)} cannot be both an infrastructure provider and an exported ordinary service.`,
+          `[DOXA-COMPILER-ROLE-002] ${requiredClassName(serviceDeclaration)} cannot be both an infrastructure provider and an exported ordinary service. See Gnosis guide concept.providers-provides.`,
         )
       }
       sharedServiceRoots.set(serviceDeclaration, { ownerId: feature.id })
@@ -446,6 +447,7 @@ export async function compileApplication(
   }
   assertAcyclicProviderGraph(providers)
   assertScopeSafety(providers)
+  assertNoNestedActionBusReachability(providers, [...actions, ...queries], jobs)
   const transactionProviders = providers.filter((provider) =>
     provider.capabilities.includes('transactions'),
   )
@@ -1316,7 +1318,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${name} may define dispose(), but operation handlers cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${name} may define dispose(), but operation handlers cannot own application lifecycle phases. See Gnosis guide role.${role}.`,
       )
     }
     const entry: OperationManifestEntry = {
@@ -1790,7 +1792,10 @@ export async function compileApplication(
     }
     const lifecycle = lifecycleOf(declaration, checker)
     if (lifecycle.start || lifecycle.drain || lifecycle.stop || lifecycle.dispose) {
-      fail(declaration, `${requiredClassName(declaration)} cannot own container lifecycle phases.`)
+      fail(
+        declaration,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} cannot own container lifecycle phases. See Gnosis guide role.observer.`,
+      )
     }
     const name = requiredClassName(declaration)
     const entry: ObserverManifestEntry = {
@@ -1902,7 +1907,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but listeners cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but listeners cannot own application lifecycle phases. See Gnosis guide role.listener.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -1956,7 +1961,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but routes cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but routes cannot own application lifecycle phases. See Gnosis guide role.route.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -2000,7 +2005,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but jobs cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but jobs cannot own application lifecycle phases. See Gnosis guide role.job.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -2131,7 +2136,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but policies cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but policies cannot own application lifecycle phases. See Gnosis guide role.policy.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -2176,7 +2181,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but permission sources cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but permission sources cannot own application lifecycle phases. See Gnosis guide role.permission-source.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -2250,7 +2255,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but signal handlers cannot own lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but signal handlers cannot own lifecycle phases. See Gnosis guide role.signal-handler.`,
       )
     }
     const name = requiredClassName(declaration)
@@ -2290,7 +2295,7 @@ export async function compileApplication(
     if (lifecycle.start || lifecycle.drain || lifecycle.stop)
       fail(
         declaration,
-        `${requiredClassName(declaration)} may define dispose(), but commands cannot own application lifecycle phases.`,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but commands cannot own application lifecycle phases. See Gnosis guide role.command.`,
       )
     const name = requiredClassName(declaration)
     const command = readRequiredStaticString(declaration, 'name')

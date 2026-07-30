@@ -528,8 +528,12 @@ describe('Praxis command suite', () => {
     )
     const agents = await readFile(path.join(destination, 'AGENTS.md'), 'utf8')
     expect(agents).toContain('<doxa-gnosis-guidelines>')
-    expect(agents).toContain('Use Gnosis MCP tools')
-    expect(agents).toContain('Project MCP configuration is discovered')
+    expect(agents).toContain('Call `application_info` and `get_programming_model`')
+    expect(agents).toContain(
+      'If Gnosis is unavailable or version-mismatched, stop Doxa-specific structural and architectural changes.',
+    )
+    expect(agents).toContain('Never dispatch an Action from an Action, Query, or Job')
+    expect(agents).toContain('Use `Feature.provides` to export ordinary services')
     expect(agents).toContain('Use `query_models` instead of raw SQL')
     expect(JSON.parse(await readFile(path.join(destination, '.mcp.json'), 'utf8'))).toEqual({
       mcpServers: {
@@ -635,8 +639,29 @@ describe('Praxis command suite', () => {
     const gnosis = JSON.parse(
       await readFile(path.join(destination, '.doxa/gnosis.json'), 'utf8'),
     ) as {
+      schemaVersion: number
       deployment: Record<string, unknown>
+      handbook: { schemaVersion: number; entries: Array<{ id: string }> }
+      programmingModel: { title: string; rules: string[] }
     }
+    expect(gnosis.schemaVersion).toBe(3)
+    expect(gnosis.handbook).toEqual(
+      expect.objectContaining({
+        schemaVersion: 1,
+        entries: expect.arrayContaining([
+          expect.objectContaining({ id: 'concept.orchestration-consistency' }),
+          expect.objectContaining({ id: 'role.service' }),
+        ]),
+      }),
+    )
+    expect(gnosis.programmingModel).toEqual(
+      expect.objectContaining({
+        title: 'Doxa Programming Model',
+        rules: expect.arrayContaining([
+          expect.stringContaining('service joins its caller’s execution and transaction'),
+        ]),
+      }),
+    )
     expect(gnosis.deployment).toEqual(
       expect.objectContaining({
         strategy: 'one-immutable-image',
@@ -778,6 +803,7 @@ describe('Praxis command suite', () => {
     expect(agents).toContain('# Project instructions\n\nKeep this text.')
     expect(agents.match(/<doxa-gnosis-guidelines>/g)).toHaveLength(1)
     expect(agents).toContain('Use `query_models` instead of raw SQL')
+    expect(agents).toContain('stop Doxa-specific structural and architectural changes')
 
     expect(await runPraxis(['gnosis:install', '--agent=codex,claude'], root, io)).toBe(0)
     expect(await readFile(path.join(root, '.codex/config.toml'), 'utf8')).toBe(codex)

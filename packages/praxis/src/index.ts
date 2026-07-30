@@ -5,12 +5,7 @@ import { fork, spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import { HonoHttpHost } from '@doxajs/http-hono'
-import {
-  createGnosisKnowledge,
-  inspectGraph,
-  inspectSurface,
-  type InspectionSurface,
-} from '@doxajs/introspection'
+import { inspectGraph, inspectSurface, type InspectionSurface } from '@doxajs/introspection'
 import {
   cancelQueueJob,
   installQueueSchema,
@@ -1565,8 +1560,17 @@ async function loadPrebuiltApplication(cwd: string): Promise<PrebuiltApplication
 
 async function writeGnosisKnowledge(
   cwd: string,
-  manifest: Parameters<typeof createGnosisKnowledge>[0],
+  manifest: Parameters<typeof inspectGraph>[0],
 ): Promise<void> {
+  let createGnosisKnowledge: typeof import('@doxajs/gnosis').createGnosisKnowledge
+  try {
+    ;({ createGnosisKnowledge } = await import('@doxajs/gnosis'))
+  } catch (error) {
+    throw new PraxisCommandError(
+      'Gnosis tooling is not installed. Reinstall development dependencies before generating agent knowledge.',
+      { cause: error },
+    )
+  }
   const knowledge = createGnosisKnowledge(manifest)
   await mkdir(path.join(cwd, '.doxa'), { recursive: true })
   await writeFile(
