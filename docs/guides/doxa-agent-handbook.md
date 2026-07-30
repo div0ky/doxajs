@@ -83,7 +83,7 @@ Authorization: Declare public or ability access.
 Transaction: Dispatch an Action or Query when operation semantics are required.
 Injection: Extend Command and use this.inject().
 Scope: Transient per console execution.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: Prefer reusable operations and services over duplicate business logic.
 Rationale: Declared commands preserve authorization, observability, and deterministic discovery.
 Example: doxa reminders:deliver dispatches a Job or Action.
@@ -175,7 +175,7 @@ Authorization: Protected attempts re-resolve authorization in their admitted exe
 Transaction: Every attempt owns one writable transaction. Services called by the Job join it.
 Injection: Extend Job and use this.inject().
 Scope: Fresh execution per attempt with explicitly propagated actor and causality.
-Lifecycle: No application lifecycle; worker draining owns attempt completion.
+Lifecycle: May dispose attempt-local resources; cannot own application start, drain, or stop phases. Worker draining owns attempt completion.
 Dependencies: Use ordinary services. Never dispatch an Action from inside handle().
 Rationale: A Job is already a complete mutation boundary; nesting an Action would create competing ownership.
 Example: DeliverDueReminders calls NotificationCreator, dispatches NotificationCreated, then deletes the reminder.
@@ -198,7 +198,7 @@ Authorization: Declare public or ability access. Local delivery reuses the produ
 Transaction: Local delivery can share the current unit of work. After-commit has no rollback path. Queued delivery gets a fresh execution but must dispatch an Action or use a Job for writable model work.
 Injection: Extend Listener and use this.inject().
 Scope: Transient; queued listeners reconstruct dependencies in a fresh scope.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: Use services for reusable work. A queued Listener may dispatch an Action as a new top-level operation; local and after-commit Listeners may not nest one.
 Rationale: Explicit delivery prevents accidental confusion between atomic and eventual behavior.
 Example: A queued Listener may dispatch CreateNotification as a later top-level Action when notification creation is intentionally eventual.
@@ -232,24 +232,24 @@ Testing: Test mapping and relationships; Test read-only and rollback behavior
 
 Stable guide: `role.observer`
 
-Observe named model persistence phases.
+Observe named model retrieval and persistence phases.
 
-Purpose: Observe named model persistence phases.
-Use when: Cross-cutting model behavior belongs immediately around persistence.
+Purpose: Observe named model retrieval and persistence phases.
+Use when: Cross-cutting model behavior belongs during retrieval or immediately around persistence.
 Registration: Declare the Observer in Feature.observers and bind one Model.
 Generator: doxa make:observer Feature/Name --model=<Model>
 Canonical folder: src/features/<feature>/observers
 Invocation: The model session invokes declared phases.
 Authorization: Observers inherit the owning operation; they are not entry points.
-Transaction: Before/after-persist phases share the unit of work; after-commit is materially later.
+Transaction: Retrieved joins the caller’s read-only or writable model session. Before/after-persist phases share the writable unit of work; committed is materially later.
 Injection: Extend Observer and use this.inject().
 Scope: Transient in the current execution.
 Lifecycle: No application lifecycle.
 Dependencies: Must not create hidden operation boundaries.
 Rationale: Named phases make durability guarantees explicit.
-Example: Normalize a model before persistence; publish non-critical work after commit.
+Example: Decorate a model after retrieval, normalize it before persistence, or publish non-critical work after commit.
 Anti-patterns: Ambiguous save hooks; Authorization policy in observers
-Testing: Test ordering; Test rollback and after-commit failure semantics
+Testing: Test retrieval in read-only and writable sessions; Test ordering, rollback, and after-commit failure semantics
 
 ### PermissionSource
 
@@ -267,7 +267,7 @@ Authorization: Credential constraints deny first; resource Policies may narrow g
 Transaction: Shares the owning operation session or a bounded read-only authorization session.
 Injection: Extend PermissionSource and use this.inject().
 Scope: Execution-scoped.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: May use read-only models and exported ordinary services.
 Rationale: A stable catalog separates authentication from application permission storage.
 Example: ApplicationPermissionSource returns declared contact.read grants.
@@ -290,7 +290,7 @@ Authorization: A Policy may narrow a PermissionSource grant and never widen cred
 Transaction: Shares an owning operation session or uses a bounded read-only authorization session.
 Injection: Extend Policy and use this.inject().
 Scope: Transient per authorization evaluation.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: Use read-only models and services; recursive authorization is prohibited.
 Rationale: One decision point keeps access explainable and default-deny.
 Example: ContactPolicy decides contact.update for the admitted actor and Contact.
@@ -336,7 +336,7 @@ Authorization: Declare public access or one ability.
 Transaction: Owns a bounded read-only model session; create/save/delete fail closed.
 Injection: Extend Query and use this.inject().
 Scope: Transient handler inside one admitted execution.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: May call read-only services; must not reach ActionBus or mutation-only behavior.
 Rationale: A read boundary prevents durable side effects from hiding behind retrieval.
 Example: class GetReminder extends Query<Input, ReminderView> { ... }
@@ -359,7 +359,7 @@ Authorization: Declare public or ability access; do not duplicate policy logic.
 Transaction: Dispatch an Action or Query; the route does not own an independent transaction.
 Injection: Extend Route and use this.inject(ActionBus or QueryBus).
 Scope: Transient per request.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: Prefer operation buses over direct domain mutation.
 Rationale: Thin transport adapters preserve automatic envelopes and reusable application boundaries.
 Example: return this.actions.execute(CreateNotification, input)
@@ -405,7 +405,7 @@ Authorization: The admitted entry role owns authorization; a service may enforce
 Transaction: It never opens or owns a transaction. It joins the caller’s active execution and unit of work.
 Injection: Plain class with constructor injection.
 Scope: Transient by default; implement ExecutionScoped only for per-execution identity or caching.
-Lifecycle: Ordinary services do not own application lifecycle phases.
+Lifecycle: May implement Disposes to dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: May depend on scope-safe services, ports, configuration, and selected providers.
 Rationale: A shared service preserves reuse without nesting operation boundaries or weakening atomicity.
 Example: CreateNotification Action and DeliverDueReminders Job both call NotificationCreator.
@@ -451,7 +451,7 @@ Authorization: Declare public or ability access.
 Transaction: Shares the caller’s current execution and unit of work.
 Injection: Extend SignalHandler and use this.inject().
 Scope: Transient in the current execution.
-Lifecycle: No application lifecycle.
+Lifecycle: May dispose scope-local resources; cannot own application start, drain, or stop phases.
 Dependencies: Use services; do not create nested operation boundaries.
 Rationale: A declared handler keeps synchronous coupling visible in the manifest.
 Example: A handler calls an ordinary service under the caller’s transaction.

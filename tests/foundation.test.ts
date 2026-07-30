@@ -694,6 +694,10 @@ describe('foundational compile-to-boot slice', () => {
         targetId: 'doxa:current-execution',
       }),
     ])
+    expect(
+      first.manifest.providers.find((provider) => provider.id.endsWith('/execution-counter'))
+        ?.lifecycle,
+    ).toEqual({ start: false, drain: false, stop: false, dispose: true })
     expect(firstRegistry).not.toContain('dependencies')
     expect(firstRegistry).not.toContain('lifecycle')
   })
@@ -1002,6 +1006,45 @@ describe('foundational compile-to-boot slice', () => {
     ).rejects.toThrow('job:app/invalid -> service:app/action-invoker -> doxa:action-bus')
   })
 
+  it('checks shared service graphs without revisiting exponentially many paths', async () => {
+    const lastLayer = 23
+    const services = Array.from({ length: lastLayer + 1 }, (_, index) => {
+      if (index === lastLayer) {
+        return `class Shared${index}A {}\nclass Shared${index}B {}`
+      }
+      return `
+        class Shared${index}A {
+          constructor(readonly left: Shared${index + 1}A, readonly right: Shared${index + 1}B) {}
+        }
+        class Shared${index}B {
+          constructor(readonly left: Shared${index + 1}A, readonly right: Shared${index + 1}B) {}
+        }
+      `
+    }).join('\n')
+
+    const result = await compileFixture(`
+      import { DoxaApplication, Feature, Query } from '@doxajs/core'
+
+      ${services}
+
+      class SharedGraphQuery extends Query<void, void> {
+        static readonly id = 'shared-graph'
+        static override readonly access = 'public'
+        private readonly shared = this.inject(Shared0A)
+        handle(): void { void this.shared }
+      }
+      class AppFeature extends Feature { id = 'app'; queries = [SharedGraphQuery] }
+      export class Application extends DoxaApplication {
+        id = 'shared-service-graph'
+        features = [AppFeature]
+      }
+    `)
+
+    expect(result.manifest.queries).toEqual([
+      expect.objectContaining({ id: 'query:app/shared-graph' }),
+    ])
+  })
+
   it('reports handbook-linked provider, service, and canonical-folder advisories at compilation', async () => {
     const result = await compileFixture(
       `
@@ -1067,6 +1110,51 @@ describe('foundational compile-to-boot slice', () => {
     expect(result.advisories).toEqual(inspectArchitectureDiagnostics(result.manifest).items)
   })
 
+  it('ignores role-like Feature directories with or without a canonical role subfolder', async () => {
+    const result = await compileFixture(
+      `
+        import { DoxaApplication, Feature } from '@doxajs/core'
+        import { DirectJobCreated } from './features/jobs/direct-job-created.js'
+        import { JobCreated } from './features/jobs/events/job-created.js'
+        import { DirectNotificationSender } from './features/providers/direct-notification-sender.js'
+        import { NotificationSender } from './features/providers/services/notification-sender.js'
+
+        class AppFeature extends Feature {
+          id = 'app'
+          events = [DirectJobCreated, JobCreated]
+          provides = [DirectNotificationSender, NotificationSender]
+        }
+        export class Application extends DoxaApplication {
+          id = 'canonical-role-folders'
+          features = [AppFeature]
+        }
+      `,
+      {
+        'features/jobs/direct-job-created.ts': `
+          import { Event } from '@doxajs/core'
+          export class DirectJobCreated extends Event<void> {
+            static readonly id = 'direct-job-created'
+          }
+        `,
+        'features/jobs/events/job-created.ts': `
+          import { Event } from '@doxajs/core'
+          export class JobCreated extends Event<void> {
+            static readonly id = 'job-created'
+          }
+        `,
+        'features/providers/direct-notification-sender.ts': `
+          export class DirectNotificationSender {}
+        `,
+        'features/providers/services/notification-sender.ts': `
+          export class NotificationSender {}
+        `,
+      },
+    )
+
+    expect(result.advisories).toEqual([])
+    expect(inspectArchitectureDiagnostics(result.manifest).items).toEqual([])
+  })
+
   it('links scope and lifecycle compiler diagnostics to the matching handbook guides', async () => {
     await expect(
       compileFixture(`
@@ -1106,6 +1194,44 @@ describe('foundational compile-to-boot slice', () => {
     ).rejects.toThrow(
       '[DOXA-COMPILER-LIFECYCLE-001] InvalidJob may define dispose(), but jobs cannot own application lifecycle phases. See Gnosis guide role.job.',
     )
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, type LifecycleContext, type Starts } from '@doxajs/core'
+
+        class InvalidService implements Starts {
+          start(_context: LifecycleContext): void {}
+        }
+        class AppFeature extends Feature { id = 'app'; provides = [InvalidService] }
+        export class Application extends DoxaApplication {
+          id = 'invalid-service-lifecycle'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-LIFECYCLE-001] InvalidService may define dispose(), but ordinary services cannot own application lifecycle phases. See Gnosis guide role.service.',
+    )
+
+    const validService = await compileFixture(`
+      import { DoxaApplication, Feature } from '@doxajs/core'
+
+      class CampaignService {
+        start(id: string): string { return id }
+        drain(id: string): string { return id }
+        stop(id: string): string { return id }
+        dispose(id: string): string { return id }
+      }
+      class AppFeature extends Feature { id = 'app'; provides = [CampaignService] }
+      export class Application extends DoxaApplication {
+        id = 'valid-service-method-names'
+        features = [AppFeature]
+      }
+    `)
+    expect(
+      validService.manifest.providers.find(
+        (provider) => provider.id === 'service:app/campaign-service',
+      )?.lifecycle,
+    ).toEqual({ start: false, drain: false, stop: false, dispose: false })
   })
 
   it('composes an application PermissionSource with resource policies once per execution', async () => {

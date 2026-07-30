@@ -251,6 +251,24 @@ describe('Gnosis read-only local engineering server', () => {
         }),
       )
     }
+    for (const role of [
+      'action',
+      'command',
+      'job',
+      'listener',
+      'permission-source',
+      'policy',
+      'query',
+      'route',
+      'service',
+      'signal-handler',
+    ] as const) {
+      const lifecycle = roles.find((entry) => entry.role === role)?.details?.lifecycle
+      expect(lifecycle).toContain('dispose')
+      expect(lifecycle).toContain('start')
+      expect(lifecycle).toContain('drain')
+      expect(lifecycle).toContain('stop')
+    }
     expect(
       roles
         .map((entry) => entry.details?.generator)
@@ -436,6 +454,38 @@ describe('Gnosis read-only local engineering server', () => {
           mode: 'delivery-dependent',
           description: expect.stringContaining('no automatic writable transaction'),
         }),
+      }),
+    )
+    const committedObserver = manifest.observers.find((entry) => entry.phases.includes('committed'))
+    if (!committedObserver) throw new Error('fixture is missing a committed observer')
+    expect(explainComponent(manifest, committedObserver.id)).toEqual(
+      expect.objectContaining({
+        kind: 'observer',
+        transaction: {
+          mode: 'delivery-dependent',
+          description: expect.stringContaining(
+            'committed phase runs after durability and cannot roll back',
+          ),
+        },
+      }),
+    )
+    expect(explainComponent(manifest, committedObserver.id).transaction.description).toContain(
+      'retrieved phase joins the caller’s active read-only or writable model session',
+    )
+    const retrievedObserverManifest = rehashManifest({
+      ...manifest,
+      observers: manifest.observers.map((entry) =>
+        entry.id === committedObserver.id ? { ...entry, phases: ['retrieved'] as const } : entry,
+      ),
+    })
+    expect(explainComponent(retrievedObserverManifest, committedObserver.id)).toEqual(
+      expect.objectContaining({
+        kind: 'observer',
+        transaction: {
+          mode: 'joins-caller',
+          description:
+            'The retrieved phase joins the caller’s active read-only or writable model session.',
+        },
       }),
     )
 

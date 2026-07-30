@@ -11,3 +11,11 @@ explanations, consistency-aware architecture review, provider/service diagnostic
 Praxis knowledge generation. Reject direct and transitive `ActionBus` reachability from Actions,
 Queries, and Jobs at compilation with the ordinary-service remedy. Return matching handbook-linked
 provider/service and canonical-folder advisories from compilation and print them through Praxis.
+Limit folder advisories to the nearest role-like path segment so Features with role-like names do
+not produce false architecture warnings. Keep role lifecycle guidance aligned with the compiler's
+execution-local disposal contract, and distinguish after-durability Observer phases in component
+transaction explanations. Traverse shared dependency graphs once per operation when enforcing the
+nested `ActionBus` rule. Reject application lifecycle phases on ordinary services while retaining
+explicit scope-local disposal without reserving ordinary business-method names. Exclude role-like
+Feature directory names from folder advisories, and explain retrieved Observer phases across
+read-only and writable model sessions.

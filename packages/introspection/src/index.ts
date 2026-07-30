@@ -596,9 +596,32 @@ function transactionFor(
         'Event facts and queued intent may stage in the active unit of work; each Listener delivery mode determines when reactions execute.',
     }
   }
+  if (kind === 'observer') {
+    const phases = Array.isArray(entry.phases) ? entry.phases : []
+    const includesRetrieved = phases.includes('retrieved')
+    const includesCommitted = phases.includes('committed')
+    const includesPersistence = phases.some(
+      (phase) => phase !== 'retrieved' && phase !== 'committed',
+    )
+    const descriptions = [
+      ...(includesRetrieved
+        ? ['The retrieved phase joins the caller’s active read-only or writable model session.']
+        : []),
+      ...(includesPersistence
+        ? ['Persistence phases join the active writable model unit of work.']
+        : []),
+      ...(includesCommitted
+        ? ['The committed phase runs after durability and cannot roll back the write.']
+        : []),
+    ]
+    return {
+      mode: includesCommitted ? 'delivery-dependent' : 'joins-caller',
+      description:
+        descriptions.join(' ') || 'The Observer joins the caller’s active model session.',
+    }
+  }
   if (
     kind === 'model' ||
-    kind === 'observer' ||
     kind === 'policy' ||
     kind === 'permission-source' ||
     kind === 'signal' ||
@@ -653,7 +676,7 @@ function providerServiceDiagnostics(
   entry: ManifestComponent,
   role: 'provider' | 'service',
 ): readonly ArchitectureDiagnostic[] {
-  const normalizedFile = `/${entry.source.file.replaceAll('\\', '/')}/`.toLowerCase()
+  const roleFolder = nearestRoleFolder(entry.source.file)
   const diagnostics: ArchitectureDiagnostic[] = []
   const add = (code: ArchitectureDiagnosticCode, message: string): void => {
     diagnostics.push(
@@ -667,13 +690,13 @@ function providerServiceDiagnostics(
       }),
     )
   }
-  if (role === 'service' && normalizedFile.includes('/providers/')) {
+  if (role === 'service' && roleFolder === 'providers') {
     add(
       'DOXA-GNOSIS-STRUCTURE-001',
       `${entry.name} is an ordinary service under a providers folder. Move it to services so its path communicates its compiled role; folders do not change runtime behavior.`,
     )
   }
-  if (role === 'provider' && normalizedFile.includes('/services/')) {
+  if (role === 'provider' && roleFolder === 'services') {
     add(
       'DOXA-GNOSIS-STRUCTURE-002',
       `${entry.name} is an infrastructure provider under a services folder. Move it to providers so its path communicates its compiled role; folders do not change runtime behavior.`,
@@ -701,32 +724,8 @@ function componentDiagnostics(
   const diagnostics =
     kind === 'provider' || kind === 'service' ? [...providerServiceDiagnostics(entry, kind)] : []
   const expectedFolder = canonicalFolderFor(kind)
-  const otherRoleFolders = new Set(
-    [
-      'actions',
-      'commands',
-      'config',
-      'events',
-      'http',
-      'jobs',
-      'listeners',
-      'models',
-      'observers',
-      'permission-sources',
-      'policies',
-      'providers',
-      'queries',
-      'schedules',
-      'services',
-      'signals',
-      'signal-handlers',
-    ].filter((folder) => folder !== expectedFolder),
-  )
-  const conflictingFolder = entry.source.file
-    .replaceAll('\\', '/')
-    .toLowerCase()
-    .split('/')
-    .find((segment) => otherRoleFolders.has(segment))
+  const roleFolder = nearestRoleFolder(entry.source.file)
+  const conflictingFolder = roleFolder === expectedFolder ? undefined : roleFolder
   const alreadyReportedOpposite =
     (kind === 'service' && conflictingFolder === 'providers') ||
     (kind === 'provider' && conflictingFolder === 'services')
@@ -743,6 +742,37 @@ function componentDiagnostics(
     )
   }
   return diagnostics
+}
+
+const canonicalRoleFolders = new Set([
+  'actions',
+  'commands',
+  'config',
+  'events',
+  'http',
+  'jobs',
+  'listeners',
+  'models',
+  'observers',
+  'permission-sources',
+  'policies',
+  'providers',
+  'queries',
+  'schedules',
+  'services',
+  'signals',
+  'signal-handlers',
+])
+
+function nearestRoleFolder(file: string): string | undefined {
+  const segments = file.replaceAll('\\', '/').toLowerCase().split('/')
+  const featuresIndex = segments.lastIndexOf('features')
+  const firstRoleIndex = featuresIndex >= 0 ? featuresIndex + 2 : 0
+  for (let index = segments.length - 1; index >= firstRoleIndex; index -= 1) {
+    const segment = segments[index]
+    if (segment && canonicalRoleFolders.has(segment)) return segment
+  }
+  return undefined
 }
 
 export function sanitizeInspectionValue(value: unknown, key?: string, depth = 0): unknown {

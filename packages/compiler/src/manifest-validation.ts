@@ -95,24 +95,25 @@ export function assertNoNestedActionBusReachability(
 ): void {
   const providersById = new Map(providers.map((provider) => [provider.id, provider]))
   for (const root of [...operations, ...jobs]) {
-    const visit = (targetId: string, path: readonly string[], seen: Set<string>): void => {
+    const visited = new Set<string>()
+    const visit = (targetId: string, path: readonly string[]): void => {
       if (targetId === 'doxa:action-bus') {
         throw new DoxaCompilationError(
           `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, and Jobs is prohibited. Move reusable mutation behavior into an ordinary service and let each top-level Action or Job call it inside its own transaction. See Gnosis guide diagnostic.nested-action-dispatch.`,
         )
       }
-      if (seen.has(targetId)) return
-      seen.add(targetId)
+      if (visited.has(targetId)) return
+      visited.add(targetId)
       const provider = providersById.get(targetId)
       if (!provider) return
       for (const dependency of provider.dependencies) {
         if (dependency.targetId) {
-          visit(dependency.targetId, [...path, targetId], new Set(seen))
+          visit(dependency.targetId, [...path, targetId])
         }
       }
     }
     for (const dependency of root.dependencies) {
-      if (dependency.targetId) visit(dependency.targetId, [root.id], new Set())
+      if (dependency.targetId) visit(dependency.targetId, [root.id])
     }
   }
 }
@@ -205,15 +206,15 @@ function componentAdvisories(
       source: entry.source,
     })
   }
-  const normalizedFile = `/${entry.source.file.replaceAll('\\', '/')}/`.toLowerCase()
-  if (kind === 'service' && normalizedFile.includes('/providers/')) {
+  const roleFolder = nearestRoleFolder(entry.source.file)
+  if (kind === 'service' && roleFolder === 'providers') {
     add(
       'DOXA-GNOSIS-STRUCTURE-001',
       'diagnostic.provider-service-location',
       `${entry.name} is an ordinary service under a providers folder. Move it to services so its path communicates its compiled role; folders do not change runtime behavior.`,
     )
   }
-  if (kind === 'provider' && normalizedFile.includes('/services/')) {
+  if (kind === 'provider' && roleFolder === 'services') {
     add(
       'DOXA-GNOSIS-STRUCTURE-002',
       'diagnostic.provider-service-location',
@@ -236,33 +237,7 @@ function componentAdvisories(
   }
 
   const expectedFolder = canonicalFolder(kind)
-  const conflictingFolder = entry.source.file
-    .replaceAll('\\', '/')
-    .toLowerCase()
-    .split('/')
-    .find(
-      (segment) =>
-        segment !== expectedFolder &&
-        [
-          'actions',
-          'commands',
-          'config',
-          'events',
-          'http',
-          'jobs',
-          'listeners',
-          'models',
-          'observers',
-          'permission-sources',
-          'policies',
-          'providers',
-          'queries',
-          'schedules',
-          'services',
-          'signals',
-          'signal-handlers',
-        ].includes(segment),
-    )
+  const conflictingFolder = roleFolder === expectedFolder ? undefined : roleFolder
   const alreadyReportedOpposite =
     (kind === 'service' && conflictingFolder === 'providers') ||
     (kind === 'provider' && conflictingFolder === 'services')
@@ -274,6 +249,37 @@ function componentAdvisories(
     )
   }
   return advisories
+}
+
+const canonicalRoleFolders = new Set([
+  'actions',
+  'commands',
+  'config',
+  'events',
+  'http',
+  'jobs',
+  'listeners',
+  'models',
+  'observers',
+  'permission-sources',
+  'policies',
+  'providers',
+  'queries',
+  'schedules',
+  'services',
+  'signals',
+  'signal-handlers',
+])
+
+function nearestRoleFolder(file: string): string | undefined {
+  const segments = file.replaceAll('\\', '/').toLowerCase().split('/')
+  const featuresIndex = segments.lastIndexOf('features')
+  const firstRoleIndex = featuresIndex >= 0 ? featuresIndex + 2 : 0
+  for (let index = segments.length - 1; index >= firstRoleIndex; index -= 1) {
+    const segment = segments[index]
+    if (segment && canonicalRoleFolders.has(segment)) return segment
+  }
+  return undefined
 }
 
 function canonicalFolder(kind: AdvisoryComponentKind): string {
