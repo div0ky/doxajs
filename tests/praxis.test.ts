@@ -524,7 +524,7 @@ describe('Praxis command suite', () => {
     expect(feature).not.toContain('HealthRoute')
     expect(JSON.parse(await readFile(path.join(destination, 'package.json'), 'utf8'))).toEqual(
       expect.objectContaining({
-        packageManager: 'pnpm@11.10.0',
+        packageManager: 'pnpm@11.18.0',
         scripts: expect.objectContaining({
           dev: 'doxa dev',
           start: 'doxa serve',
@@ -1056,7 +1056,7 @@ describe('Praxis command suite', () => {
       dependencies: Record<string, string>
       devDependencies: Record<string, string>
     }
-    packageJson.packageManager = 'pnpm@11.10.0'
+    packageJson.packageManager = 'pnpm@11.18.0'
     packageJson.engines.node = '>=24.7 <25'
     packageJson.dependencies['@doxajs/core'] = '0.1.0-alpha.5'
     packageJson.devDependencies.typescript = '^6.0.0'
@@ -1158,7 +1158,7 @@ describe('Praxis command suite', () => {
       '@doxajs/testing': '^0.1.0-alpha.5',
       typescript: '^6.0.0',
     })
-    expect(upgraded.packageManager).toBe('pnpm@11.10.0')
+    expect(upgraded.packageManager).toBe('pnpm@11.18.0')
     expect(invocations.map(({ args }) => args)).toEqual([
       ['install'],
       [
@@ -1517,7 +1517,7 @@ function registryUpgradeTarget(version: string): { code: number; stdout: string;
         frameworkPackages: ['@doxajs/core', '@doxajs/praxis', '@doxajs/testing'],
         toolchain: {
           node: '>=24.7 <25',
-          packageManager: 'pnpm@11.10.0',
+          packageManager: 'pnpm@11.18.0',
           devDependencies: {
             '@types/node': '^24.0.0',
             typescript: '^6.0.0',
