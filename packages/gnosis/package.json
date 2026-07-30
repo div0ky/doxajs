@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/gnosis",
-  "version": "0.1.0-alpha.27",
+  "version": "0.1.0-alpha.28",
   "description": "The first-party local AI engineering server for Doxa applications.",
   "license": "Apache-2.0",
   "repository": {
