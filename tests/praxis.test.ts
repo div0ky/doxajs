@@ -241,6 +241,22 @@ describe('Praxis command suite', () => {
     ])
   })
 
+  it('rejects malformed MCP application directory options before startup', async () => {
+    const root = await temporaryDirectory()
+    const errors: string[] = []
+    const io = {
+      out: () => undefined,
+      error: (message: string) => errors.push(message),
+    }
+
+    expect(await runPraxis(['mcp', '--cwd='], root, io)).toBe(1)
+    expect(await runPraxis(['mcp', '--cwd=apps/demo', '--unexpected'], root, io)).toBe(1)
+    expect(errors).toEqual([
+      'MCP application cwd cannot be empty.',
+      'Unknown mcp option --unexpected.',
+    ])
+  })
+
   it('launches pinned Drizzle Studio through db:studio without exposing credentials in arguments', async () => {
     const root = await temporaryDirectory()
     const connectionString = 'postgresql://doxa:private-password@127.0.0.1:54329/doxa'

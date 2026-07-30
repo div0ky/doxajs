@@ -437,8 +437,11 @@ export async function runPraxis(
 
 function mcpApplicationCwd(cwd: string, args: readonly string[]): string {
   if (args.length === 0) return cwd
-  if (args.length !== 1 || !args[0]!.startsWith('--cwd=')) {
-    throw new PraxisCommandError(`Unknown mcp option ${args[0] ?? '(empty)'}.`)
+  if (!args[0]!.startsWith('--cwd=')) {
+    throw new PraxisCommandError(`Unknown mcp option ${args[0]}.`)
+  }
+  if (args.length > 1) {
+    throw new PraxisCommandError(`Unknown mcp option ${args[1]}.`)
   }
   const value = args[0]!.slice('--cwd='.length)
   if (value.length === 0) throw new PraxisCommandError('MCP application cwd cannot be empty.')
