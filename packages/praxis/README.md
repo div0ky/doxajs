@@ -53,6 +53,12 @@ server initialized. Praxis writes Codex's application working directory as an ab
 Codex does not anchor a configured relative MCP working directory to the task workspace, while
 preserving each other client's own path convention.
 
+The managed guidance and MCP initialization disclose Doxa's packaged programming model
+automatically. Gnosis explains roles, components, transaction ownership, provider/service
+boundaries, and atomic versus after-commit versus eventual orchestration. If matching Gnosis
+guidance is unavailable, agents are instructed to stop Doxa-specific structural and architectural
+changes until the startup or version issue is resolved.
+
 Regenerate one or more project registrations after removing or customizing them:
 
 ```sh

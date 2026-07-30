@@ -26,3 +26,14 @@ unrelated physical columns.
 
 `list_permission_sources` exposes the compiled source catalog and graph metadata without loading
 group memberships, user grants, or other runtime permission facts.
+
+Gnosis also ships Doxa's complete version-matched agent handbook. MCP initialization and managed
+guidance disclose the core programming model automatically. `get_programming_model`, `explain_role`,
+`explain_component`, `list_services`, `list_providers`, `review_architecture`, and `read_doc`
+provide deterministic detail without source or manifesto access.
+
+Architecture review requires an explicit business invariant and atomic, after-commit, or eventual
+consistency requirement. It explains transaction ownership, shared-service collaboration,
+provider-versus-service semantics, rejected alternatives, and handbook-linked diagnostics. If
+matching Gnosis guidance is unavailable, managed guidance requires agents to stop Doxa-specific
+structural and architectural changes.

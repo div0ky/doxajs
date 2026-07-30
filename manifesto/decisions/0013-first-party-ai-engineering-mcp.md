@@ -6,6 +6,8 @@
 - **Package:** `@doxajs/gnosis`
 - **Implementation:** Read-only local Phase 1 activated
 - **Activated:** 2026-07-13
+- **Architectural guidance:** Comprehensive authority activated by
+  [0036](0036-gnosis-architectural-authority.md) on 2026-07-30
 - **Decision owners:** Doxa maintainers
 
 ## Decision

@@ -13,3 +13,8 @@ dependencies, scope, and provenance. Introspection never invokes the source or r
 permission records.
 
 Ordinary application code should not import this package.
+
+Schema 2 adds provider and ordinary-service surfaces, component dependency and consumer
+explanations, effective transaction behavior, canonical folder guidance, and stable advisory
+diagnostics. Folder diagnostics describe misleading provider/service names and any unambiguous
+role-folder mismatch without changing path-independent runtime semantics.

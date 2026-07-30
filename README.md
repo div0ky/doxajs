@@ -79,8 +79,9 @@ To work on Doxa itself before package publication, follow the
 - A first-party OpenTelemetry adapter over Doxa-owned trace and metric contracts.
 - Theoria, the causal execution debugger with production diagnostics and a span waterfall.
 - Praxis, the generator, migration, runtime, inspection, and recovery command suite.
-- Gnosis, the automatically registered local read-only MCP server over the compiled application
-  graph, versioned guidance, and bounded non-production model queries.
+- Gnosis, the automatically registered local architectural authority over the compiled application
+  graph, comprehensive versioned handbook, consistency review, diagnostics, and bounded
+  non-production model queries.
 
 ## Repository map
 

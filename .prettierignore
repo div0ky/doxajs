@@ -8,3 +8,4 @@ node_modules
 pnpm-lock.yaml
 examples/field-guide/docs/design
 examples/field-guide/next-env.d.ts
+docs/guides/doxa-agent-handbook.md
