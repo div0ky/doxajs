@@ -28,6 +28,7 @@
     "lint:fix": "pnpm lint --fix",
     "package:check": "pnpm build && node scripts/check-packages.mjs",
     "release": "pnpm verify && changeset publish",
+    "version:packages": "changeset version && node scripts/sync-agent-handbook-version.mjs",
     "build:field-guide": "pnpm --filter @doxajs/field-guide build",
     "build:website": "pnpm --filter @doxajs/website build",
     "check:field-guide": "pnpm --filter @doxajs/field-guide lint && pnpm --filter @doxajs/field-guide build",
