@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/realtime",
-  "version": "0.1.0-alpha.28",
+  "version": "0.1.0-alpha.29",
   "description": "Typed subscriber client for Doxa realtime broadcasts.",
   "license": "Apache-2.0",
   "repository": {

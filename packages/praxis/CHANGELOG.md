@@ -1,5 +1,18 @@
 # @doxajs/praxis
 
+## 0.1.0-alpha.29
+
+### Patch Changes
+
+- a541e16: Launch a nested application's generated Gnosis MCP server from the application directory
+  so TypeScript and package resolution remain correct when the MCP client starts at the repository
+  root.
+  - @doxajs/core@0.1.0-alpha.29
+  - @doxajs/http-hono@0.1.0-alpha.29
+  - @doxajs/queue-pg-boss@0.1.0-alpha.29
+  - @doxajs/runtime@0.1.0-alpha.29
+  - @doxajs/introspection@0.1.0-alpha.29
+
 ## 0.1.0-alpha.28
 
 ### Patch Changes

@@ -60,6 +60,7 @@
     "fix-drizzle-studio-runtime",
     "fix-gnosis-codex-cwd",
     "fix-gnosis-monorepo-registration",
+    "fix-nested-gnosis-mcp-launch",
     "fix-plugin-array-inference",
     "fix-postgres-mapped-readiness",
     "fix-praxis-pnpm-scaffold",

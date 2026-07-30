@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/testing",
-  "version": "0.1.0-alpha.28",
+  "version": "0.1.0-alpha.29",
   "description": "First-party test harnesses, fakes, and assertions for Doxa applications.",
   "license": "Apache-2.0",
   "repository": {
