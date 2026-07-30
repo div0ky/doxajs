@@ -11,18 +11,20 @@ import {
 export interface TwilioSmsOptions {
   readonly accountSid: string
   readonly authToken: string
-  readonly messagingServiceSid: string
+  readonly messagingServiceSid?: string
   readonly statusCallback: string
   readonly endpoint?: string
   readonly fetch?: typeof globalThis.fetch
 }
+
+const E164 = /^\+[1-9]\d{7,14}$/
 
 export class TwilioSmsTransport extends SmsTransport {
   constructor(private readonly options: TwilioSmsOptions) {
     super()
   }
   async send(message: SmsMessage): Promise<DeliveryAcceptance> {
-    if (!/^\+[1-9]\d{7,14}$/.test(message.to))
+    if (!E164.test(message.to))
       throw new DeliveryError('SMS destination must be E.164.', 'permanent', 'invalid_destination')
     if (!message.id || !message.text || message.text.length > 1_600)
       throw new DeliveryError(
@@ -30,14 +32,24 @@ export class TwilioSmsTransport extends SmsTransport {
         'permanent',
         'invalid_message',
       )
+    if (message.from !== undefined && !E164.test(message.from))
+      throw new DeliveryError('SMS sender must be E.164.', 'permanent', 'invalid_sender')
+    const selectedSender = message.from ?? this.options.messagingServiceSid
+    if (!selectedSender)
+      throw new DeliveryError(
+        'SMS requires an explicit sender or Messaging Service SID.',
+        'permanent',
+        'missing_sender',
+      )
     const callback = new URL(this.options.statusCallback)
     callback.searchParams.set('doxa_message_id', message.id)
     const body = new URLSearchParams({
       To: message.to,
       Body: message.text,
-      MessagingServiceSid: this.options.messagingServiceSid,
       StatusCallback: callback.toString(),
     })
+    if (message.from !== undefined) body.set('From', message.from)
+    else body.set('MessagingServiceSid', selectedSender)
     const endpoint =
       this.options.endpoint ??
       `https://api.twilio.com/2010-04-01/Accounts/${this.options.accountSid}/Messages.json`

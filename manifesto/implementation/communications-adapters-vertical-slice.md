@@ -13,9 +13,12 @@ delivered, classifies HTTP retry behavior, verifies ECDSA P-256 signed event web
 batched arrays and stable event IDs, and normalizes delivery, bounce, deferral, suppression, spam,
 and unsubscribe outcomes.
 
-The Twilio SMS adapter uses a Messaging Service, E.164 destinations, Basic authentication, status
-callbacks, and normalized acceptance/delivery outcomes. It validates `X-Twilio-Signature` using the
-canonical URL-plus-sorted-parameters HMAC, and treats error `21610` as a non-retryable opt-out.
+The Twilio SMS adapter uses either a configured Messaging Service or an explicit per-message E.164
+sender, E.164 destinations, Basic authentication, status callbacks, and normalized
+acceptance/delivery outcomes. Explicit senders take precedence, the adapter never sends both `From`
+and `MessagingServiceSid`, and missing or invalid senders fail permanently before an HTTP request.
+It validates `X-Twilio-Signature` using the canonical URL-plus-sorted-parameters HMAC, and treats
+error `21610` as a non-retryable opt-out.
 
 First-party fakes capture Doxa messages and return provider-independent acceptances. Adapter tests
 use injected fetch implementations and generated signatures; they never contact providers.
@@ -26,6 +29,10 @@ return the application message ID. A failed action rolls back both records. The 
 invokes the selected transport with preserved execution context and records provider acceptance in a
 separate transaction. Transient `DeliveryError` failures remain retryable; permanent, suppression,
 and opt-out outcomes are recorded and complete without pointless retries.
+
+The complete provider-independent SMS payload, including an optional `from`, is stored in both the
+delivery ledger and queue envelope. Praxis redrive reconstructs delivery from the ledger payload, so
+an explicit sender survives initial delivery attempts and later retries.
 
 The reference application exposes signed SendGrid and Twilio routes. SendGrid signatures are checked
 against the untouched body and bounded to a five-minute timestamp window. Twilio signatures cover

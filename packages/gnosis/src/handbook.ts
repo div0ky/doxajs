@@ -886,6 +886,7 @@ const moduleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     ['sms'],
     'Twilio SMS',
     'Queue SMS inside an Action or Job so delivery intent commits atomically with application state.',
+    'Configure a Messaging Service for default sender selection, or set SmsMessage.from to an E.164 sticky number selected by the application. An explicit sender wins when both are available; Twilio receives From or MessagingServiceSid, never both. Invalid explicit senders fail permanently with invalid_sender before an HTTP request, and messages with neither sender mode fail permanently with missing_sender. The complete SMS payload survives transactional queueing and delivery redrive.',
   ),
 ]
 
@@ -1045,7 +1046,8 @@ function moduleGuide(
   plugins: readonly string[] | undefined,
   capabilities: readonly string[] | undefined,
   heading: string,
-  text: string,
+  summary: string,
+  text = summary,
 ): Omit<HandbookEntry, 'version'> {
   const activation = {
     ...(plugins ? { plugins } : {}),
@@ -1057,7 +1059,7 @@ function moduleGuide(
     package: packageName,
     source: 'module-guidance.md',
     heading,
-    summary: text,
+    summary,
     aliases: [packageName, heading],
     rationale:
       'Installed first-party modules must extend the core programming model without changing its execution guarantees.',

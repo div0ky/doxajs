@@ -669,3 +669,5 @@ Theoria records privacy-safe bounded execution observations and never changes ap
 Stable guide: `module.twilio-sms`
 
 Queue SMS inside an Action or Job so delivery intent commits atomically with application state.
+
+Configure a Messaging Service for default sender selection, or set SmsMessage.from to an E.164 sticky number selected by the application. An explicit sender wins when both are available; Twilio receives From or MessagingServiceSid, never both. Invalid explicit senders fail permanently with invalid_sender before an HTTP request, and messages with neither sender mode fail permanently with missing_sender. The complete SMS payload survives transactional queueing and delivery redrive.

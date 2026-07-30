@@ -100,3 +100,30 @@ publisher must synchronously observe transport success or failure.
 
 Enable Doxa's first-party transport with `doxa add keryx`. Keryx is a framework-owned optional core
 module; application Features continue to depend only on the broadcasting contracts above.
+
+## SMS
+
+Queue provider-independent SMS inside an Action or Job so the delivery intent commits atomically
+with application state:
+
+```ts
+import { Action, Sms } from '@doxajs/core'
+
+export class NotifyContact extends Action<{ contact: Contact }> {
+  static override readonly id = 'notify-contact'
+  private readonly sms = this.inject(Sms)
+
+  async handle({ contact }: { contact: Contact }): Promise<void> {
+    await this.sms.send({
+      id: crypto.randomUUID(),
+      from: contact.stickyTwilioNumber,
+      to: contact.phoneNumber,
+      text: 'Your appointment is confirmed.',
+    })
+  }
+}
+```
+
+`SmsMessage.from` is optional and provider-independent. A selected transport owns sender validation
+and delivery semantics; for example, `@doxajs/twilio-sms` accepts an explicit E.164 sender or falls
+back to its configured Messaging Service.
