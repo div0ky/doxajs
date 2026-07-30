@@ -568,13 +568,9 @@ Stable guide: `module.auth-postgres`
 
 Authentication is framework-owned and separate from application permission facts.
 
-Authentication is framework-owned and separate from application permission facts.
-
 ### Semantic compiler
 
 Stable guide: `module.compiler`
-
-The compiler reads declaration-only application structure, emits deterministic artifacts, and fails closed on invalid architecture.
 
 The compiler reads declaration-only application structure, emits deterministic artifacts, and fails closed on invalid architecture.
 
@@ -584,13 +580,9 @@ Stable guide: `module.core`
 
 Application code imports Doxa roles and contracts from core; the handbook programming model governs their use.
 
-Application code imports Doxa roles and contracts from core; the handbook programming model governs their use.
-
 ### Gnosis
 
 Stable guide: `module.gnosis`
-
-Gnosis combines compiled application truth with this version-matched handbook and never scans source.
 
 Gnosis combines compiled application truth with this version-matched handbook and never scans source.
 
@@ -600,13 +592,9 @@ Stable guide: `module.http-hono`
 
 Routes are thin admitted adapters. Return payloads and let Doxa own success and failure envelopes.
 
-Routes are thin admitted adapters. Return payloads and let Doxa own success and failure envelopes.
-
 ### Application introspection
 
 Stable guide: `module.introspection`
-
-Introspection provides bounded deterministic manifest views shared by Praxis and Gnosis.
 
 Introspection provides bounded deterministic manifest views shared by Praxis and Gnosis.
 
@@ -616,13 +604,9 @@ Stable guide: `module.keryx`
 
 Broadcast accepted facts through the selected transport; admission, authorization, and causal execution remain Doxa-owned.
 
-Broadcast accepted facts through the selected transport; admission, authorization, and causal execution remain Doxa-owned.
-
 ### Application manifest
 
 Stable guide: `module.manifest`
-
-The versioned inert manifest is authoritative for application structure; agents and runtime code must not replace it with source discovery.
 
 The versioned inert manifest is authoritative for application structure; agents and runtime code must not replace it with source discovery.
 
@@ -632,13 +616,9 @@ Stable guide: `module.opentelemetry`
 
 Doxa owns trace context across admitted executions and links durable asynchronous work causally.
 
-Doxa owns trace context across admitted executions and links durable asynchronous work causally.
-
 ### PostgreSQL persistence
 
 Stable guide: `module.postgres-drizzle`
-
-Actions and Jobs write through one PostgreSQL unit of work; Queries and authorization use read-only sessions.
 
 Actions and Jobs write through one PostgreSQL unit of work; Queries and authorization use read-only sessions.
 
@@ -648,13 +628,9 @@ Stable guide: `module.praxis`
 
 Praxis is the canonical generator, build, migration, runtime, inspection, upgrade, and Gnosis registration command suite.
 
-Praxis is the canonical generator, build, migration, runtime, inspection, upgrade, and Gnosis registration command suite.
-
 ### Queueing and scheduling
 
 Stable guide: `module.queue-pg-boss`
-
-Jobs are at-least-once writable executions. Queued listener intent is outbox-backed and becomes eligible only after commit.
 
 Jobs are at-least-once writable executions. Queued listener intent is outbox-backed and becomes eligible only after commit.
 
@@ -664,13 +640,9 @@ Stable guide: `module.realtime`
 
 The browser client follows Keryx admission and protocol contracts; application authorization remains server-owned.
 
-The browser client follows Keryx admission and protocol contracts; application authorization remains server-owned.
-
 ### Artifact-only runtime
 
 Stable guide: `module.runtime`
-
-The runtime boots only compiled artifacts and owns admitted execution, transaction, lifecycle, authorization, and delivery semantics.
 
 The runtime boots only compiled artifacts and owns admitted execution, transaction, lifecycle, authorization, and delivery semantics.
 
@@ -680,13 +652,9 @@ Stable guide: `module.sendgrid`
 
 Queue mail inside an Action or Job so delivery intent commits atomically with application state.
 
-Queue mail inside an Action or Job so delivery intent commits atomically with application state.
-
 ### Testing harness
 
 Stable guide: `module.testing`
-
-Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.
 
 Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.
 
@@ -696,12 +664,8 @@ Stable guide: `module.theoria`
 
 Theoria records privacy-safe bounded execution observations and never changes application semantics.
 
-Theoria records privacy-safe bounded execution observations and never changes application semantics.
-
 ### Twilio SMS
 
 Stable guide: `module.twilio-sms`
-
-Queue SMS inside an Action or Job so delivery intent commits atomically with application state.
 
 Queue SMS inside an Action or Job so delivery intent commits atomically with application state.
