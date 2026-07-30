@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -1090,6 +1090,49 @@ describe('Gnosis read-only local engineering server', () => {
       const model = await client.callTool({ name: 'get_programming_model', arguments: {} })
       expect(model.structuredContent).toEqual(
         expect.objectContaining({ title: 'Doxa Programming Model' }),
+      )
+    } finally {
+      await client.close()
+    }
+  }, 15_000)
+
+  it('is spawned from repository-root registration for a nested application', async () => {
+    const repositoryRoot = path.join(artifactsDirectory, 'nested-repository')
+    const application = path.join(repositoryRoot, 'apps/garden')
+    await mkdir(path.join(repositoryRoot, '.git'), { recursive: true })
+    const errors: string[] = []
+    const code = await runPraxis(['new', 'Garden', `--directory=${application}`], repositoryRoot, {
+      out: () => undefined,
+      error: (message) => errors.push(message),
+    })
+    if (code !== 0) throw new Error(errors.join('\n'))
+    await symlink(path.join(workspace, 'node_modules'), path.join(application, 'node_modules'))
+
+    const client = new Client({ name: 'nested-gnosis-stdio-test', version: '1.0.0' })
+    const transport = new StdioClientTransport({
+      command: 'node',
+      args: ['./apps/garden/node_modules/@doxajs/praxis/dist/bin.js', 'mcp', '--cwd=apps/garden'],
+      cwd: repositoryRoot,
+      env: { ...getDefaultEnvironment(), CI: '1' },
+      stderr: 'pipe',
+    })
+    let stderr = ''
+    transport.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    try {
+      await client.connect(transport)
+    } catch (error) {
+      throw new Error(`nested doxa mcp failed: ${String(error)}\n${stderr}`, { cause: error })
+    }
+    try {
+      const result = await client.callTool({ name: 'application_info', arguments: {} })
+      expect(result.structuredContent).toEqual(
+        expect.objectContaining({
+          applicationId: 'garden',
+          manifestFormatVersion: 7,
+          gnosisVersion,
+        }),
       )
     } finally {
       await client.close()
