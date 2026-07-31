@@ -6,6 +6,7 @@ import {
   type Disposes,
   type ExecutionContext,
   type JournalFact,
+  HttpError,
   type JsonValue,
   type LifecycleContext,
   type ModelStorage,
@@ -30,7 +31,7 @@ import {
 } from '@doxajs/core'
 import { and, eq, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { Pool, type PoolClient } from 'pg'
+import { DatabaseError, Pool, type PoolClient } from 'pg'
 
 import {
   entityStates,
@@ -1261,19 +1262,61 @@ function deliveryContext(context: ExecutionContext): DurableExecutionEnvelope {
   }
 }
 
-function translatePersistenceError(error: unknown): Error {
-  if (error instanceof PersistenceError) return error
-  if (!postgresCode(error) && error instanceof Error) return error
-  return new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+function translatePersistenceError(error: unknown): unknown {
+  if (error instanceof PersistenceError || error instanceof HttpError) return error
+  return postgresDriverFailure(error)
+    ? new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+    : error
 }
 
 function postgresCode(error: unknown): string | undefined {
-  let current: unknown = error
+  return postgresError(error)?.code
+}
+
+function postgresError(error: unknown): DatabaseError | undefined {
+  return findError(
+    error,
+    (candidate): candidate is DatabaseError => candidate instanceof DatabaseError,
+  )
+}
+
+const postgresTransportErrorCodes = new Set([
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'EPIPE',
+  'ETIMEDOUT',
+])
+
+function postgresDriverFailure(error: unknown): Error | undefined {
+  return findError(error, (candidate): candidate is Error => {
+    if (candidate instanceof DatabaseError) return true
+    if (!(candidate instanceof Error) || !('code' in candidate) || !('syscall' in candidate)) {
+      return false
+    }
+    return (
+      typeof candidate.code === 'string' &&
+      postgresTransportErrorCodes.has(candidate.code) &&
+      typeof candidate.syscall === 'string'
+    )
+  })
+}
+
+function findError<ErrorType>(
+  error: unknown,
+  predicate: (candidate: unknown) => candidate is ErrorType,
+): ErrorType | undefined {
   const visited = new Set<unknown>()
-  while (typeof current === 'object' && current !== null && !visited.has(current)) {
+  const remaining: unknown[] = [error]
+  while (remaining.length > 0) {
+    const current = remaining.pop()
+    if (typeof current !== 'object' || current === null || visited.has(current)) continue
     visited.add(current)
-    if ('code' in current && typeof current.code === 'string') return current.code
-    current = 'cause' in current ? current.cause : undefined
+    if (predicate(current)) return current
+    if (current instanceof AggregateError) remaining.push(...current.errors)
+    if ('cause' in current) remaining.push(current.cause)
   }
   return undefined
 }

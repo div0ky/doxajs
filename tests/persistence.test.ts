@@ -21,11 +21,13 @@ import {
   type ExecutionContext,
   DetachedModelError,
   EventDispatchError,
+  HttpError,
   SignalDispatchError,
   ModelNotFoundError,
   ReadOnlyModelError,
   UnknownModelAttributeError,
   OptimisticConcurrencyError,
+  PersistenceError,
   ObservationRecorder,
   isRecentPasswordAuthentication,
   ReadOnlyExecutionError,
@@ -2604,6 +2606,17 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     expect(hello.status).toBe(200)
     expect(await responseData(hello)).toEqual({ message: 'Welcome, Ada!' })
 
+    const attachmentNotReady = await http.fetch(
+      new Request('http://doxa.test/attachments/scanning/status'),
+    )
+    expect(attachmentNotReady.status).toBe(409)
+    expect(await responseFailure(attachmentNotReady)).toEqual({
+      ok: false,
+      code: 'direct_message_attachment_not_ready',
+      message: 'That attachment is not ready.',
+      data: null,
+    })
+
     const incremented = await http.fetch(
       new Request('http://doxa.test/counters/http-counter/increment', {
         method: 'POST',
@@ -3409,6 +3422,110 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       ),
     ).rejects.toBeInstanceOf(ReadOnlyExecutionError)
     expect(await durableRowCounts()).toEqual({ entities: 0, journal: 0, outbox: 0 })
+  })
+
+  it('preserves application errors across every PostgreSQL transaction boundary', async () => {
+    const manager = new PostgresTransactionManager({ connectionString })
+    const lifecycle = lifecycleContext()
+    await manager.start(lifecycle)
+    try {
+      const applicationFailures = [
+        {
+          error: new HttpError(409, 'read_not_ready', 'The read is not ready.'),
+          execute: (error: Error) =>
+            manager.read(executionContext('application-read-error'), async () => {
+              throw error
+            }),
+        },
+        {
+          error: new HttpError(422, 'write_refused', 'The write was refused.'),
+          execute: (error: Error) =>
+            manager.transaction(executionContext('application-write-error'), async (unitOfWork) => {
+              await unitOfWork.saveEntity({
+                type: 'application-error-rollback',
+                id: 'application-error-rollback',
+                state: { staged: true },
+              })
+              throw error
+            }),
+        },
+        {
+          error: Object.assign(new Error('The framework operation was refused.'), {
+            code: '23505',
+          }),
+          execute: (error: Error) =>
+            manager.frameworkTransaction(
+              executionContext('application-framework-error'),
+              async () => {
+                throw error
+              },
+            ),
+        },
+      ]
+      for (const applicationFailure of applicationFailures) {
+        const caught = await applicationFailure
+          .execute(applicationFailure.error)
+          .catch((error: unknown) => error)
+        expect(caught).toBe(applicationFailure.error)
+        expect(caught).not.toBeInstanceOf(PersistenceError)
+      }
+      expect(
+        (
+          await pool.query(
+            `SELECT 1 FROM doxa_entity_states
+             WHERE entity_type = 'application-error-rollback'
+               AND entity_id = 'application-error-rollback'`,
+          )
+        ).rowCount,
+      ).toBe(0)
+
+      const mappedDatabaseFailure = await manager
+        .frameworkTransaction(
+          executionContext('mapped-postgres-driver-error'),
+          async (_unitOfWork, transaction) => {
+            try {
+              await transaction.query('SELECT * FROM doxa_missing_application_mapping_proof')
+            } catch (cause) {
+              throw new HttpError(
+                409,
+                'mapped_database_conflict',
+                'The application mapped the database failure.',
+                undefined,
+                { cause },
+              )
+            }
+          },
+        )
+        .catch((error: unknown) => error)
+      expect(mappedDatabaseFailure).toBeInstanceOf(HttpError)
+      expect(mappedDatabaseFailure).toMatchObject({
+        status: 409,
+        code: 'mapped_database_conflict',
+      })
+
+      const databaseFailure = await manager
+        .frameworkTransaction(
+          executionContext('postgres-driver-error'),
+          async (_unitOfWork, transaction) => {
+            await transaction.query('SELECT * FROM doxa_missing_translation_proof')
+          },
+        )
+        .catch((error: unknown) => error)
+      expect(databaseFailure).toBeInstanceOf(PersistenceError)
+      expect((databaseFailure as Error & { cause?: unknown }).cause).toMatchObject({
+        code: '42P01',
+      })
+    } finally {
+      await manager.dispose(lifecycle)
+    }
+
+    const unavailableManager = new PostgresTransactionManager({
+      connectionString: 'postgresql://doxa:doxa@127.0.0.1:1/doxa',
+    })
+    const connectionFailure = await unavailableManager
+      .start(lifecycleContext())
+      .catch((error: unknown) => error)
+    expect(connectionFailure).toBeInstanceOf(PersistenceError)
   })
 
   it('turns concurrent version races into one stable optimistic-concurrency failure', async () => {

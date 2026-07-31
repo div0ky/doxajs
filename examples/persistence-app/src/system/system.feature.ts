@@ -14,11 +14,22 @@ import { BoobsRoute } from './http/boobs.route.js'
 import { BoobJob } from './http/boob.job.js'
 import { BoobPinged } from './http/boob.event.js'
 import { BoobPingDoThingListener } from './http/log-boob-pinged.js'
+import { AttachmentStatusRoute } from './http/attachment-status.route.js'
+import { ReadAttachmentStatus } from './queries/read-attachment-status.js'
 
 export class SystemFeature extends Feature {
   id = 'system'
   providers = [SystemEventRecorder]
-  routes = [HomeRoute, HealthRoute, HelloRoute, PingRoute, PongRoute, BoobsRoute]
+  routes = [
+    HomeRoute,
+    HealthRoute,
+    HelloRoute,
+    PingRoute,
+    PongRoute,
+    BoobsRoute,
+    AttachmentStatusRoute,
+  ]
+  queries = [ReadAttachmentStatus]
   events = [HttpPinged, BoobPinged]
   listeners = [RecordHttpPinged, BoobPingDoThingListener]
   schedules = [DailyHealthCheckSchedule]
