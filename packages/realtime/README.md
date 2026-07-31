@@ -4,7 +4,7 @@
 > Improvements is the sole supported consumer. External use is permitted without compatibility,
 > support, warranty, roadmap, or production-readiness commitments.
 
-Typed, reconnecting protocol v2 subscriptions for Doxa broadcasts.
+Typed protocol v3 subscriptions and authenticated ephemeral commands for Doxa realtime.
 
 ```ts
 import { Realtime } from '@doxajs/realtime'
@@ -40,3 +40,17 @@ resubscription are observable through the public API.
 
 Active subscriptions reconnect with capped exponential backoff and jitter. Explicit
 `realtime.disconnect()` disables reconnect; `subscription.leave()` removes that channel.
+
+After the authenticated `connected` boundary, send a registered command and inspect its bounded
+result:
+
+```ts
+const result = await realtime.command('direct-messages.typing', {
+  conversationId: 'conversation-1',
+})
+if (!result.ok) console.warn(result.error.code)
+```
+
+Commands reject immediately while disconnected. They are never queued, replayed, or automatically
+retried, and a timeout or disconnect settles the pending result even if a late acknowledgement
+arrives.

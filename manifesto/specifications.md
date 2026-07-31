@@ -81,15 +81,15 @@ complete in the MVP ledger.
 
 ## Events and asynchronous work
 
-| Area                      | Status      | Contract or evidence                                                                     |
-| ------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
-| Journal and domain events | Implemented | [Laravel-like class events](decisions/0015-laravel-like-class-events.md)                 |
-| Outbox and delivery       | Implemented | [PostgreSQL durability proof](implementation/postgresql-durability-vertical-slice.md)    |
-| Listeners and observers   | Implemented | [Signals and observers proof](implementation/signals-observers-vertical-slice.md)        |
-| Jobs and workers          | Implemented | [pg-boss queue and worker proof](implementation/pg-boss-queue-worker-vertical-slice.md)  |
-| Scheduling                | Implemented | [Scheduling proof](implementation/scheduling-vertical-slice.md)                          |
-| Mail and SMS              | Implemented | [Communications adapter proof](implementation/communications-adapters-vertical-slice.md) |
-| Realtime broadcasting     | Implemented | [Realtime broadcasting contract](specifications/realtime-broadcasting.md)                |
+| Area                               | Status      | Contract or evidence                                                                     |
+| ---------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| Journal and domain events          | Implemented | [Laravel-like class events](decisions/0015-laravel-like-class-events.md)                 |
+| Outbox and delivery                | Implemented | [PostgreSQL durability proof](implementation/postgresql-durability-vertical-slice.md)    |
+| Listeners and observers            | Implemented | [Signals and observers proof](implementation/signals-observers-vertical-slice.md)        |
+| Jobs and workers                   | Implemented | [pg-boss queue and worker proof](implementation/pg-boss-queue-worker-vertical-slice.md)  |
+| Scheduling                         | Implemented | [Scheduling proof](implementation/scheduling-vertical-slice.md)                          |
+| Mail and SMS                       | Implemented | [Communications adapter proof](implementation/communications-adapters-vertical-slice.md) |
+| Realtime broadcasting and commands | Implemented | [Realtime transport contract](specifications/realtime-broadcasting.md)                   |
 
 ## Interfaces and policy
 

@@ -79,10 +79,10 @@ requirement to its implementation and acceptance evidence.
 25. [Container deployment vertical slice](container-deployment-vertical-slice.md) — one generated
     immutable image, prebuilt production boot, combined workers and schedules, explicit migrations,
     advanced scheduler isolation, Compose topology, and Gnosis deployment knowledge.
-26. [Realtime broadcasting vertical slice](realtime-broadcasting-vertical-slice.md) — compiled
-    queued/now event capabilities, transactional queue handoff, protocol v2 Keryx WebSockets, signed
-    worker publication, Redis replication and presence, observable reconnecting clients, fakes, and
-    framework-owned Praxis composition.
+26. [Realtime broadcasting and commands vertical slice](realtime-broadcasting-vertical-slice.md) —
+    compiled queued/now event capabilities, transactional queue handoff, protocol v3 Keryx
+    WebSockets, authenticated ephemeral commands, signed worker publication, Redis replication and
+    presence, observable clients, fakes, and framework-owned Praxis composition.
 27. [Typed model query and relationship vertical slice](typed-model-query-relationship-vertical-slice.md)
     — logical typed plans, read-only query sessions, PostgreSQL and memory conformance,
     deterministic pagination and cursors, all relationship cardinalities, eager loading, identity

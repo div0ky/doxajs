@@ -83,7 +83,7 @@ still be intelligible if an engine is replaced.
 | Manifest compatibility                   | Independently versioned format with fail-closed consumers                              | Accepted              | [Features and manifest](0014-explicit-features-generated-manifest.md#manifest-format-compatibility)      |
 | Event authoring                          | Laravel-like class events with static dispatch and typed listeners                     | Accepted              | [Events](0015-laravel-like-class-events.md)                                                              |
 | Event durability                         | General events, journaled domain events, and immediate signals remain distinct         | Accepted              | [Events](0015-laravel-like-class-events.md)                                                              |
-| Realtime broadcasting implementation     | Framework-owned Keryx, signed worker publishing, optional Redis, protocol v2 client    | Accepted              | [Keryx](0028-keryx-realtime-broadcasting.md)                                                             |
+| Realtime transport implementation        | Framework-owned Keryx, broadcasting, authenticated commands, Redis, protocol v3 client | Accepted              | [Keryx](0028-keryx-realtime-broadcasting.md)                                                             |
 | Source organization                      | Paths have no runtime meaning; imports and Feature declarations establish ownership    | Accepted              | [Structure and services](0016-path-independent-structure-autowired-services.md)                          |
 | File conventions                         | Kebab-case files, PascalCase classes, one primary role class, no required barrels      | Accepted              | [Structure and services](0016-path-independent-structure-autowired-services.md)                          |
 | Ordinary services                        | Zero-registration concrete autowiring through constructor reachability                 | Accepted              | [Structure and services](0016-path-independent-structure-autowired-services.md)                          |
@@ -166,8 +166,9 @@ observable programming contract remains to be specified.
 26. [Ship one immutable image with role-based container commands](0026-one-image-role-based-container-deployment.md)
     — Accepted on 2026-07-11.
 27. [Name the framework Doxa.js](0027-doxajs-framework-name.md) — Accepted on 2026-07-11.
-28. [Name Doxa's realtime broadcasting implementation Keryx](0028-keryx-realtime-broadcasting.md) —
-    Accepted on 2026-07-11; production role topology and protocol v2 amended on 2026-07-24.
+28. [Name Doxa's realtime transport implementation Keryx](0028-keryx-realtime-broadcasting.md) —
+    Accepted on 2026-07-11; production role topology amended on 2026-07-24 and authenticated
+    realtime commands with protocol v3 on 2026-07-31.
 29. [Provide typed model queries and relationships](0029-typed-model-queries-relationships.md) —
     Accepted on 2026-07-13; builder-level bulk mutation and a public typed join projection API are
     explicitly deferred.
