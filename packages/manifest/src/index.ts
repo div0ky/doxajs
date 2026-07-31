@@ -542,8 +542,11 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
       !nonEmptyString(command.id) ||
       !command.id.startsWith('realtime-command:') ||
       !nonEmptyString(command.ownerId) ||
-      !nonEmptyString(command.command) ||
-      !nonEmptyString(command.access) ||
+      !nonEmptyString(command.name) ||
+      !nonEmptyString(command.exportName) ||
+      !validAbility(command.command) ||
+      command.id !== `realtime-command:${command.ownerId}/${command.command}` ||
+      !validAbility(command.access) ||
       command.access === 'public' ||
       command.scope !== 'transient' ||
       !isRecord(command.throttle) ||

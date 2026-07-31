@@ -337,6 +337,7 @@ describe('Gnosis read-only local engineering server', () => {
       ['Feature.provides singleton infrastructure', 'concept.providers-provides'],
       ['service joins caller transaction', 'role.service'],
       ['nested ActionBus', 'diagnostic.nested-action-dispatch'],
+      ['realtime command mutable provider', 'diagnostic.realtime-command-infrastructure'],
       ['event facts queued consistency', 'concept.orchestration-consistency'],
       ['folders runtime meaning', 'programming-model.core'],
     ] as const) {

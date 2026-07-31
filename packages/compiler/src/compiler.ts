@@ -1180,6 +1180,7 @@ export async function compileApplication(
       'SignalHandler',
       'Observer',
       'Command',
+      'RealtimeCommand',
     ].some((role) => extendsNamedClass(declaration, role, checker))
     if (
       includeConstructorDependencies &&
@@ -1269,6 +1270,7 @@ export async function compileApplication(
         const signalRoot = signalRoots.get(dependencyDeclaration)
         const signalHandlerRoot = signalHandlerRoots.get(dependencyDeclaration)
         const commandRoot = commandRoots.get(dependencyDeclaration)
+        const realtimeCommandRoot = realtimeCommandRoots.get(dependencyDeclaration)
         if (operationRoot) {
           fail(
             source,
@@ -1292,7 +1294,8 @@ export async function compileApplication(
           observerRoot ||
           signalRoot ||
           signalHandlerRoot ||
-          commandRoot
+          commandRoot ||
+          realtimeCommandRoot
         ) {
           fail(
             source,

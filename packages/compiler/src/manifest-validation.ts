@@ -96,6 +96,21 @@ export function assertNoNestedActionBusReachability(
   realtimeCommands: readonly RealtimeCommandManifestEntry[] = [],
 ): void {
   const providersById = new Map(providers.map((provider) => [provider.id, provider]))
+  const realtimeCommandIds = new Set(realtimeCommands.map((command) => command.id))
+  const readOnlyRootIds = new Set([
+    ...operations
+      .filter((operation) => operation.role === 'query')
+      .map((operation) => operation.id),
+    ...realtimeCommandIds,
+  ])
+  const forbiddenReadOnlyCapabilities = new Set<ProviderManifestEntry['capabilities'][number]>([
+    'authentication',
+    'transactions',
+    'queues',
+    'mail',
+    'sms',
+    'broadcasting',
+  ])
   for (const root of [...operations, ...jobs, ...realtimeCommands]) {
     const visited = new Set<string>()
     const visit = (targetId: string, path: readonly string[]): void => {
@@ -108,6 +123,15 @@ export function assertNoNestedActionBusReachability(
       visited.add(targetId)
       const provider = providersById.get(targetId)
       if (!provider) return
+      const forbiddenCapability = readOnlyRootIds.has(root.id)
+        ? provider.capabilities.find((capability) => forbiddenReadOnlyCapabilities.has(capability))
+        : undefined
+      if (forbiddenCapability) {
+        const role = realtimeCommandIds.has(root.id) ? 'RealtimeCommands' : 'Queries'
+        throw new DoxaCompilationError(
+          `[DOXA-COMPILER-ARCH-002] ${root.id} reaches mutable ${forbiddenCapability} infrastructure through ${[...path, targetId].join(' -> ')}. ${role} may use read-only application services, cache, and observability, but cannot reach transaction, queue, communication, authentication, or raw broadcasting providers. See Gnosis guide diagnostic.realtime-command-infrastructure.`,
+        )
+      }
       for (const dependency of provider.dependencies) {
         if (dependency.targetId) {
           visit(dependency.targetId, [...path, targetId])

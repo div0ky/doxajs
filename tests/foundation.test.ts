@@ -996,6 +996,159 @@ describe('foundational compile-to-boot slice', () => {
     )
   })
 
+  it('keeps realtime commands inside the scoped role and read-only dependency boundaries', async () => {
+    await expect(
+      compileFixture(`
+        import { allow, DoxaApplication, Feature, Policy, RealtimeCommand } from '@doxajs/core'
+
+        class CursorReader {}
+        class TouchCursor extends RealtimeCommand<Record<string, never>> {
+          static override readonly id = 'collaboration.touch-cursor'
+          static override readonly access = 'collaboration.command'
+          static override readonly schema = {
+            '~standard': {
+              version: 1 as const,
+              vendor: 'test',
+              validate: (value: unknown) => ({ value: value as Record<string, never> }),
+            },
+          }
+          static override readonly throttle = { limit: 4, windowMs: 2000 }
+          constructor(readonly reader: CursorReader) { super() }
+          handle(_input: Record<string, never>): void {}
+        }
+        class CollaborationPolicy extends Policy {
+          static override readonly id = 'collaboration'
+          static override readonly abilities = ['collaboration.command']
+          decide(_request: unknown) { return allow('collaboration') }
+        }
+        class CollaborationFeature extends Feature {
+          id = 'collaboration'
+          policies = [CollaborationPolicy]
+          realtimeCommands = [TouchCursor]
+        }
+        export class Application extends DoxaApplication {
+          id = 'realtime-command-constructor'
+          features = [CollaborationFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      'TouchCursor is a framework role; declare scoped dependencies with this.inject() instead of constructor parameters.',
+    )
+
+    await expect(
+      compileFixture(`
+        import { allow, DoxaApplication, Feature, Policy, Query, RealtimeCommand } from '@doxajs/core'
+
+        class TouchCursor extends RealtimeCommand<Record<string, never>> {
+          static override readonly id = 'collaboration.touch-cursor'
+          static override readonly access = 'collaboration.command'
+          static override readonly schema = {
+            '~standard': {
+              version: 1 as const,
+              vendor: 'test',
+              validate: (value: unknown) => ({ value: value as Record<string, never> }),
+            },
+          }
+          static override readonly throttle = { limit: 4, windowMs: 2000 }
+          handle(_input: Record<string, never>): void {}
+        }
+        class ReadCursor extends Query<void, void> {
+          static readonly id = 'read-cursor'
+          static override readonly access = 'public'
+          private readonly command = this.inject(TouchCursor)
+          handle(): void { void this.command }
+        }
+        class CollaborationPolicy extends Policy {
+          static override readonly id = 'collaboration'
+          static override readonly abilities = ['collaboration.command']
+          decide(_request: unknown) { return allow('collaboration') }
+        }
+        class CollaborationFeature extends Feature {
+          id = 'collaboration'
+          queries = [ReadCursor]
+          policies = [CollaborationPolicy]
+          realtimeCommands = [TouchCursor]
+        }
+        export class Application extends DoxaApplication {
+          id = 'realtime-command-injection'
+          features = [CollaborationFeature]
+        }
+      `),
+    ).rejects.toThrow('TouchCursor is a framework role class and cannot be injected directly.')
+
+    await expect(
+      compileFixture(`
+        import { allow, DoxaApplication, Feature, Policy, RealtimeCommand, TransactionManager } from '@doxajs/core'
+
+        class ApplicationTransactions extends TransactionManager {
+          static readonly id = 'transactions'
+          async read<Output>(): Promise<Output> { throw new Error('unused') }
+          async transaction<Output>(): Promise<Output> { throw new Error('unused') }
+        }
+        class TouchCursor extends RealtimeCommand<Record<string, never>> {
+          static override readonly id = 'collaboration.touch-cursor'
+          static override readonly access = 'collaboration.command'
+          static override readonly schema = {
+            '~standard': {
+              version: 1 as const,
+              vendor: 'test',
+              validate: (value: unknown) => ({ value: value as Record<string, never> }),
+            },
+          }
+          static override readonly throttle = { limit: 4, windowMs: 2000 }
+          private readonly transactions = this.inject(TransactionManager)
+          handle(_input: Record<string, never>): void { void this.transactions }
+        }
+        class CollaborationPolicy extends Policy {
+          static override readonly id = 'collaboration'
+          static override readonly abilities = ['collaboration.command']
+          decide(_request: unknown) { return allow('collaboration') }
+        }
+        class CollaborationFeature extends Feature {
+          id = 'collaboration'
+          providers = [ApplicationTransactions]
+          policies = [CollaborationPolicy]
+          realtimeCommands = [TouchCursor]
+        }
+        export class Application extends DoxaApplication {
+          id = 'realtime-command-infrastructure'
+          features = [CollaborationFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-ARCH-002] realtime-command:collaboration/collaboration.touch-cursor reaches mutable transactions infrastructure',
+    )
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, Query, TransactionManager } from '@doxajs/core'
+
+        class ApplicationTransactions extends TransactionManager {
+          static readonly id = 'transactions'
+          async read<Output>(): Promise<Output> { throw new Error('unused') }
+          async transaction<Output>(): Promise<Output> { throw new Error('unused') }
+        }
+        class ReadCursor extends Query<void, void> {
+          static readonly id = 'read-cursor'
+          static override readonly access = 'public'
+          private readonly transactions = this.inject(TransactionManager)
+          handle(): void { void this.transactions }
+        }
+        class CollaborationFeature extends Feature {
+          id = 'collaboration'
+          providers = [ApplicationTransactions]
+          queries = [ReadCursor]
+        }
+        export class Application extends DoxaApplication {
+          id = 'query-infrastructure'
+          features = [CollaborationFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-ARCH-002] query:collaboration/read-cursor reaches mutable transactions infrastructure',
+    )
+  })
+
   it('rejects direct and transitive ActionBus reachability from operation boundaries', async () => {
     await expect(
       compileFixture(`
@@ -1881,6 +2034,30 @@ describe('foundational compile-to-boot slice', () => {
     manifest.permissionSource.abilities = ['contact.read', 'contact.read']
 
     expect(() => assertManifest(manifest)).toThrow('permission source')
+  })
+
+  it('rejects inconsistent realtime-command manifest identities before runtime boot', async () => {
+    const artifactsDirectory = await temporaryDirectory()
+    const result = await compile(artifactsDirectory)
+    const manifest = JSON.parse(await readFile(result.manifestPath, 'utf8')) as {
+      realtimeCommands: unknown[]
+    }
+    manifest.realtimeCommands.push({
+      id: 'realtime-command:collaboration/collaboration.touch-cursor',
+      ownerId: 'collaboration',
+      name: 'TouchCursor',
+      exportName: 'TouchCursor',
+      command: 'different.command',
+      access: 'collaboration.command',
+      throttle: { limit: 4, windowMs: 2_000 },
+      timeoutMs: 2_000,
+      scope: 'transient',
+      dependencies: [],
+      lifecycle: { start: false, drain: false, stop: false, dispose: false },
+      source: { file: 'src/touch-cursor.ts', line: 1, column: 1 },
+    })
+
+    expect(() => assertManifest(manifest)).toThrow('realtime command')
   })
 
   it('rejects an Application constructor that does not match the generated registry', async () => {

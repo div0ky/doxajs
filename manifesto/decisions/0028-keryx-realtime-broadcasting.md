@@ -54,8 +54,11 @@ the application Policy, and only then calls `handle()`. The client receives one 
 Realtime commands are authenticated, ephemeral, and non-transactional. They create no audit,
 journal, outbox, retry, or replay record. They may synchronously emit existing immediate broadcasts,
 but cannot dispatch Actions, Jobs, durable events, queued listeners, or queued broadcasts. Durable
-business mutation remains an Action admitted over HTTP. Disconnection and missing acknowledgement
-are ordinary loss; the client never queues or automatically retries a command.
+business mutation remains an Action admitted over HTTP. The compiler also prevents commands from
+reaching raw transaction, queue, communication, authentication, or broadcasting providers through
+their dependency graph. Queries carry the same raw mutable-provider restriction so QueryBus cannot
+be used to escape the command boundary. Disconnection and missing acknowledgement are ordinary loss;
+the client never queues or automatically retries a command.
 
 When the browser-facing Keryx listener has a different hostname from the application's authenticated
 HTTP origin, the generated web role exposes `POST /broadcasting/authorize`. The already

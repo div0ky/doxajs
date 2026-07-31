@@ -117,9 +117,12 @@ folder names carry no meaning. Declaring a realtime command requires Keryx to be
 compiled command has an authenticated WebSocket ingress and throttle authority.
 
 The compiler rejects duplicate or invalid IDs, public access, missing schemas or throttles,
-non-positive throttle values, invalid timeouts, lifecycle capabilities, and reachable `ActionBus`
-dependencies. The manifest records the command, access, throttle, timeout, dependencies, scope, and
-source. Runtime boot uses only that artifact and its constructor registry.
+non-positive throttle values, invalid timeouts, lifecycle capabilities, reachable `ActionBus`
+dependencies, and dependency paths to raw transaction, queue, communication, authentication, or
+broadcasting providers. Queries carry the same raw mutable-provider restriction, so reading through
+`QueryBus` cannot bypass the command boundary. The manifest records the command, access, throttle,
+timeout, dependencies, scope, and source. Runtime boot uses only that artifact and its constructor
+registry.
 
 Keryx accepts a command only after authenticated `connected` admission. Each frame creates a fresh
 execution containing the admitted actor, authentication, tenant, connection correlation, frame
@@ -129,11 +132,14 @@ with the complete validated input as resource, then handler execution. Missing p
 all denials fail closed. The command deadline bounds that complete pipeline, not only the handler.
 
 Command handlers are transient execution-scoped roles. They are non-transactional and may dispatch
-only local immediate events whose listeners remain local and `ShouldBroadcastNow` events. Action,
-Job, queued listener, queued broadcast, domain-event, journal, outbox, audit, retry, and replay
-paths are prohibited. A disconnect prevents acknowledgement delivery but does not cancel or roll
-back a handler that already started; its declared deadline remains authoritative. Applications must
-keep handlers ephemeral and safe to abandon.
+only immediate Signals, local immediate events whose listeners remain local, and
+`ShouldBroadcastNow` events. Action, Job, queued listener, queued broadcast, domain-event, journal,
+outbox, audit, retry, and replay paths are prohibited. A disconnect prevents acknowledgement
+delivery but does not cancel or roll back a handler that already started; its declared deadline
+remains authoritative. The acknowledgement may settle at that deadline, but Doxa retains and later
+disposes the execution scope only after non-cooperative handler work settles. Cancellation prevents
+that late work from entering another Doxa operation. Applications must keep handlers ephemeral and
+safe to abandon.
 
 The throttle key is the admitted actor ID plus registered command ID. Single-process Keryx keeps
 expiring, bounded buckets; Redis topology consumes the rolling-window decision atomically across
@@ -188,7 +194,8 @@ credentials are requested with `credentials: 'include'`.
 
 `Realtime.command(name, payload)` is available only in authenticated state, never queues or retries,
 and resolves to a discriminated success or safe failure result. It uses a unique frame ID and a
-bounded acknowledgement timer. Disconnect and timeout settle the local result; a late
+bounded acknowledgement timer. The default client timer is 15 seconds so it exceeds the maximum
+10-second server execution deadline. Disconnect and timeout settle the local result; a late
 acknowledgement is ignored. Clients may abandon ephemeral commands rather than retrying them.
 
 ## Delivery, ordering, and failures

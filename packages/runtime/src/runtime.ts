@@ -1686,6 +1686,7 @@ export class DoxaRuntime {
 
   private async dispatchSignal(signal: Signal<unknown>): Promise<void> {
     const store = this.requireExecution('signal')
+    if (store.boundary === 'realtime-command') store.context.cancellation.throwIfAborted()
     const manifest = this.#signalsByConstructor.get(signal.constructor)
     if (!manifest) {
       throw new OperationDispatchError(
@@ -1980,59 +1981,55 @@ export class DoxaRuntime {
         commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
       )
     }
-    return this.admit(
+    const deadline = new Date(Date.now() + manifest.timeoutMs)
+    const execution = this.admit(
       {
         actor: admission.actor,
         authentication: admission.authentication,
         ...(admission.tenant ? { tenant: admission.tenant } : {}),
         correlationId: admission.correlationId,
         causationId: request.id,
-        deadline: new Date(Date.now() + manifest.timeoutMs),
+        deadline,
         transport: { kind: 'websocket', name: `realtime.command:${manifest.command}` },
       },
       async () => {
         const store = this.requireExecution('realtime command')
         store.operationStack.push('realtime-command')
         try {
-          return await runUntilCancelled(async () => {
-            const validation = await Constructor.schema['~standard'].validate(request.payload)
-            store.context.cancellation.throwIfAborted()
-            if ('issues' in validation && validation.issues) {
-              return commandFailure(
-                request.id,
-                'command_invalid',
-                'The command payload is invalid.',
-              )
-            }
-            const input = validation.value
-            const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
-              actorId: admission.actor.id!,
-              command: manifest.command,
-              requestId: request.id,
-              throttle: manifest.throttle,
-            })
-            store.context.cancellation.throwIfAborted()
-            if (!throttle.allowed) {
-              return commandFailure(
-                request.id,
-                'command_throttled',
-                'That command is being sent too frequently.',
-                throttle.retryAfterMs,
-              )
-            }
-            await this.authorization.authorize(manifest.access, input)
-            store.context.cancellation.throwIfAborted()
-            const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
-            await this.observeObservation(
-              'realtime-command',
-              manifest.command,
-              {},
-              () => command.handle(input),
-              manifest.id,
+          store.context.cancellation.throwIfAborted()
+          const validation = await Constructor.schema['~standard'].validate(request.payload)
+          store.context.cancellation.throwIfAborted()
+          if ('issues' in validation && validation.issues) {
+            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
+          }
+          const input = validation.value
+          const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
+            actorId: admission.actor.id!,
+            command: manifest.command,
+            requestId: request.id,
+            throttle: manifest.throttle,
+          })
+          store.context.cancellation.throwIfAborted()
+          if (!throttle.allowed) {
+            return commandFailure(
+              request.id,
+              'command_throttled',
+              'That command is being sent too frequently.',
+              throttle.retryAfterMs,
             )
-            store.context.cancellation.throwIfAborted()
-            return Object.freeze({ id: request.id, ok: true as const })
-          }, store.context.cancellation)
+          }
+          await this.authorization.authorize(manifest.access, input)
+          store.context.cancellation.throwIfAborted()
+          const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
+          await this.observeObservation(
+            'realtime-command',
+            manifest.command,
+            {},
+            () => command.handle(input),
+            manifest.id,
+          )
+          store.context.cancellation.throwIfAborted()
+          return Object.freeze({ id: request.id, ok: true as const })
         } catch (error) {
           if (error instanceof AuthorizationError) {
             return commandFailure(request.id, 'command_forbidden', 'That command is not allowed.')
@@ -2053,6 +2050,15 @@ export class DoxaRuntime {
           store.operationStack.pop()
         }
       },
+    )
+    return settleAtDeadline(
+      execution,
+      deadline,
+      commandFailure(
+        request.id,
+        'command_timeout',
+        'That command exceeded its execution deadline.',
+      ),
     ).catch(() =>
       commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
     )
@@ -2574,6 +2580,13 @@ export class DoxaRuntime {
     const store = this.#storage.getStore()
     if (!store) {
       throw new OperationDispatchError(`${role} dispatch requires an active admitted execution.`)
+    }
+    if (
+      role !== 'realtime command' &&
+      store.boundary === 'realtime-command' &&
+      store.context.cancellation.aborted
+    ) {
+      store.context.cancellation.throwIfAborted()
     }
     return store
   }
@@ -3968,27 +3981,20 @@ function commandFailure(
   })
 }
 
-async function runUntilCancelled<Output>(
-  work: () => Output | Promise<Output>,
-  cancellation: AbortSignal,
+async function settleAtDeadline<Output>(
+  work: Promise<Output>,
+  deadline: Date,
+  fallback: Output,
 ): Promise<Output> {
-  if (cancellation.aborted) throw cancellation.reason
-  let removeAbortListener = (): void => undefined
-  const aborted = new Promise<never>((_resolve, reject) => {
-    const listener = (): void => reject(cancellation.reason)
-    cancellation.addEventListener('abort', listener, { once: true })
-    removeAbortListener = () => cancellation.removeEventListener('abort', listener)
+  let timer: NodeJS.Timeout | undefined
+  const expired = new Promise<Output>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), Math.max(0, deadline.getTime() - Date.now()))
+    timer.unref()
   })
   try {
-    return await Promise.race([
-      Promise.resolve().then(() => {
-        cancellation.throwIfAborted()
-        return work()
-      }),
-      aborted,
-    ])
+    return await Promise.race([work, expired])
   } finally {
-    removeAbortListener()
+    if (timer) clearTimeout(timer)
   }
 }
 

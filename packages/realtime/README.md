@@ -53,4 +53,5 @@ if (!result.ok) console.warn(result.error.code)
 
 Commands reject immediately while disconnected. They are never queued, replayed, or automatically
 retried, and a timeout or disconnect settles the pending result even if a late acknowledgement
-arrives.
+arrives. The default acknowledgement timeout is 15 seconds, deliberately longer than Doxa's maximum
+10-second server command deadline; override it with `commandTimeoutMilliseconds` when needed.

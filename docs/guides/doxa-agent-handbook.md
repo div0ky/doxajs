@@ -360,7 +360,7 @@ Transaction: Read-only and non-transactional; it cannot create durable work.
 Injection: Extend RealtimeCommand and use this.inject().
 Scope: One transient instance in one fresh WebSocket-message execution.
 Lifecycle: May dispose scope-local resources; cannot own start, drain, or stop phases.
-Dependencies: Use read-only services and immediate Signals or ShouldBroadcastNow events.
+Dependencies: Use QueryBus, read-only services, cache, observability, immediate Signals, or ShouldBroadcastNow events; raw mutable infrastructure providers are forbidden.
 Rationale: Registered ingress preserves actor authority and avoids an unrestricted socket RPC surface.
 Example: A typing command authorizes conversation participation and broadcasts typing immediately.
 Anti-patterns: Dispatching Actions or Jobs; Queued delivery; Client-supplied actor data
@@ -582,6 +582,14 @@ Stable guide: `diagnostic.provider-service-location`
 Compilation and Gnosis warn when provider/service names or opposite canonical folders communicate the wrong role.
 
 Move ordinary services from providers to services and infrastructure providers from services to providers. The advisory never changes compiled ownership or scope.
+
+### Read-only boundary mutable infrastructure reachability
+
+Stable guide: `diagnostic.realtime-command-infrastructure`
+
+Queries and RealtimeCommands cannot directly or transitively reach raw transaction, queue, communication, authentication, or broadcasting providers.
+
+Use read-only application services for reads. RealtimeCommands may emit declared immediate Signals or ShouldBroadcastNow events. Move durable work to an HTTP-admitted Action or Job.
 
 ## First-party modules
 

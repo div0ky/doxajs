@@ -236,7 +236,7 @@ export class Realtime {
       reconnectMaximumMilliseconds: options.reconnectMaximumMilliseconds ?? 10_000,
       connectionTimeoutMilliseconds: options.connectionTimeoutMilliseconds ?? 10_000,
       subscriptionTimeoutMilliseconds: options.subscriptionTimeoutMilliseconds ?? 10_000,
-      commandTimeoutMilliseconds: options.commandTimeoutMilliseconds ?? 10_000,
+      commandTimeoutMilliseconds: options.commandTimeoutMilliseconds ?? 15_000,
     }
     this.#factory = options.socketFactory ?? defaultSocketFactory
     this.#authorizationFetch = options.authorizationFetch

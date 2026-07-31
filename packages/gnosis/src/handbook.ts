@@ -566,7 +566,8 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       injection: 'Extend RealtimeCommand and use this.inject().',
       scope: 'One transient instance in one fresh WebSocket-message execution.',
       lifecycle: 'May dispose scope-local resources; cannot own start, drain, or stop phases.',
-      dependencies: 'Use read-only services and immediate Signals or ShouldBroadcastNow events.',
+      dependencies:
+        'Use QueryBus, read-only services, cache, observability, immediate Signals, or ShouldBroadcastNow events; raw mutable infrastructure providers are forbidden.',
       rationale:
         'Registered ingress preserves actor authority and avoids an unrestricted socket RPC surface.',
       example:
@@ -751,6 +752,17 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     'Actions, Queries, and Jobs cannot directly or transitively depend on ActionBus.',
     'Each operation boundary would otherwise compete for authorization, transaction, telemetry, and failure ownership.',
     'Move reusable mutation behavior into an ordinary service. Let each top-level Action or Job call that service under its own execution and transaction.',
+  ),
+  concept(
+    'diagnostic.realtime-command-infrastructure',
+    'diagnostic',
+    '@doxajs/compiler',
+    'diagnostics.md',
+    'Read-only boundary mutable infrastructure reachability',
+    ['RealtimeCommand', 'Query', 'mutable provider', 'DOXA-COMPILER-ARCH-002'],
+    'Queries and RealtimeCommands cannot directly or transitively reach raw transaction, queue, communication, authentication, or broadcasting providers.',
+    'Raw infrastructure access could turn a read-only or ephemeral ingress boundary into an uncompiled durability or transport boundary.',
+    'Use read-only application services for reads. RealtimeCommands may emit declared immediate Signals or ShouldBroadcastNow events. Move durable work to an HTTP-admitted Action or Job.',
   ),
   concept(
     'diagnostic.provider-service-location',

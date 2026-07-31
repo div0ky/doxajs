@@ -20,9 +20,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { Application } from '../examples/persistence-app/dist/application.js'
 import {
+  realtimeCommandDisposedWhileHandling,
   realtimeCounterTouches,
   resetRealtimeCounterTouches,
 } from '../examples/persistence-app/dist/counters/realtime-commands/touch-counter.js'
+import {
+  recordedEvents,
+  resetRecordedEvents,
+} from '../examples/persistence-app/dist/support/recorded-events.js'
 
 const workspace = path.resolve(import.meta.dirname, '..')
 const applicationRoot = path.join(workspace, 'examples/persistence-app')
@@ -158,6 +163,8 @@ describe('Doxa realtime commands', () => {
   it('returns a safe failure when the declared command deadline expires', async () => {
     const { value } = await harness()
     try {
+      resetRealtimeCounterTouches()
+      resetRecordedEvents()
       value.actingAsUser('ada')
       await expect(
         value.realtimeCommand(
@@ -173,6 +180,11 @@ describe('Doxa realtime commands', () => {
             message: 'That command exceeded its execution deadline.',
           },
         }),
+      )
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      expect(realtimeCommandDisposedWhileHandling).toBe(false)
+      expect(recordedEvents).not.toContainEqual(
+        expect.objectContaining({ event: 'counter-touched:late-timeout' }),
       )
     } finally {
       await value.shutdown()

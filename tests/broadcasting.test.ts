@@ -819,6 +819,23 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       .leaving((member) => left.push(member))
     let secondPresence: ReturnType<typeof secondRealtime.presence> | undefined
     try {
+      await expect(
+        first.consumeRealtimeCommandThrottle({
+          actorId: 'shared-actor',
+          command: 'counters.touch',
+          requestId: 'redis-command-one',
+          throttle: { limit: 1, windowMs: 5_000 },
+        }),
+      ).resolves.toEqual({ allowed: true })
+      await expect(
+        second.consumeRealtimeCommandThrottle({
+          actorId: 'shared-actor',
+          command: 'counters.touch',
+          requestId: 'redis-command-two',
+          throttle: { limit: 1, windowMs: 5_000 },
+        }),
+      ).resolves.toEqual({ allowed: false, retryAfterMs: expect.any(Number) })
+
       const ticket = first.issueConnectionTicket({
         actor: { kind: 'user', id: 'ticketed' },
         authentication: {

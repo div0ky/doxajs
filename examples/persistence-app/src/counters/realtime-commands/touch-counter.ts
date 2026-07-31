@@ -3,14 +3,17 @@ import { z } from 'zod'
 
 import { CounterBroadcastedNow } from '../events/counter-broadcasted-now.js'
 import { QueueCounterFromQuery } from '../queries/queue-counter-from-query.js'
+import { CounterTouched } from '../signals/counter-touched.js'
 
 const TouchCounterInput = z.object({ counterId: z.string().min(1), ownerId: z.string().min(1) })
 type TouchCounterInput = z.infer<typeof TouchCounterInput>
 
 export const realtimeCounterTouches: Array<{ actorId: string | undefined; counterId: string }> = []
+export let realtimeCommandDisposedWhileHandling = false
 
 export function resetRealtimeCounterTouches(): void {
   realtimeCounterTouches.length = 0
+  realtimeCommandDisposedWhileHandling = false
 }
 
 export class TouchCounter extends RealtimeCommand<TouchCounterInput> {
@@ -22,10 +25,17 @@ export class TouchCounter extends RealtimeCommand<TouchCounterInput> {
 
   private readonly execution = this.inject(CurrentExecution)
   private readonly queries = this.inject(QueryBus)
+  private handling = false
 
   async handle(input: TouchCounterInput): Promise<void> {
     if (input.counterId === 'timeout') {
-      await new Promise((resolve) => setTimeout(resolve, 200))
+      this.handling = true
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        await CounterTouched.dispatch({ counterId: 'late-timeout' })
+      } finally {
+        this.handling = false
+      }
       return
     }
     if (input.counterId === 'nested-job') {
@@ -37,5 +47,9 @@ export class TouchCounter extends RealtimeCommand<TouchCounterInput> {
       counterId: input.counterId,
     })
     await CounterBroadcastedNow.dispatch({ counterId: input.counterId })
+  }
+
+  dispose(): void {
+    if (this.handling) realtimeCommandDisposedWhileHandling = true
   }
 }
