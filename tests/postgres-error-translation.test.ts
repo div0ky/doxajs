@@ -2,7 +2,10 @@ import { HttpError, PersistenceError } from '@doxajs/core'
 import { DatabaseError } from 'pg'
 import { describe, expect, it } from 'vitest'
 
-import { transactionFailure } from '../packages/postgres-drizzle/src/postgres-transaction-manager.js'
+import {
+  drizzleDriverFailureForTesting,
+  transactionFailure,
+} from '../packages/postgres-drizzle/src/postgres-transaction-manager.js'
 
 describe('PostgreSQL transaction error boundary', () => {
   it('preserves the primary application error when transaction cleanup fails', () => {
@@ -22,17 +25,44 @@ describe('PostgreSQL transaction error boundary', () => {
       new Error('The application mapped the database failure.', { cause: databaseError }),
       { code: 'mapped_database_conflict' },
     )
+    const rollbackError = new Error('ROLLBACK failed.')
 
-    expect(transactionFailure(databaseError, { error: applicationError })).toBe(applicationError)
+    expect(transactionFailure(rollbackError, { error: applicationError })).toBe(applicationError)
   })
 
-  it('translates an unmapped PostgreSQL database failure into PersistenceError', () => {
+  it('translates the primary database failure when transaction cleanup also fails', () => {
     const databaseError = postgresFailure('08006')
+    const rollbackError = new Error('ROLLBACK failed.')
 
-    const translated = transactionFailure(databaseError, { error: databaseError })
+    const translated = transactionFailure(rollbackError, { error: databaseError })
 
     expect(translated).toBeInstanceOf(PersistenceError)
     expect((translated as Error & { cause?: unknown }).cause).toBe(databaseError)
+  })
+
+  it('translates a transaction failure that happens before application work starts', () => {
+    const connectionError = Object.assign(new Error('Connection refused.'), {
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+    })
+
+    const translated = transactionFailure(connectionError, undefined)
+
+    expect(translated).toBeInstanceOf(PersistenceError)
+    expect((translated as Error & { cause?: unknown }).cause).toBe(connectionError)
+  })
+
+  it('translates a Drizzle driver failure without relying on system error fields', () => {
+    const driverError = drizzleDriverFailureForTesting(
+      new Error('Connection terminated unexpectedly.'),
+    )
+
+    const translated = transactionFailure(new Error('ROLLBACK failed.'), {
+      error: driverError,
+    })
+
+    expect(translated).toBeInstanceOf(PersistenceError)
+    expect((translated as Error & { cause?: unknown }).cause).toBe(driverError)
   })
 })
 

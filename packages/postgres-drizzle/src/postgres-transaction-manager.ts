@@ -1295,8 +1295,13 @@ export function transactionFailure(
   error: unknown,
   workFailure: { readonly error: unknown } | undefined,
 ): unknown {
-  if (workFailure && !postgresDriverFailure(workFailure.error)) return workFailure.error
-  return translatePersistenceError(error)
+  if (workFailure) return translatePersistenceError(workFailure.error)
+  return translatePostgresOperationError(error)
+}
+
+/** @internal Creates a vendor error without exposing its type through the package boundary. */
+export function drizzleDriverFailureForTesting(cause: Error): Error {
+  return new DrizzleQueryError('select 1', [], cause)
 }
 
 function postgresCode(error: unknown): string | undefined {
@@ -1310,32 +1315,9 @@ function postgresError(error: unknown): DatabaseError | undefined {
   )
 }
 
-const postgresTransportErrorCodes = new Set([
-  'ECONNREFUSED',
-  'ECONNRESET',
-  'EHOSTUNREACH',
-  'ENETUNREACH',
-  'ENOTFOUND',
-  'EPIPE',
-  'ETIMEDOUT',
-])
-
 function postgresDriverFailure(error: unknown): Error | undefined {
   if (error instanceof DatabaseError) return error
-  if (!(error instanceof DrizzleQueryError)) return undefined
-  return findError(error.cause, isPostgresDriverCause)
-}
-
-function isPostgresDriverCause(candidate: unknown): candidate is Error {
-  if (candidate instanceof DatabaseError) return true
-  if (!(candidate instanceof Error) || !('code' in candidate) || !('syscall' in candidate)) {
-    return false
-  }
-  return (
-    typeof candidate.code === 'string' &&
-    postgresTransportErrorCodes.has(candidate.code) &&
-    typeof candidate.syscall === 'string'
-  )
+  return error instanceof DrizzleQueryError ? error : undefined
 }
 
 function findError<ErrorType>(
