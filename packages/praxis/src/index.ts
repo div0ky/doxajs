@@ -54,7 +54,9 @@ export interface PraxisIo {
 
 const help = `Doxa Praxis
 
-Usage: doxa <command> [arguments]
+Usage: doxa <command> [arguments] [--help]
+
+Pass --help or -h before or after a command's arguments to show this help without running it.
 
 Build and inspect:
   build                 Compile the application manifest and registry
@@ -141,7 +143,13 @@ export async function runPraxis(
 ): Promise<number> {
   const [command = 'help', ...args] = arguments_
   try {
-    if (command === 'help' || command === '--help' || command === '-h') {
+    if (
+      command === 'help' ||
+      command === '--help' ||
+      command === '-h' ||
+      args.includes('--help') ||
+      args.includes('-h')
+    ) {
       io.out(help)
       return 0
     }

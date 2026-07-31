@@ -74,8 +74,8 @@ pnpm doxa add keryx
 pnpm test
 ```
 
-Run `pnpm doxa --help` for generators, inspection, recovery, authentication, queue, schedule, cache,
-migration, Gnosis, and runtime commands.
+Run `pnpm doxa --help` or `pnpm doxa <command> --help` for generators, inspection, recovery,
+authentication, queue, schedule, cache, migration, Gnosis, and runtime commands.
 
 ## Gnosis and coding agents
 

@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
 - **Amended:** 2026-07-13 — Route generation defaults to public GET access.
+- **Amended:** 2026-07-31 — Help flags are side-effect-free from every command position.
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -98,6 +99,11 @@ Every mutating CLI command must:
 - Report partial failure and recovery steps clearly.
 - Be testable against fixtures and real generated applications.
 - Record the Doxa version and recipe responsible for generated output.
+
+`--help` and `-h` are reserved help flags before or after a command's arguments. Praxis must print
+help and exit successfully before compilation, application-command dispatch, validation, package
+execution, database access, or filesystem mutation. In particular, generators must never interpret a
+help flag as an application, migration, Feature, or artifact name.
 
 Generators that edit existing code should prefer a parsed representation or a stable framework
 manifest over fragile string replacement. If a safe structural edit cannot be proved, the command

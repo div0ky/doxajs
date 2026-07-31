@@ -25,6 +25,39 @@ describe('Praxis command suite', () => {
     )
   })
 
+  it('shows help from every command position without running generators', async () => {
+    const root = await temporaryDirectory()
+    const output: string[] = []
+    const errors: string[] = []
+    const io = {
+      out: (message: string) => output.push(message),
+      error: (message: string) => errors.push(message),
+    }
+
+    const requests = [
+      ['--help'],
+      ['-h'],
+      ['help'],
+      ['make:migration', '--help'],
+      ['make:model', '--help'],
+      ['make:model', 'Accounts/User', '--help'],
+      ['new', 'Example', '-h'],
+      ['build', '--help'],
+      ['migrate', '-h'],
+      ['upgrade', '--help'],
+      ['accounts:sync', '--help'],
+    ]
+    for (const arguments_ of requests) expect(await runPraxis(arguments_, root, io)).toBe(0)
+
+    expect(output).toHaveLength(requests.length)
+    expect(output.every((message) => message.includes('Usage: doxa <command>'))).toBe(true)
+    expect(errors).toEqual([])
+    expect(await fileExists(path.join(root, 'migrations'))).toBe(false)
+    expect(await fileExists(path.join(root, 'src'))).toBe(false)
+    expect(await fileExists(path.join(root, 'example'))).toBe(false)
+    expect(await fileExists(path.join(root, '.doxa'))).toBe(false)
+  })
+
   it('generates a Feature and registers generated model and action declarations', async () => {
     const root = await temporaryDirectory()
     const output: string[] = []
