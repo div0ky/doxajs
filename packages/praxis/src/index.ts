@@ -97,6 +97,7 @@ Build and inspect:
   permission-source:list List the application permission source and abilities
   policy:list           List policies and abilities
   command:list          List application console commands
+  realtime-command:list List authenticated ephemeral realtime commands
 
 Generate:
   new <Name> [--directory=path]
@@ -118,6 +119,7 @@ Generate:
   make:provider <Feature/Name>
   make:service <Feature/Name> [--provide]
   make:command <Feature/Name> [--name=feature:command] --public|--ability=<ability>
+  make:realtime-command <Feature/Name> --ability=<ability> [--id=name] [--limit=4] [--window-ms=2000] [--timeout-ms=2000]
   make:migration <Name>
   make:test <Feature/Name>
 
@@ -1340,6 +1342,7 @@ async function makeApplication(directory: string, rawName: string): Promise<void
           '@doxajs/postgres-drizzle': frameworkRange,
           '@doxajs/queue-pg-boss': frameworkRange,
           '@doxajs/runtime': frameworkRange,
+          zod: '^4.4.3',
         },
         devDependencies: {
           '@doxajs/testing': frameworkRange,
@@ -2082,6 +2085,7 @@ type GeneratorRole =
   | 'provider'
   | 'service'
   | 'command'
+  | 'realtime-command'
 
 async function makeRole(
   cwd: string,
@@ -2148,15 +2152,25 @@ function roleDefinition(
   const access =
     role === 'route'
       ? parseRouteAccess(args)
-      : ['action', 'query', 'listener', 'signal-handler', 'job', 'schedule', 'command'].includes(
-            role,
-          )
+      : [
+            'action',
+            'query',
+            'listener',
+            'signal-handler',
+            'job',
+            'schedule',
+            'command',
+            'realtime-command',
+          ].includes(role)
         ? parseAccess(args)
         : undefined
   const simple =
     (base: string, extra = '') =>
     (name: string) =>
       `import { ${base} } from '@doxajs/core'\n\nexport class ${name} extends ${base} {\n  static override readonly id = '${kebab(name)}'\n${extra}}\n`
+  if (role === 'realtime-command' && access === 'public') {
+    throw new PraxisCommandError('Realtime commands require --ability=<ability>.')
+  }
   if (role === 'model')
     return {
       field: 'models',
@@ -2331,6 +2345,29 @@ function roleDefinition(
         `import { Command } from '@doxajs/core'\n\nexport class ${name} extends Command {\n  static override readonly id = '${kebab(name)}'\n  static override readonly name = '${commandName}'\n  static override readonly description = ${JSON.stringify(description)}\n  static override readonly access = '${access}'\n\n  async handle(_arguments: readonly string[]): Promise<void> {}\n}\n`,
     }
   }
+  if (role === 'realtime-command') {
+    const commandId = option(args, 'id') ?? `${kebab(target.feature)}.${kebab(target.name)}`
+    const limit = Number(option(args, 'limit') ?? 4)
+    const windowMs = Number(option(args, 'window-ms') ?? 2_000)
+    const timeoutMs = Number(option(args, 'timeout-ms') ?? 2_000)
+    if (!/^[a-z][a-z0-9._:-]{1,127}$/.test(commandId))
+      throw new PraxisCommandError('Realtime command --id must be a stable command name.')
+    for (const [flag, value] of [
+      ['limit', limit],
+      ['window-ms', windowMs],
+      ['timeout-ms', timeoutMs],
+    ] as const) {
+      if (!Number.isSafeInteger(value) || value <= 0)
+        throw new PraxisCommandError(`--${flag} must be a positive integer.`)
+    }
+    if (timeoutMs > 10_000) throw new PraxisCommandError('--timeout-ms must not exceed 10000.')
+    return {
+      field: 'realtimeCommands',
+      folder: 'realtime-commands',
+      source: (name) =>
+        `import { RealtimeCommand } from '@doxajs/core'\nimport { z } from 'zod'\n\nconst ${name}Input = z.object({}).strict()\ntype ${name}Input = z.infer<typeof ${name}Input>\n\nexport class ${name} extends RealtimeCommand<${name}Input> {\n  static override readonly id = '${commandId}'\n  static override readonly access = '${access}'\n  static override readonly schema = ${name}Input\n  static override readonly throttle = { limit: ${limit}, windowMs: ${windowMs} }\n  static override readonly timeoutMs = ${timeoutMs}\n\n  async handle(_input: ${name}Input): Promise<void> {}\n}\n`,
+    }
+  }
   return {
     ...(args.includes('--provide') ? { field: 'provides' } : {}),
     folder: 'services',
@@ -2458,6 +2495,7 @@ function generatorRole(command: string): GeneratorRole | undefined {
     'provider',
     'service',
     'command',
+    'realtime-command',
   ].includes(value)
     ? (value as GeneratorRole)
     : undefined
@@ -2474,6 +2512,7 @@ function inspectionField(command: string): InspectionSurface | undefined {
       'permission-source:list': 'permissionSources',
       'policy:list': 'policies',
       'command:list': 'commands',
+      'realtime-command:list': 'realtimeCommands',
     } as Record<string, InspectionSurface>
   )[command]
 }
@@ -2500,6 +2539,8 @@ function formatInspection(field: string, entry: Record<string, unknown>): string
   if (field === 'permissionSources')
     return `${String(entry.id)} ${(entry.abilities as unknown[]).join(',')}`
   if (field === 'policies') return `${String(entry.id)} ${(entry.abilities as unknown[]).join(',')}`
+  if (field === 'realtimeCommands')
+    return `${String(entry.command)} access=${String(entry.access)} throttle=${JSON.stringify(entry.throttle)} timeoutMs=${String(entry.timeoutMs)}`
   return `${String(entry.command)} ${String(entry.access)} ${String(entry.description)}`
 }
 

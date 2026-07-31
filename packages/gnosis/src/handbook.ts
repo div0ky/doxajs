@@ -24,6 +24,7 @@ export type DoxaRole =
   | 'signal'
   | 'signal-handler'
   | 'command'
+  | 'realtime-command'
 
 export interface RoleGuideDetails {
   readonly purpose: string
@@ -546,6 +547,38 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     antiPatterns: ['Arbitrary script entrypoints', 'Raw SQL or process-global mutation'],
     testing: ['Test input/output and exit behavior', 'Test access and delegated operation'],
   }),
+  role(
+    'role.realtime-command',
+    'realtime-command',
+    'RealtimeCommand',
+    ['websocket command', 'typing indicator', 'cursor', 'ephemeral'],
+    {
+      purpose: 'Handle authenticated client-originated ephemeral realtime intent.',
+      useWhen: 'A transient interaction must reach the application without becoming durable work.',
+      registration:
+        'Declare it in Feature.realtimeCommands with schema, ability, throttle, and stable ID.',
+      generator: 'doxa make:realtime-command Feature/Name --ability=<ability>',
+      canonicalFolder: 'src/features/<feature>/realtime-commands',
+      invocation: '@doxajs/realtime sends it only after Keryx authenticated connected state.',
+      authorization:
+        'Doxa validates input, then passes it as the resource to the declared ability policy.',
+      transaction: 'Read-only and non-transactional; it cannot create durable work.',
+      injection: 'Extend RealtimeCommand and use this.inject().',
+      scope: 'One transient instance in one fresh WebSocket-message execution.',
+      lifecycle: 'May dispose scope-local resources; cannot own start, drain, or stop phases.',
+      dependencies: 'Use read-only services and immediate Signals or ShouldBroadcastNow events.',
+      rationale:
+        'Registered ingress preserves actor authority and avoids an unrestricted socket RPC surface.',
+      example:
+        'A typing command authorizes conversation participation and broadcasts typing immediately.',
+      antiPatterns: [
+        'Dispatching Actions or Jobs',
+        'Queued delivery',
+        'Client-supplied actor data',
+      ],
+      testing: ['Test schema and policy denial', 'Test throttling and immediate broadcast'],
+    },
+  ),
 ]
 
 const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
@@ -596,7 +629,7 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     'Every admitted entry point owns one execution; asynchronous delivery starts another.',
     'One owner prevents nested containers and ambiguous commit behavior.',
     [
-      'Requests, Actions, Queries, Job attempts, Commands, and queued listeners are admitted boundaries.',
+      'Requests, Actions, Queries, Job attempts, Commands, RealtimeCommands, and queued listeners are admitted boundaries.',
       'Inline services, local listeners, observers, and signals share the current execution.',
       'Actions and Jobs receive writable model sessions. Queries receive read-only model sessions.',
       'Services resolve in the caller’s scope and therefore see the caller’s active model session and unit of work.',
@@ -677,12 +710,13 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       'doxa make:provider',
       'doxa make:service',
       'doxa make:command',
+      'doxa make:realtime-command',
       'doxa make:migration',
       'doxa make:test',
     ],
     'Praxis is the canonical way to create Doxa declarations, migrations, and architectural tests.',
     'Generators encode canonical names, folders, registration, imports, access declarations, and capability choices without giving paths runtime meaning.',
-    'Use doxa new for an application; make:feature, make:model, make:action, make:query, make:route, make:event, make:listener, make:signal, make:signal-handler, make:observer, make:job, make:schedule, make:policy, make:permission-source, make:config, make:provider, make:service, and make:command for declared architecture; make:migration for application-owned schema changes; and make:test for admitted feature tests. Read the matching role guide before choosing role-specific flags.',
+    'Use doxa new for an application; make:feature, make:model, make:action, make:query, make:route, make:event, make:listener, make:signal, make:signal-handler, make:observer, make:job, make:schedule, make:policy, make:permission-source, make:config, make:provider, make:service, make:command, and make:realtime-command for declared architecture; make:migration for application-owned schema changes; and make:test for admitted feature tests. Read the matching role guide before choosing role-specific flags.',
   ),
   concept(
     'concept.capability-catalog',
@@ -805,7 +839,7 @@ const moduleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     undefined,
     undefined,
     'Testing harness',
-    'Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.',
+    'Use admitted Action, Query, HTTP, event, Job, and realtime-command harness paths to prove transaction, authorization, and delivery guarantees.',
   ),
   moduleGuide(
     'module.http-hono',
@@ -853,7 +887,7 @@ const moduleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     undefined,
     ['broadcasting'],
     'Realtime client',
-    'The browser client follows Keryx admission and protocol contracts; application authorization remains server-owned.',
+    'The browser client follows Keryx protocol v3 admission, subscription, and command contracts; application authorization remains server-owned. Commands reject while disconnected and are never queued, replayed, or automatically retried.',
   ),
   moduleGuide(
     'module.opentelemetry',

@@ -15,6 +15,7 @@ export const MAX_INSPECTION_OBJECT_PROPERTIES = 100
 export type InspectionSurface =
   | 'actions'
   | 'commands'
+  | 'realtimeCommands'
   | 'events'
   | 'jobs'
   | 'listeners'
@@ -88,6 +89,7 @@ export interface ArchitectureDiagnostic {
 export type ComponentKind =
   | 'action'
   | 'command'
+  | 'realtime-command'
   | 'configuration'
   | 'event'
   | 'job'
@@ -149,6 +151,7 @@ export interface GnosisKnowledge {
 const surfaces: Readonly<Record<InspectionSurface, keyof DoxaManifest>> = {
   actions: 'actions',
   commands: 'commands',
+  realtimeCommands: 'realtimeCommands',
   events: 'events',
   jobs: 'jobs',
   listeners: 'listeners',
@@ -181,6 +184,7 @@ const graphSections = [
   'policies',
   'permissionSource',
   'commands',
+  'realtimeCommands',
 ] as const satisfies readonly (keyof DoxaManifest)[]
 
 export function assertCurrentManifest(value: unknown): asserts value is DoxaManifest {
@@ -507,6 +511,7 @@ function componentEntries(
   }
   add('action', manifest.actions)
   add('command', manifest.commands)
+  add('realtime-command', manifest.realtimeCommands)
   add('configuration', manifest.configurations)
   add('event', manifest.events)
   add('job', manifest.jobs)
@@ -643,6 +648,7 @@ function canonicalFolderFor(kind: ComponentKind): string {
     {
       action: 'actions',
       command: 'commands',
+      'realtime-command': 'realtime-commands',
       configuration: 'config',
       event: 'events',
       job: 'jobs',
@@ -747,6 +753,7 @@ function componentDiagnostics(
 const canonicalRoleFolders = new Set([
   'actions',
   'commands',
+  'realtime-commands',
   'config',
   'events',
   'http',

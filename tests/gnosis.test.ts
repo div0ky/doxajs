@@ -72,7 +72,7 @@ describe('Gnosis read-only local engineering server', () => {
   })
 
   it('compiles model relationships into the canonical manifest', () => {
-    expect(manifest.formatVersion).toBe(7)
+    expect(manifest.formatVersion).toBe(8)
     expect(manifest.frameworkVersion).toBe(compilerVersion)
     expect(manifest.models.find((model) => model.id.endsWith('/counter'))?.relationships).toEqual([
       {
@@ -109,7 +109,7 @@ describe('Gnosis read-only local engineering server', () => {
     expect(applicationInfo(manifest)).toEqual(
       expect.objectContaining({
         applicationId: 'persistence-reference-app',
-        manifestFormatVersion: 7,
+        manifestFormatVersion: 8,
         frameworkVersion: compilerVersion,
       }),
     )
@@ -223,6 +223,7 @@ describe('Gnosis read-only local engineering server', () => {
       'policy',
       'provider',
       'query',
+      'realtime-command',
       'route',
       'schedule',
       'service',
@@ -322,6 +323,7 @@ describe('Gnosis read-only local engineering server', () => {
       'doxa make:provider',
       'doxa make:service',
       'doxa make:command',
+      'doxa make:realtime-command',
       'doxa make:migration',
       'doxa make:test',
     ])
@@ -424,7 +426,7 @@ describe('Gnosis read-only local engineering server', () => {
     )
     expect(publicHandbook).toBe(renderHandbookMarkdown(manifest.frameworkVersion))
     const testingGuidance =
-      'Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.'
+      'Use admitted Action, Query, HTTP, event, Job, and realtime-command harness paths to prove transaction, authorization, and delivery guarantees.'
     expect(publicHandbook.match(new RegExp(testingGuidance, 'g'))).toHaveLength(1)
   })
 
@@ -1082,7 +1084,7 @@ describe('Gnosis read-only local engineering server', () => {
       expect(result.structuredContent).toEqual(
         expect.objectContaining({
           applicationId: 'garden',
-          manifestFormatVersion: 7,
+          manifestFormatVersion: 8,
           gnosisVersion,
         }),
       )
@@ -1130,7 +1132,7 @@ describe('Gnosis read-only local engineering server', () => {
       expect(result.structuredContent).toEqual(
         expect.objectContaining({
           applicationId: 'garden',
-          manifestFormatVersion: 7,
+          manifestFormatVersion: 8,
           gnosisVersion,
         }),
       )
