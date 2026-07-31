@@ -6,7 +6,6 @@ import {
   type Disposes,
   type ExecutionContext,
   type JournalFact,
-  HttpError,
   type JsonValue,
   type LifecycleContext,
   type ModelStorage,
@@ -29,7 +28,7 @@ import {
   TransactionManager,
   UnitOfWork,
 } from '@doxajs/core'
-import { and, eq, sql, type SQL } from 'drizzle-orm'
+import { and, DrizzleQueryError, eq, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { DatabaseError, Pool, type PoolClient } from 'pg'
 
@@ -95,7 +94,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
       this.#database = drizzle(pool, { schema: persistenceSchema })
     } catch (error) {
       await pool.end().catch(() => undefined)
-      throw translatePersistenceError(error)
+      throw translatePostgresOperationError(error)
     }
   }
 
@@ -106,18 +105,22 @@ export class PostgresTransactionManager extends TransactionManager implements St
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
     let unitOfWork: PostgresUnitOfWork | undefined
+    let workFailure: { readonly error: unknown } | undefined
     let result: Output
     try {
       result = await database.transaction(async (transaction) => {
         unitOfWork = new PostgresUnitOfWork(transaction, context)
         try {
           return await work(unitOfWork)
+        } catch (error) {
+          workFailure = { error }
+          throw error
         } finally {
           unitOfWork.close()
         }
       })
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
     await unitOfWork?.releaseAfterCommit()
     return result
@@ -131,6 +134,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
     let unitOfWork: PostgresUnitOfWork | undefined
+    let workFailure: { readonly error: unknown } | undefined
     let result: Output
     try {
       result = await database.transaction(async (transaction) => {
@@ -147,16 +151,23 @@ export class PostgresTransactionManager extends TransactionManager implements St
               text: string,
               values?: readonly unknown[],
             ) => {
-              const result = await client.query<Row>(text, values as unknown[] | undefined)
-              return { rows: result.rows, rowCount: result.rowCount }
+              try {
+                const result = await client.query<Row>(text, values as unknown[] | undefined)
+                return { rows: result.rows, rowCount: result.rowCount }
+              } catch (error) {
+                throw translatePostgresOperationError(error)
+              }
             },
           })
+        } catch (error) {
+          workFailure = { error }
+          throw error
         } finally {
           unitOfWork.close()
         }
       })
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
     await unitOfWork?.releaseAfterCommit()
     return result
@@ -168,12 +179,16 @@ export class PostgresTransactionManager extends TransactionManager implements St
   ): Promise<Output> {
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
+    let workFailure: { readonly error: unknown } | undefined
     try {
       return await database.transaction(
         async (transaction) => {
           const reader = new PostgresUnitOfWork(transaction, context)
           try {
             return await work(reader)
+          } catch (error) {
+            workFailure = { error }
+            throw error
           } finally {
             reader.close()
           }
@@ -181,7 +196,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
         { accessMode: 'read only', isolationLevel: 'repeatable read' },
       )
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
   }
 
@@ -1263,10 +1278,25 @@ function deliveryContext(context: ExecutionContext): DurableExecutionEnvelope {
 }
 
 function translatePersistenceError(error: unknown): unknown {
-  if (error instanceof PersistenceError || error instanceof HttpError) return error
+  if (error instanceof PersistenceError) return error
   return postgresDriverFailure(error)
     ? new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
     : error
+}
+
+function translatePostgresOperationError(error: unknown): PersistenceError {
+  return error instanceof PersistenceError
+    ? error
+    : new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+}
+
+/** @internal Exported only for adapter regression tests; not part of the package entry point. */
+export function transactionFailure(
+  error: unknown,
+  workFailure: { readonly error: unknown } | undefined,
+): unknown {
+  if (workFailure && !postgresDriverFailure(workFailure.error)) return workFailure.error
+  return translatePersistenceError(error)
 }
 
 function postgresCode(error: unknown): string | undefined {
@@ -1291,17 +1321,21 @@ const postgresTransportErrorCodes = new Set([
 ])
 
 function postgresDriverFailure(error: unknown): Error | undefined {
-  return findError(error, (candidate): candidate is Error => {
-    if (candidate instanceof DatabaseError) return true
-    if (!(candidate instanceof Error) || !('code' in candidate) || !('syscall' in candidate)) {
-      return false
-    }
-    return (
-      typeof candidate.code === 'string' &&
-      postgresTransportErrorCodes.has(candidate.code) &&
-      typeof candidate.syscall === 'string'
-    )
-  })
+  if (error instanceof DatabaseError) return error
+  if (!(error instanceof DrizzleQueryError)) return undefined
+  return findError(error.cause, isPostgresDriverCause)
+}
+
+function isPostgresDriverCause(candidate: unknown): candidate is Error {
+  if (candidate instanceof DatabaseError) return true
+  if (!(candidate instanceof Error) || !('code' in candidate) || !('syscall' in candidate)) {
+    return false
+  }
+  return (
+    typeof candidate.code === 'string' &&
+    postgresTransportErrorCodes.has(candidate.code) &&
+    typeof candidate.syscall === 'string'
+  )
 }
 
 function findError<ErrorType>(

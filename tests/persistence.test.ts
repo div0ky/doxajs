@@ -3486,20 +3486,16 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
             try {
               await transaction.query('SELECT * FROM doxa_missing_application_mapping_proof')
             } catch (cause) {
-              throw new HttpError(
-                409,
-                'mapped_database_conflict',
-                'The application mapped the database failure.',
-                undefined,
-                { cause },
+              throw Object.assign(
+                new Error('The application mapped the database failure.', { cause }),
+                { code: 'mapped_database_conflict' },
               )
             }
           },
         )
         .catch((error: unknown) => error)
-      expect(mappedDatabaseFailure).toBeInstanceOf(HttpError)
+      expect(mappedDatabaseFailure).not.toBeInstanceOf(PersistenceError)
       expect(mappedDatabaseFailure).toMatchObject({
-        status: 409,
         code: 'mapped_database_conflict',
       })
 
