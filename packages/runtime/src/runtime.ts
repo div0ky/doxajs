@@ -17,6 +17,8 @@ import {
   type BroadcastMessage,
   type BroadcastSubscriptionAdmission,
   type BroadcastSubscriptionResource,
+  type RealtimeCommandRequest,
+  type RealtimeCommandResult,
   BroadcastTransport,
   validateBroadcastChannelName,
   Authorization,
@@ -61,6 +63,8 @@ import {
   type ModelOperationObserver,
   type Query,
   type QueryClass,
+  type RealtimeCommand,
+  type StandardSchema,
   type OperationMode,
   type Observer,
   type Observation,
@@ -132,6 +136,7 @@ import {
   type PermissionSourceManifestEntry,
   type ProviderManifestEntry,
   type PolicyManifestEntry,
+  type RealtimeCommandManifestEntry,
   type RegistryModule,
   type RouteManifestEntry,
   type SignalHandlerManifestEntry,
@@ -250,7 +255,7 @@ interface RuntimeGraph {
 interface ExecutionStore {
   readonly context: ExecutionContext
   readonly scope: ExecutionScope
-  readonly operationStack: ('action' | 'job' | 'query')[]
+  readonly operationStack: ('action' | 'job' | 'query' | 'realtime-command')[]
   permissionAbilities?: Promise<ReadonlySet<string>>
   job?: import('@doxajs/core').CurrentJobContext
 }
@@ -311,6 +316,7 @@ export class DoxaRuntime {
   readonly #policiesByAbility = new Map<string, PolicyManifestEntry>()
   readonly #schedulesById = new Map<string, DoxaManifest['schedules'][number]>()
   readonly #commandsByName = new Map<string, CommandManifestEntry>()
+  readonly #realtimeCommandsByName = new Map<string, RealtimeCommandManifestEntry>()
   readonly #jobDispatcher: JobDispatcher
   readonly #currentJob: CurrentJob
   readonly actions: ActionBus
@@ -444,10 +450,13 @@ export class DoxaRuntime {
     }
     for (const schedule of manifest.schedules) this.#schedulesById.set(schedule.id, schedule)
     for (const command of manifest.commands) this.#commandsByName.set(command.command, command)
+    for (const command of manifest.realtimeCommands)
+      this.#realtimeCommandsByName.set(command.command, command)
     broadcastTransport?.bind({
       connect: (connectionId, request) => this.connectBroadcast(connectionId, request),
       subscribe: (admission, destination) => this.subscribeBroadcast(admission, destination),
       unsubscribe: (admission, destination) => this.unsubscribeBroadcast(admission, destination),
+      command: (admission, request) => this.dispatchRealtimeCommand(admission, request),
     })
     queues?.bind((delivery) => this.handleQueueDelivery(delivery))
     queues?.reconcileSchedules(
@@ -1595,6 +1604,19 @@ export class DoxaRuntime {
         `${event.constructor.name || 'Anonymous event'} is not declared by a selected Feature.`,
       )
     }
+    if (store.operationStack.at(-1) === 'realtime-command') {
+      const listeners = this.#listenersByEvent.get(manifest.id) ?? []
+      if (
+        manifest.domain ||
+        manifest.dispatch === 'after-commit' ||
+        manifest.broadcast === 'queued' ||
+        listeners.some((listener) => listener.delivery !== 'local')
+      ) {
+        throw new OperationDispatchError(
+          'Realtime commands may dispatch only immediate, non-durable Events and ShouldBroadcastNow broadcasts.',
+        )
+      }
+    }
     const unitOfWork = store.scope.currentUnitOfWork
     if (manifest.domain) {
       if (!unitOfWork) {
@@ -1916,6 +1938,106 @@ export class DoxaRuntime {
     )
   }
 
+  dispatchRealtimeCommand(
+    admission: BroadcastConnectionAdmission,
+    request: RealtimeCommandRequest,
+  ): Promise<RealtimeCommandResult> {
+    const manifest = this.#realtimeCommandsByName.get(request.command)
+    if (!manifest)
+      return Promise.resolve(
+        commandFailure(request.id, 'command_unknown', 'That command is not available.'),
+      )
+    if (
+      admission.actor.kind === 'anonymous' ||
+      !admission.actor.id ||
+      admission.authentication.state !== 'authenticated'
+    ) {
+      return Promise.resolve(
+        commandFailure(
+          request.id,
+          'command_unauthenticated',
+          'That command requires authentication.',
+        ),
+      )
+    }
+    const Constructor = this.artifacts.registry.constructors[manifest.id] as
+      | ((new (...dependencies: unknown[]) => RealtimeCommand<unknown>) & {
+          readonly schema: StandardSchema<unknown, unknown>
+        })
+      | undefined
+    if (!Constructor) {
+      return Promise.resolve(
+        commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
+      )
+    }
+    return this.admit(
+      {
+        actor: admission.actor,
+        authentication: admission.authentication,
+        ...(admission.tenant ? { tenant: admission.tenant } : {}),
+        correlationId: admission.correlationId,
+        causationId: request.id,
+        deadline: new Date(Date.now() + manifest.timeoutMs),
+        transport: { kind: 'websocket', name: `realtime.command:${manifest.command}` },
+      },
+      async () => {
+        const store = this.requireExecution('realtime command')
+        store.operationStack.push('realtime-command')
+        try {
+          const validation = await Constructor.schema['~standard'].validate(request.payload)
+          if ('issues' in validation && validation.issues) {
+            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
+          }
+          const input = validation.value
+          const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
+            actorId: admission.actor.id!,
+            command: manifest.command,
+            requestId: request.id,
+            throttle: manifest.throttle,
+          })
+          if (!throttle.allowed) {
+            return commandFailure(
+              request.id,
+              'command_throttled',
+              'That command is being sent too frequently.',
+              throttle.retryAfterMs,
+            )
+          }
+          await this.authorization.authorize(manifest.access, input)
+          const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
+          await this.observeObservation(
+            'realtime-command',
+            manifest.command,
+            {},
+            () => runUntilCancelled(command.handle(input), store.context.cancellation),
+            manifest.id,
+          )
+          return Object.freeze({ id: request.id, ok: true as const })
+        } catch (error) {
+          if (error instanceof AuthorizationError) {
+            return commandFailure(request.id, 'command_forbidden', 'That command is not allowed.')
+          }
+          if (store.context.cancellation.aborted) {
+            return commandFailure(
+              request.id,
+              'command_timeout',
+              'That command exceeded its execution deadline.',
+            )
+          }
+          return commandFailure(
+            request.id,
+            'command_failed',
+            'That command could not be processed.',
+          )
+        } finally {
+          store.operationStack.pop()
+        }
+      },
+    ).catch(() =>
+      commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
+    )
+  }
+
   private async enqueueListener(
     listener: ListenerManifestEntry,
     eventManifest: EventManifestEntry,
@@ -1947,6 +2069,9 @@ export class DoxaRuntime {
     options?: JobDispatchOptions,
   ): Promise<string> {
     const store = this.requireExecution('job')
+    if (store.operationStack.at(-1) === 'realtime-command') {
+      throw new OperationDispatchError('Realtime commands cannot dispatch durable Jobs.')
+    }
     const manifest = this.#jobsByConstructor.get(Constructor)
     if (!manifest) {
       throw new OperationDispatchError(
@@ -2421,6 +2546,7 @@ export class DoxaRuntime {
       | 'sms'
       | 'delivery ledger'
       | 'command'
+      | 'realtime command'
       | 'HTTP route'
       | 'authorization',
   ): ExecutionStore {
@@ -3014,6 +3140,7 @@ async function loadArtifacts(artifactsDirectory: string): Promise<RuntimeArtifac
     ...manifest.signals.map((entry) => entry.id),
     ...manifest.signalHandlers.map((entry) => entry.id),
     ...manifest.commands.map((entry) => entry.id),
+    ...manifest.realtimeCommands.map((entry) => entry.id),
   ].sort()
   const registryIds = Object.keys(registry.constructors ?? {}).sort()
   if (JSON.stringify(expectedIds) !== JSON.stringify(registryIds)) {
@@ -3274,6 +3401,7 @@ class ExecutionScope {
     | SignalHandlerManifestEntry
     | ObserverManifestEntry
     | CommandManifestEntry
+    | RealtimeCommandManifestEntry
   >
   readonly #dependencyOwnerById: ReadonlyMap<
     string,
@@ -3289,6 +3417,7 @@ class ExecutionScope {
     | SignalHandlerManifestEntry
     | ObserverManifestEntry
     | CommandManifestEntry
+    | RealtimeCommandManifestEntry
   >
   readonly #instances = new Map<string, object>()
   readonly #constructionStack = new Set<string>()
@@ -3328,6 +3457,7 @@ class ExecutionScope {
         ...artifacts.manifest.signalHandlers,
         ...artifacts.manifest.observers,
         ...artifacts.manifest.commands,
+        ...artifacts.manifest.realtimeCommands,
       ].map((executable) => [executable.id, executable]),
     )
     this.#dependencyOwnerById = new Map(
@@ -3345,6 +3475,7 @@ class ExecutionScope {
         ...artifacts.manifest.signalHandlers,
         ...artifacts.manifest.observers,
         ...artifacts.manifest.commands,
+        ...artifacts.manifest.realtimeCommands,
       ].map((entry) => [entry.id, entry]),
     )
     for (const [id, Constructor] of Object.entries(artifacts.registry.constructors)) {
@@ -3465,6 +3596,7 @@ class ExecutionScope {
       | SignalHandlerManifestEntry
       | ObserverManifestEntry
       | CommandManifestEntry
+      | RealtimeCommandManifestEntry
       | ProviderManifestEntry,
     token: RoleInjectionToken,
     optional: boolean,
@@ -3796,6 +3928,41 @@ function createExecutionContext(
     cancellation,
   }
   return Object.freeze(context)
+}
+
+function commandFailure(
+  id: string,
+  code: string,
+  message: string,
+  retryAfterMs?: number,
+): RealtimeCommandResult {
+  return Object.freeze({
+    id,
+    ok: false as const,
+    error: Object.freeze({
+      code,
+      message,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    }),
+  })
+}
+
+async function runUntilCancelled(
+  work: void | Promise<void>,
+  cancellation: AbortSignal,
+): Promise<void> {
+  if (cancellation.aborted) throw cancellation.reason
+  let removeAbortListener = (): void => undefined
+  const aborted = new Promise<never>((_resolve, reject) => {
+    const listener = (): void => reject(cancellation.reason)
+    cancellation.addEventListener('abort', listener, { once: true })
+    removeAbortListener = () => cancellation.removeEventListener('abort', listener)
+  })
+  try {
+    await Promise.race([Promise.resolve(work), aborted])
+  } finally {
+    removeAbortListener()
+  }
 }
 
 function telemetryAttributes(

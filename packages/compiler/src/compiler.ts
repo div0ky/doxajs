@@ -24,6 +24,7 @@ import {
   type ObserverManifestEntry,
   type PermissionSourceManifestEntry,
   type ProviderManifestEntry,
+  type RealtimeCommandManifestEntry,
   type PolicyManifestEntry,
   type PluginManifestEntry,
   type RouteManifestEntry,
@@ -68,6 +69,7 @@ const DECLARATION_FIELDS = new Set([
   'signals',
   'signalHandlers',
   'commands',
+  'realtimeCommands',
 ])
 
 export interface CompileApplicationOptions {
@@ -241,6 +243,9 @@ export async function compileApplication(
   const commands: CommandManifestEntry[] = []
   const commandByDeclaration = new Map<ts.ClassDeclaration, CommandManifestEntry>()
   const commandRoots = new Map<ts.ClassDeclaration, { readonly ownerId: string }>()
+  const realtimeCommands: RealtimeCommandManifestEntry[] = []
+  const realtimeCommandByDeclaration = new Map<ts.ClassDeclaration, RealtimeCommandManifestEntry>()
+  const realtimeCommandRoots = new Map<ts.ClassDeclaration, { readonly ownerId: string }>()
 
   for (let index = 0; index < featureDeclarations.length; index += 1) {
     const featureDeclaration = featureDeclarations[index]
@@ -279,6 +284,7 @@ export async function compileApplication(
         'Signal',
         'SignalHandler',
         'Command',
+        'RealtimeCommand',
         'Auth',
         'TransactionManager',
         'QueueManager',
@@ -358,6 +364,13 @@ export async function compileApplication(
       'signal handler',
     )
     registerOwnedRoots(featureDeclaration, 'commands', feature.id, commandRoots, 'command')
+    registerOwnedRoots(
+      featureDeclaration,
+      'realtimeCommands',
+      feature.id,
+      realtimeCommandRoots,
+      'realtime command',
+    )
   }
 
   for (const [providerDeclaration, root] of providerRoots) {
@@ -406,6 +419,7 @@ export async function compileApplication(
   for (const [signal, root] of signalRoots) registerSignal(signal, root.ownerId)
   for (const [handler, root] of signalHandlerRoots) registerSignalHandler(handler, root.ownerId)
   for (const [command, root] of commandRoots) registerCommand(command, root.ownerId)
+  for (const [command, root] of realtimeCommandRoots) registerRealtimeCommand(command, root.ownerId)
 
   const authentication = compileAuthentication()
 
@@ -425,6 +439,7 @@ export async function compileApplication(
   assertUnique(signalHandlers, (handler) => handler.id, 'signal handler ID')
   assertUnique(commands, (command) => command.id, 'command ID')
   assertUnique(commands, (command) => command.command, 'command name')
+  assertUnique(realtimeCommands, (command) => command.command, 'realtime command ID')
   assertUnique(
     policies.flatMap((policy) => policy.abilities.map((ability) => ({ ability, policy }))),
     (entry) => entry.ability,
@@ -441,6 +456,7 @@ export async function compileApplication(
     ...schedules,
     ...signalHandlers,
     ...commands,
+    ...realtimeCommands,
   ]) {
     if (entry.access !== 'public' && !availableAbilities.has(entry.access)) {
       throw new DoxaCompilationError(
@@ -450,7 +466,7 @@ export async function compileApplication(
   }
   assertAcyclicProviderGraph(providers)
   assertScopeSafety(providers)
-  assertNoNestedActionBusReachability(providers, [...actions, ...queries], jobs)
+  assertNoNestedActionBusReachability(providers, [...actions, ...queries], jobs, realtimeCommands)
   const transactionProviders = providers.filter((provider) =>
     provider.capabilities.includes('transactions'),
   )
@@ -548,6 +564,7 @@ export async function compileApplication(
     signals: [...signals].sort(byId),
     signalHandlers: [...signalHandlers].sort(byId),
     commands: [...commands].sort(byId),
+    realtimeCommands: [...realtimeCommands].sort(byId),
   }
   const buildHash = createHash('sha256').update(canonicalJson(semanticManifest)).digest('hex')
   const manifest: DoxaManifest = { ...semanticManifest, buildHash }
@@ -621,6 +638,10 @@ export async function compileApplication(
         declaration,
       })),
       [...commandByDeclaration.entries()].map(([declaration, entry]) => ({
+        id: entry.id,
+        declaration,
+      })),
+      [...realtimeCommandByDeclaration.entries()].map(([declaration, entry]) => ({
         id: entry.id,
         declaration,
       })),
@@ -1388,7 +1409,8 @@ export async function compileApplication(
       | 'signals'
       | 'signalHandlers'
       | 'observers'
-      | 'commands',
+      | 'commands'
+      | 'realtimeCommands',
     ownerId: string,
     roots: Map<ts.ClassDeclaration, { readonly ownerId: string }>,
     role: string,
@@ -2339,6 +2361,71 @@ export async function compileApplication(
     commands.push(complete)
     return complete
   }
+
+  function registerRealtimeCommand(
+    declaration: ts.ClassDeclaration,
+    ownerId: string,
+  ): RealtimeCommandManifestEntry {
+    assertConcreteClass(declaration)
+    if (!extendsNamedClass(declaration, 'RealtimeCommand', checker)) {
+      fail(declaration, `${requiredClassName(declaration)} must extend RealtimeCommand.`)
+    }
+    const handle = declaration.members.find(
+      (member): member is ts.MethodDeclaration =>
+        ts.isMethodDeclaration(member) && propertyName(member.name) === 'handle',
+    )
+    if (!handle || handle.parameters.length !== 1) {
+      fail(declaration, `${requiredClassName(declaration)} must define handle(input).`)
+    }
+    const lifecycle = lifecycleOf(declaration, checker)
+    if (lifecycle.start || lifecycle.drain || lifecycle.stop) {
+      fail(
+        declaration,
+        `[DOXA-COMPILER-LIFECYCLE-001] ${requiredClassName(declaration)} may define dispose(), but realtime commands cannot own application lifecycle phases. See Gnosis guide role.realtime-command.`,
+      )
+    }
+    const name = requiredClassName(declaration)
+    const command = readRequiredStaticString(declaration, 'id')
+    if (!/^[a-z][a-z0-9._:-]{1,127}$/.test(command)) {
+      fail(declaration, `${name}.id must be a stable realtime command name.`)
+    }
+    const access = readAccess(declaration)
+    if (access === 'public') {
+      fail(declaration, `${name}.access must require an authenticated ability.`)
+    }
+    const schema = staticProperty(declaration, 'schema')
+    if (!schema?.initializer) {
+      fail(declaration, `${name} must declare a static Standard Schema as schema.`)
+    }
+    const schemaType = checker.getTypeAtLocation(schema.initializer)
+    if (!schemaType.getProperty('~standard')) {
+      fail(schema, `${name}.schema must implement the Standard Schema contract.`)
+    }
+    const throttle = readRealtimeCommandThrottle(declaration)
+    const timeoutMs = readOptionalStaticNumber(declaration, 'timeoutMs', 2_000)
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 10_000) {
+      fail(declaration, `${name}.timeoutMs must be an integer from 1 through 10000.`)
+    }
+    const entry: RealtimeCommandManifestEntry = {
+      id: `realtime-command:${ownerId}/${command}`,
+      ownerId,
+      name,
+      exportName: name,
+      command,
+      access,
+      throttle,
+      timeoutMs,
+      scope: 'transient',
+      source: sourceOf(declaration, normalized.projectRoot),
+      dependencies: [],
+      lifecycle,
+    }
+    realtimeCommandByDeclaration.set(declaration, entry)
+    const complete = { ...entry, dependencies: dependenciesFor(declaration, ownerId) }
+    realtimeCommandByDeclaration.set(declaration, complete)
+    realtimeCommands.push(complete)
+    return complete
+  }
 }
 
 interface NormalizedOptions {
@@ -2795,6 +2882,7 @@ function renderRegistry(
   signals: readonly RegisteredClass[],
   signalHandlers: readonly RegisteredClass[],
   commands: readonly RegisteredClass[],
+  realtimeCommands: readonly RegisteredClass[],
   buildHash: string,
   options: NormalizedOptions,
 ): string {
@@ -2815,6 +2903,7 @@ function renderRegistry(
     ...signals,
     ...signalHandlers,
     ...commands,
+    ...realtimeCommands,
   ].sort((left, right) => left.id.localeCompare(right.id))
   const imports = registrations.map((registration, index) => {
     const sourceFile = registration.declaration.getSourceFile().fileName
@@ -3160,6 +3249,41 @@ function readOptionalStaticNumber(
     fail(property, `${requiredClassName(declaration)}.${name} must be a numeric literal.`)
   }
   return Number(property.initializer.text)
+}
+
+function readRealtimeCommandThrottle(declaration: ts.ClassDeclaration): {
+  readonly limit: number
+  readonly windowMs: number
+} {
+  const property = staticProperty(declaration, 'throttle')
+  if (!property?.initializer || !ts.isObjectLiteralExpression(property.initializer)) {
+    fail(
+      declaration,
+      `${requiredClassName(declaration)} must declare static throttle as { limit, windowMs }.`,
+    )
+  }
+  const initializer = property.initializer
+  const readInteger = (name: string): number => {
+    const field = initializer.properties.find(
+      (entry): entry is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(entry) && propertyName(entry.name) === name,
+    )
+    if (!field || !ts.isNumericLiteral(field.initializer)) {
+      fail(
+        property,
+        `${requiredClassName(declaration)}.throttle.${name} must be a numeric literal.`,
+      )
+    }
+    const value = Number(field.initializer.text)
+    if (!Number.isSafeInteger(value) || value <= 0) {
+      fail(
+        property,
+        `${requiredClassName(declaration)}.throttle.${name} must be a positive integer.`,
+      )
+    }
+    return value
+  }
+  return Object.freeze({ limit: readInteger('limit'), windowMs: readInteger('windowMs') })
 }
 
 function readOptionalStaticBoolean(

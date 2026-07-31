@@ -1,6 +1,12 @@
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
-import { type ActorRef, type BroadcastDestination, type BroadcastMessage } from '@doxajs/core'
+import {
+  type ActorRef,
+  type BroadcastDestination,
+  type BroadcastMessage,
+  type RealtimeCommandThrottleDecision,
+  type RealtimeCommandThrottleRequest,
+} from '@doxajs/core'
 import { createClient } from 'redis'
 
 import { parseActor, parsePublishedMessage } from './protocol.js'
@@ -99,6 +105,23 @@ local accepted = redis.call('SET', KEYS[1], '1', 'PX', ARGV[1], 'NX')
 if not accepted then return 0 end
 redis.call('PUBLISH', ARGV[2], ARGV[3])
 return 1
+`
+
+const CONSUME_REALTIME_COMMAND_THROTTLE = `
+local time = redis.call('TIME')
+local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
+local window = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now - window)
+local count = redis.call('ZCARD', KEYS[1])
+if count >= limit then
+  local oldest = redis.call('ZRANGE', KEYS[1], 0, 0, 'WITHSCORES')
+  redis.call('PEXPIRE', KEYS[1], window)
+  return { 0, math.max(1, tonumber(oldest[2]) + window - now) }
+end
+redis.call('ZADD', KEYS[1], now, ARGV[3])
+redis.call('PEXPIRE', KEYS[1], window)
+return { 1, 0 }
 `
 
 export class RedisBackplane {
@@ -206,6 +229,28 @@ export class RedisBackplane {
       NX: true,
     })
     return result === 'OK'
+  }
+
+  async consumeRealtimeCommandThrottle(
+    request: RealtimeCommandThrottleRequest,
+  ): Promise<RealtimeCommandThrottleDecision> {
+    if (!this.#available) throw new Error('Keryx Redis backplane is unavailable.')
+    const bucketHash = createHash('sha256')
+      .update(`${request.actorId}:${request.command}`)
+      .digest('hex')
+    const result = (await this.#commands.eval(CONSUME_REALTIME_COMMAND_THROTTLE, {
+      keys: [`${this.#prefix}:commands:${bucketHash}`],
+      arguments: [
+        String(request.throttle.windowMs),
+        String(request.throttle.limit),
+        `${request.requestId}:${randomUUID()}`,
+      ],
+    })) as unknown[]
+    const allowed = Number(result[0]) === 1
+    return Object.freeze({
+      allowed,
+      ...(allowed ? {} : { retryAfterMs: Math.max(1, Number(result[1]) || 1) }),
+    })
   }
 
   async joinPresence(

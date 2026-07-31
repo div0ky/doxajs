@@ -15,7 +15,12 @@ export function resetBroadcastAuthorizationModelRead(): void {
 
 export class CounterPolicy extends Policy<OwnedCounter> {
   static override readonly id = 'counter'
-  static override readonly abilities = ['counters.write', 'counters.update', 'broadcast.subscribe']
+  static override readonly abilities = [
+    'counters.write',
+    'counters.update',
+    'counters.realtime',
+    'broadcast.subscribe',
+  ]
 
   async decide(request: PolicyRequest<OwnedCounter>): Promise<PolicyDecision> {
     if (request.actor.kind !== 'user' || !request.actor.id) {

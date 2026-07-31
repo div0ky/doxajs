@@ -1,5 +1,5 @@
-const PROTOCOL = 2
-const KERYX_SUBPROTOCOL = 'doxa.realtime.v2'
+const PROTOCOL = 3
+const KERYX_SUBPROTOCOL = 'doxa.realtime.v3'
 const KERYX_TICKET_SUBPROTOCOL_PREFIX = 'doxa.ticket.'
 
 export type RealtimeEventMap = Readonly<Record<string, unknown>>
@@ -15,7 +15,7 @@ export interface RealtimeError {
   readonly message: string
   readonly retryable: boolean
   readonly fatal: boolean
-  readonly operation?: 'connect' | 'subscribe' | 'unsubscribe' | 'receive'
+  readonly operation?: 'connect' | 'subscribe' | 'unsubscribe' | 'command' | 'receive'
   readonly channel?: {
     readonly name: string
     readonly kind: RealtimeChannelKind
@@ -54,19 +54,35 @@ export interface RealtimeOptions {
   readonly reconnectMaximumMilliseconds?: number
   readonly connectionTimeoutMilliseconds?: number
   readonly subscriptionTimeoutMilliseconds?: number
+  readonly commandTimeoutMilliseconds?: number
 }
 
 export type RealtimeListener = (data: unknown, frame: RealtimeEventFrame) => void
 export type RealtimeMember = Readonly<{ kind: string; id?: string }>
 
 export interface RealtimeEventFrame {
-  readonly protocol: 2
+  readonly protocol: 3
   readonly type: 'event'
   readonly id: string
   readonly event: string
   readonly channel: { readonly name: string; readonly kind: RealtimeChannelKind }
   readonly data: unknown
   readonly occurredAt: string
+}
+
+export interface RealtimeCommandError {
+  readonly code: string
+  readonly message: string
+  readonly retryAfterMs?: number
+}
+
+export type RealtimeCommandResult =
+  | { readonly id: string; readonly ok: true }
+  | { readonly id: string; readonly ok: false; readonly error: RealtimeCommandError }
+
+interface PendingCommand {
+  readonly resolve: (result: RealtimeCommandResult) => void
+  readonly timer: ReturnType<typeof setTimeout>
 }
 
 type StateListener<State extends string> = (state: State) => void
@@ -194,6 +210,7 @@ export class Realtime {
   readonly #authorizationFetch: typeof fetch | undefined
   readonly #subscriptions = new Map<string, Subscription<any>>()
   readonly #subscriptionTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #pendingCommands = new Map<string, PendingCommand>()
   readonly #stateListeners = new Set<StateListener<RealtimeConnectionState>>()
   readonly #errorListeners = new Set<ErrorListener>()
   #socket: RealtimeSocket | undefined
@@ -219,6 +236,7 @@ export class Realtime {
       reconnectMaximumMilliseconds: options.reconnectMaximumMilliseconds ?? 10_000,
       connectionTimeoutMilliseconds: options.connectionTimeoutMilliseconds ?? 10_000,
       subscriptionTimeoutMilliseconds: options.subscriptionTimeoutMilliseconds ?? 10_000,
+      commandTimeoutMilliseconds: options.commandTimeoutMilliseconds ?? 10_000,
     }
     this.#factory = options.socketFactory ?? defaultSocketFactory
     this.#authorizationFetch = options.authorizationFetch
@@ -293,6 +311,7 @@ export class Realtime {
       this.#socket = undefined
       this.#clearConnectionTimeout()
       this.#clearSubscriptionTimers()
+      this.#settlePendingCommands('command_disconnected', 'The realtime connection closed.')
       for (const subscription of this.#subscriptions.values()) {
         if (!['leaving', 'left'].includes(subscription.state)) subscription.reset()
       }
@@ -321,6 +340,7 @@ export class Realtime {
     this.#reconnectTimer = undefined
     this.#clearConnectionTimeout()
     this.#clearSubscriptionTimers()
+    this.#settlePendingCommands('command_disconnected', 'The realtime client disconnected.')
     this.#socket?.close(1000, 'Client disconnect')
     this.#socket = undefined
     for (const subscription of this.#subscriptions.values()) {
@@ -454,6 +474,33 @@ export class Realtime {
     }
   }
 
+  command<Input>(command: string, payload: Input): Promise<RealtimeCommandResult> {
+    if (!/^[a-z][a-z0-9._:-]{1,127}$/.test(command)) {
+      throw new TypeError('Invalid realtime command name.')
+    }
+    assertJson(payload)
+    const id = commandId()
+    if (this.#state !== 'authenticated') {
+      return Promise.resolve(
+        commandFailure(id, 'command_not_connected', 'Realtime is not authenticated.'),
+      )
+    }
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.#pendingCommands.delete(id)
+        resolve(
+          commandFailure(
+            id,
+            'command_ack_timeout',
+            'Keryx did not acknowledge the command before the deadline.',
+          ),
+        )
+      }, this.#options.commandTimeoutMilliseconds)
+      this.#pendingCommands.set(id, { resolve, timer })
+      this.#send({ protocol: PROTOCOL, type: 'command', id, command, payload })
+    })
+  }
+
   #channel<Events extends RealtimeEventMap>(
     name: string,
     kind: RealtimeChannelKind,
@@ -518,6 +565,10 @@ export class Realtime {
       this.#subscriptions.get(channelKey(frame.channel))?.dispatch(frame)
       return
     }
+    if (frame.type === 'command_ack') {
+      this.#receiveCommandAck(frame)
+      return
+    }
     if (frame.type === 'pong') return
     if (!isChannel(frame.channel)) {
       this.#protocolError('invalid_frame', 'Keryx sent an invalid channel frame.', false)
@@ -574,6 +625,49 @@ export class Realtime {
       this.#terminalFailure = true
       this.#socket?.close(4403, error.code)
     }
+  }
+
+  #receiveCommandAck(frame: Record<string, unknown>): void {
+    if (typeof frame.id !== 'string' || typeof frame.ok !== 'boolean') {
+      this.#protocolError(
+        'invalid_command_ack',
+        'Keryx sent an invalid command acknowledgement.',
+        false,
+      )
+      return
+    }
+    const pending = this.#pendingCommands.get(frame.id)
+    if (!pending) return
+    this.#pendingCommands.delete(frame.id)
+    clearTimeout(pending.timer)
+    if (frame.ok) {
+      pending.resolve(Object.freeze({ id: frame.id, ok: true }))
+      return
+    }
+    if (
+      !isRecord(frame.error) ||
+      typeof frame.error.code !== 'string' ||
+      typeof frame.error.message !== 'string'
+    ) {
+      pending.resolve(commandFailure(frame.id, 'command_failed', 'Keryx rejected the command.'))
+      return
+    }
+    pending.resolve(
+      commandFailure(
+        frame.id,
+        frame.error.code,
+        frame.error.message,
+        typeof frame.error.retryAfterMs === 'number' ? frame.error.retryAfterMs : undefined,
+      ),
+    )
+  }
+
+  #settlePendingCommands(code: string, message: string): void {
+    for (const [id, pending] of this.#pendingCommands) {
+      clearTimeout(pending.timer)
+      pending.resolve(commandFailure(id, code, message))
+    }
+    this.#pendingCommands.clear()
   }
 
   #startConnectionTimeout(socket: RealtimeSocket): void {
@@ -788,7 +882,51 @@ function isEventFrame(
 }
 
 function isOperation(value: unknown): value is NonNullable<RealtimeError['operation']> {
-  return ['connect', 'subscribe', 'unsubscribe', 'receive'].includes(String(value))
+  return ['connect', 'subscribe', 'unsubscribe', 'command', 'receive'].includes(String(value))
+}
+
+function commandId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+  )
+}
+
+function commandFailure(
+  id: string,
+  code: string,
+  message: string,
+  retryAfterMs?: number,
+): RealtimeCommandResult {
+  return Object.freeze({
+    id,
+    ok: false as const,
+    error: Object.freeze({
+      code,
+      message,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    }),
+  })
+}
+
+function assertJson(value: unknown, depth = 0): void {
+  if (depth > 100) throw new TypeError('Realtime command payload is nested too deeply.')
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  )
+    return
+  if (Array.isArray(value)) {
+    for (const item of value) assertJson(item, depth + 1)
+    return
+  }
+  if (isRecord(value)) {
+    for (const item of Object.values(value)) assertJson(item, depth + 1)
+    return
+  }
+  throw new TypeError('Realtime command payload must be JSON.')
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

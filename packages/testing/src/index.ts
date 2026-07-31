@@ -39,6 +39,7 @@ import {
   type PersistedEntity,
   type PolicyDecision,
   type QueryClass,
+  type RealtimeCommandResult,
   type QueueDeliveryHandler,
   type QueueEnvelope,
   type QueueJobRecord,
@@ -274,6 +275,22 @@ export class DoxaTestHarness {
 
   command(name: string, arguments_: readonly string[] = []): Promise<void> {
     return this.admit(() => this.runtime.dispatchCommand(name, arguments_), `test:command:${name}`)
+  }
+
+  realtimeCommand(
+    command: string,
+    payload: unknown,
+    id: string = randomUUID(),
+  ): Promise<RealtimeCommandResult> {
+    return this.runtime.dispatchRealtimeCommand(
+      {
+        connectionId: `test-connection:${id}`,
+        actor: this.#actor,
+        authentication: this.#authentication,
+        correlationId: `test-realtime:${id}`,
+      },
+      { id, command, payload },
+    )
   }
 
   request(input: string | URL | Request, init?: RequestInit): Promise<Response> {

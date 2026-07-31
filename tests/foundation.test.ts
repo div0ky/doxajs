@@ -981,6 +981,51 @@ describe('foundational compile-to-boot slice', () => {
 
     await expect(
       compileFixture(`
+        import { Action, ActionBus, allow, DoxaApplication, Feature, Policy, RealtimeCommand } from '@doxajs/core'
+
+        class DurableAction extends Action<void, void> {
+          static readonly id = 'durable'
+          static override readonly access = 'public'
+          handle(): void {}
+        }
+        class InvalidCommand extends RealtimeCommand<Record<string, never>> {
+          static override readonly id = 'app.invalid'
+          static override readonly access = 'app.command'
+          static override readonly schema = {
+            '~standard': {
+              version: 1 as const,
+              vendor: 'test',
+              validate: (value: unknown) => ({ value: value as Record<string, never> }),
+            },
+          }
+          static override readonly throttle = { limit: 1, windowMs: 1000 }
+          private readonly actions = this.inject(ActionBus)
+          async handle(_input: Record<string, never>): Promise<void> {
+            await this.actions.execute(DurableAction, undefined)
+          }
+        }
+        class AppPolicy extends Policy {
+          static override readonly id = 'app'
+          static override readonly abilities = ['app.command']
+          decide(_request: unknown) { return allow('app') }
+        }
+        class AppFeature extends Feature {
+          id = 'app'
+          actions = [DurableAction]
+          policies = [AppPolicy]
+          realtimeCommands = [InvalidCommand]
+        }
+        export class Application extends DoxaApplication {
+          id = 'realtime-command-action'
+          features = [AppFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      '[DOXA-COMPILER-ARCH-001] realtime-command:app/app.invalid reaches ActionBus through realtime-command:app/app.invalid -> doxa:action-bus',
+    )
+
+    await expect(
+      compileFixture(`
         import { ActionBus, DoxaApplication, Feature, Query } from '@doxajs/core'
 
         class ActionInvoker {

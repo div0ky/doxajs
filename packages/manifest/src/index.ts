@@ -1,4 +1,4 @@
-export const MANIFEST_FORMAT_VERSION = 7 as const
+export const MANIFEST_FORMAT_VERSION = 8 as const
 
 export type Scope = 'singleton' | 'execution' | 'transient'
 
@@ -382,6 +382,21 @@ export interface CommandManifestEntry {
   readonly lifecycle: LifecycleManifestEntry
 }
 
+export interface RealtimeCommandManifestEntry {
+  readonly id: string
+  readonly ownerId: string
+  readonly name: string
+  readonly exportName: string
+  readonly command: string
+  readonly access: string
+  readonly throttle: { readonly limit: number; readonly windowMs: number }
+  readonly timeoutMs: number
+  readonly scope: 'transient'
+  readonly source: SourceProvenance
+  readonly dependencies: readonly DependencyManifestEntry[]
+  readonly lifecycle: LifecycleManifestEntry
+}
+
 export interface DoxaManifest {
   readonly formatVersion: typeof MANIFEST_FORMAT_VERSION
   readonly applicationId: string
@@ -408,6 +423,7 @@ export interface DoxaManifest {
   readonly signals: readonly SignalManifestEntry[]
   readonly signalHandlers: readonly SignalHandlerManifestEntry[]
   readonly commands: readonly CommandManifestEntry[]
+  readonly realtimeCommands: readonly RealtimeCommandManifestEntry[]
 }
 
 export interface RegistryModule {
@@ -469,7 +485,8 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
     (value.permissionSource !== null && !isRecord(value.permissionSource)) ||
     !Array.isArray(value.signals) ||
     !Array.isArray(value.signalHandlers) ||
-    !Array.isArray(value.commands)
+    !Array.isArray(value.commands) ||
+    !Array.isArray(value.realtimeCommands)
   ) {
     throw new ManifestCompatibilityError('Doxa manifest is missing required graph sections.')
   }
@@ -515,8 +532,33 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
     signals: value.signals,
     signalHandlers: value.signalHandlers,
     commands: value.commands,
+    realtimeCommands: value.realtimeCommands,
   })) {
     for (const entry of entries) assertManifestEntry(entry, section)
+  }
+  for (const command of value.realtimeCommands) {
+    if (
+      !isRecord(command) ||
+      !nonEmptyString(command.id) ||
+      !command.id.startsWith('realtime-command:') ||
+      !nonEmptyString(command.ownerId) ||
+      !nonEmptyString(command.command) ||
+      !nonEmptyString(command.access) ||
+      command.access === 'public' ||
+      command.scope !== 'transient' ||
+      !isRecord(command.throttle) ||
+      !positiveInteger(command.throttle.limit) ||
+      !positiveInteger(command.throttle.windowMs) ||
+      !positiveInteger(command.timeoutMs) ||
+      command.timeoutMs > 10_000 ||
+      !Array.isArray(command.dependencies) ||
+      !command.dependencies.every(validDependency) ||
+      !validLifecycle(command.lifecycle)
+    ) {
+      throw new ManifestCompatibilityError(
+        `Doxa manifest realtime command ${String(command.id)} is invalid.`,
+      )
+    }
   }
   for (const model of value.models) {
     if (
@@ -635,6 +677,10 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
       assertModelRelationship(model.id, relationship)
     }
   }
+}
+
+function positiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
 function assertAuthenticationManifest(value: Record<string, unknown>): void {

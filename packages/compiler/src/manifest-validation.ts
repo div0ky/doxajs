@@ -3,6 +3,7 @@ import type {
   JobManifestEntry,
   OperationManifestEntry,
   ProviderManifestEntry,
+  RealtimeCommandManifestEntry,
   SourceProvenance,
 } from '@doxajs/manifest'
 
@@ -92,14 +93,15 @@ export function assertNoNestedActionBusReachability(
   providers: readonly ProviderManifestEntry[],
   operations: readonly OperationManifestEntry[],
   jobs: readonly JobManifestEntry[],
+  realtimeCommands: readonly RealtimeCommandManifestEntry[] = [],
 ): void {
   const providersById = new Map(providers.map((provider) => [provider.id, provider]))
-  for (const root of [...operations, ...jobs]) {
+  for (const root of [...operations, ...jobs, ...realtimeCommands]) {
     const visited = new Set<string>()
     const visit = (targetId: string, path: readonly string[]): void => {
       if (targetId === 'doxa:action-bus') {
         throw new DoxaCompilationError(
-          `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, and Jobs is prohibited. Move reusable mutation behavior into an ordinary service and let each top-level Action or Job call it inside its own transaction. See Gnosis guide diagnostic.nested-action-dispatch.`,
+          `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, Jobs, and RealtimeCommands is prohibited. Move reusable behavior into an ordinary service and let a durable top-level Action or Job own mutations. See Gnosis guide diagnostic.nested-action-dispatch.`,
         )
       }
       if (visited.has(targetId)) return
@@ -132,6 +134,7 @@ export function architectureAdvisories(
 type AdvisoryComponentKind =
   | 'action'
   | 'command'
+  | 'realtime-command'
   | 'configuration'
   | 'event'
   | 'job'
@@ -163,6 +166,7 @@ function componentEntries(
   }
   add('action', manifest.actions)
   add('command', manifest.commands)
+  add('realtime-command', manifest.realtimeCommands)
   add('configuration', manifest.configurations)
   add('event', manifest.events)
   add('job', manifest.jobs)
@@ -254,6 +258,7 @@ function componentAdvisories(
 const canonicalRoleFolders = new Set([
   'actions',
   'commands',
+  'realtime-commands',
   'config',
   'events',
   'http',
@@ -286,6 +291,7 @@ function canonicalFolder(kind: AdvisoryComponentKind): string {
   return {
     action: 'actions',
     command: 'commands',
+    'realtime-command': 'realtime-commands',
     configuration: 'config',
     event: 'events',
     job: 'jobs',

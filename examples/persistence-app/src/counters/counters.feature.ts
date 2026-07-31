@@ -53,6 +53,7 @@ import { CounterTouched } from './signals/counter-touched.js'
 import { RecordCounterTouched } from './signal-handlers/record-counter-touched.js'
 import { CounterEventRecorder } from './support/counter-event-recorder.js'
 import { CounterPolicy } from './policies/counter.policy.js'
+import { TouchCounter } from './realtime-commands/touch-counter.js'
 
 export class CountersFeature extends Feature {
   id = 'counters'
@@ -96,6 +97,7 @@ export class CountersFeature extends Feature {
   ]
   queries = [AttemptCounterWrite, InspectCounterQueries]
   commands = [MarkCounterCommand]
+  realtimeCommands = [TouchCounter]
   routes = [IncrementCounterRoute, DeleteCounterRoute, SecureIncrementCounterRoute]
   events = [
     CounterIncremented,

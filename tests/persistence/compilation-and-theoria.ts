@@ -482,7 +482,12 @@ export function registerCompilationAndTheoriaTests(
       }),
       expect.objectContaining({
         id: 'policy:counters/counter',
-        abilities: ['broadcast.subscribe', 'counters.update', 'counters.write'],
+        abilities: [
+          'broadcast.subscribe',
+          'counters.realtime',
+          'counters.update',
+          'counters.write',
+        ],
       }),
     ])
     expect(result.manifest.signals).toEqual([

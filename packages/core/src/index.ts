@@ -14,6 +14,9 @@ export {
   type BroadcastDestination,
   type BroadcastGateway,
   type BroadcastMessage,
+  type RealtimeCommandRequest,
+  type RealtimeCommandThrottleDecision,
+  type RealtimeCommandThrottleRequest,
   type BroadcastRuntimeRoles,
   type BroadcastSubscriptionAdmission,
   type BroadcastSubscriptionResource,
@@ -36,6 +39,13 @@ export {
 export { Signal, SignalDispatchError, SignalHandler } from './signal.js'
 export { Cache, MemoryCache, type CachePutOptions } from './cache.js'
 export { Command } from './command.js'
+export {
+  RealtimeCommand,
+  type RealtimeCommandClass,
+  type RealtimeCommandError,
+  type RealtimeCommandResult,
+  type RealtimeCommandThrottle,
+} from './realtime-command.js'
 export {
   MemoryTelemetry,
   NoopTelemetry,
@@ -130,6 +140,7 @@ import type { Route } from './http.js'
 import type { Job, Schedule } from './queue.js'
 import type { Observer } from './observer.js'
 import type { Command } from './command.js'
+import type { RealtimeCommand } from './realtime-command.js'
 import type { DeliveryTransition, StagedDelivery } from './communications.js'
 import { DoxaRole } from './role.js'
 import type { ModelQueryPlan, ModelQueryValue } from './model-query.js'
@@ -305,6 +316,7 @@ export abstract class Feature {
   declare readonly signals?: readonly Class<Signal<unknown>>[]
   declare readonly signalHandlers?: readonly Class<SignalHandler<any>>[]
   declare readonly commands?: readonly Class<Command>[]
+  declare readonly realtimeCommands?: readonly Class<RealtimeCommand<unknown>>[]
 }
 
 export {
@@ -563,7 +575,7 @@ export interface ExecutionContextSeed {
   readonly cancellation?: AbortSignal
 }
 
-export type OperationMode = 'action' | 'job' | 'query' | undefined
+export type OperationMode = 'action' | 'job' | 'query' | 'realtime-command' | undefined
 
 /** The immutable context and mutation guard for the currently admitted execution. */
 export abstract class CurrentExecution {
