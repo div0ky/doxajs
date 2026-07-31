@@ -1,4 +1,11 @@
-import type { ActorRef, AuthenticationContext, JsonValue, TenantRef } from './index.js'
+import type {
+  ActorRef,
+  AuthenticationContext,
+  JsonValue,
+  RealtimeCommandResult,
+  RealtimeCommandThrottle,
+  TenantRef,
+} from './index.js'
 
 export type BroadcastChannelKind = 'public' | 'private' | 'presence'
 
@@ -66,6 +73,24 @@ export interface BroadcastSubscriptionAdmission {
   readonly member?: ActorRef
 }
 
+export interface RealtimeCommandRequest {
+  readonly id: string
+  readonly command: string
+  readonly payload: unknown
+}
+
+export interface RealtimeCommandThrottleRequest {
+  readonly actorId: string
+  readonly command: string
+  readonly requestId: string
+  readonly throttle: RealtimeCommandThrottle
+}
+
+export interface RealtimeCommandThrottleDecision {
+  readonly allowed: boolean
+  readonly retryAfterMs?: number
+}
+
 export interface BroadcastGateway {
   connect(connectionId: string, request: Request): Promise<BroadcastConnectionAdmission>
   subscribe(
@@ -76,6 +101,10 @@ export interface BroadcastGateway {
     admission: BroadcastConnectionAdmission,
     destination: BroadcastDestination,
   ): Promise<void>
+  command(
+    admission: BroadcastConnectionAdmission,
+    request: RealtimeCommandRequest,
+  ): Promise<RealtimeCommandResult>
 }
 
 export interface BroadcastRuntimeRoles {
@@ -89,11 +118,15 @@ export abstract class BroadcastTransport {
   selectRoles(_roles: BroadcastRuntimeRoles): void {}
   abstract bind(gateway: BroadcastGateway): void
   abstract publish(message: BroadcastMessage): Promise<void>
+  abstract consumeRealtimeCommandThrottle(
+    request: RealtimeCommandThrottleRequest,
+  ): Promise<RealtimeCommandThrottleDecision>
 }
 
 export class FakeBroadcastTransport extends BroadcastTransport {
   readonly published: BroadcastMessage[] = []
   #gateway?: BroadcastGateway
+  readonly #commandAttempts = new Map<string, { attempts: number[]; expiresAt: number }>()
 
   bind(gateway: BroadcastGateway): void {
     if (this.#gateway) throw new Error('The Doxa broadcast gateway is already bound.')
@@ -102,6 +135,32 @@ export class FakeBroadcastTransport extends BroadcastTransport {
 
   async publish(message: BroadcastMessage): Promise<void> {
     this.published.push(structuredClone(message))
+  }
+
+  async consumeRealtimeCommandThrottle(
+    request: RealtimeCommandThrottleRequest,
+  ): Promise<RealtimeCommandThrottleDecision> {
+    const now = Date.now()
+    for (const [attemptKey, bucket] of this.#commandAttempts)
+      if (bucket.expiresAt <= now) this.#commandAttempts.delete(attemptKey)
+    const key = JSON.stringify([request.actorId, request.command])
+    const cutoff = now - request.throttle.windowMs
+    const attempts = (this.#commandAttempts.get(key)?.attempts ?? []).filter(
+      (value) => value > cutoff,
+    )
+    if (attempts.length >= request.throttle.limit) {
+      this.#commandAttempts.set(key, {
+        attempts,
+        expiresAt: attempts.at(-1)! + request.throttle.windowMs,
+      })
+      return {
+        allowed: false,
+        retryAfterMs: Math.max(1, attempts[0]! + request.throttle.windowMs - now),
+      }
+    }
+    attempts.push(now)
+    this.#commandAttempts.set(key, { attempts, expiresAt: now + request.throttle.windowMs })
+    return { allowed: true }
   }
 
   connect(connectionId: string, request: Request): Promise<BroadcastConnectionAdmission> {
@@ -122,8 +181,16 @@ export class FakeBroadcastTransport extends BroadcastTransport {
     return this.#requireGateway().unsubscribe(admission, destination)
   }
 
+  command(
+    admission: BroadcastConnectionAdmission,
+    request: RealtimeCommandRequest,
+  ): Promise<RealtimeCommandResult> {
+    return this.#requireGateway().command(admission, request)
+  }
+
   reset(): void {
     this.published.length = 0
+    this.#commandAttempts.clear()
   }
 
   #requireGateway(): BroadcastGateway {

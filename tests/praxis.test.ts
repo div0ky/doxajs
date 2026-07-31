@@ -424,6 +424,15 @@ describe('Praxis command suite', () => {
       ['make:observer', 'Commerce/OrderObserver', '--model=Order'],
       ['make:job', 'Commerce/ShipOrder', '--ability=orders.ship'],
       [
+        'make:realtime-command',
+        'Commerce/TouchOrder',
+        '--ability=orders.view',
+        '--id=commerce.touch-order',
+        '--limit=8',
+        '--window-ms=1000',
+        '--timeout-ms=750',
+      ],
+      [
         'make:schedule',
         'Commerce/ShipPendingOrders',
         '--job=ShipOrder',
@@ -467,6 +476,7 @@ describe('Praxis command suite', () => {
       'signalHandlers',
       'observers',
       'jobs',
+      'realtimeCommands',
       'schedules',
       'policies',
       'permissionSources',
@@ -503,6 +513,13 @@ describe('Praxis command suite', () => {
         'utf8',
       ),
     ).toContain("misfire = 'catch-up-once'")
+    const realtimeCommand = await readFile(
+      path.join(root, 'src/features/commerce/realtime-commands/touch-order.ts'),
+      'utf8',
+    )
+    expect(realtimeCommand).toContain("id = 'commerce.touch-order'")
+    expect(realtimeCommand).toContain('throttle = { limit: 8, windowMs: 1000 }')
+    expect(realtimeCommand).toContain('timeoutMs = 750')
     expect(
       await readFile(path.join(root, 'src/features/commerce/policies/order-policy.ts'), 'utf8'),
     ).toContain('orders.ship')

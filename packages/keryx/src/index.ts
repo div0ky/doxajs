@@ -8,6 +8,8 @@ import {
   type BroadcastGateway,
   type BroadcastMessage,
   type BroadcastRuntimeRoles,
+  type RealtimeCommandThrottleDecision,
+  type RealtimeCommandThrottleRequest,
   type Disposes,
   type Drains,
   type LifecycleContext,
@@ -34,7 +36,7 @@ import {
   type KeryxConnectionTicketInput,
 } from './security.js'
 
-export { KERYX_PROTOCOL, KeryxProtocolError } from './protocol.js'
+export { KERYX_PROTOCOL, KeryxProtocolError, parseClientFrame } from './protocol.js'
 export {
   KeryxAdmissionTickets,
   KeryxAuthenticationError,
@@ -46,7 +48,7 @@ export {
 } from './security.js'
 
 export type KeryxTopology = 'single' | 'redis'
-export const KERYX_SUBPROTOCOL = 'doxa.realtime.v2'
+export const KERYX_SUBPROTOCOL = 'doxa.realtime.v3'
 const KERYX_TICKET_SUBPROTOCOL_PREFIX = 'doxa.ticket.'
 
 export interface KeryxOptions {
@@ -62,6 +64,7 @@ export interface KeryxOptions {
   readonly maxPayloadBytes?: number
   readonly maxPublishPayloadBytes?: number
   readonly maxPendingFrames?: number
+  readonly maxCommandThrottleBuckets?: number
   readonly admissionTicketMilliseconds?: number
   readonly maxConsumedAdmissionTickets?: number
   readonly heartbeatMilliseconds?: number
@@ -79,6 +82,7 @@ interface Connection {
   readonly subscriptions: Map<string, BroadcastDestination>
   alive: boolean
   inbound: Promise<void>
+  queuedFrames: number
 }
 
 interface PendingFrame {
@@ -99,6 +103,7 @@ interface ResolvedKeryxOptions {
   readonly maxPayloadBytes: number
   readonly maxPublishPayloadBytes: number
   readonly maxPendingFrames: number
+  readonly maxCommandThrottleBuckets: number
   readonly admissionTicketMilliseconds: number
   readonly maxConsumedAdmissionTickets: number
   readonly heartbeatMilliseconds: number
@@ -128,6 +133,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   #publishing = new Set<Promise<void>>()
   #publishedMessageIds = new Map<string, number>()
   #consumedAdmissionTickets = new Map<string, number>()
+  #commandAttempts = new Map<string, { attempts: number[]; expiresAt: number }>()
   #draining = false
   #ready = false
   #backplane: RedisBackplane | undefined
@@ -166,6 +172,12 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
         options.maxConsumedAdmissionTickets <= 0)
     )
       throw new TypeError('Keryx maxConsumedAdmissionTickets must be a positive integer.')
+    if (
+      options.maxCommandThrottleBuckets !== undefined &&
+      (!Number.isSafeInteger(options.maxCommandThrottleBuckets) ||
+        options.maxCommandThrottleBuckets <= 0)
+    )
+      throw new TypeError('Keryx maxCommandThrottleBuckets must be a positive integer.')
     this.#options = {
       applicationId: options.applicationId ?? 'default',
       port: options.port ?? 6001,
@@ -179,6 +191,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
       maxPayloadBytes: options.maxPayloadBytes ?? 64 * 1024,
       maxPublishPayloadBytes: options.maxPublishPayloadBytes ?? 256 * 1024,
       maxPendingFrames: options.maxPendingFrames ?? 16,
+      maxCommandThrottleBuckets: options.maxCommandThrottleBuckets ?? 50_000,
       admissionTicketMilliseconds: options.admissionTicketMilliseconds ?? 30_000,
       maxConsumedAdmissionTickets: options.maxConsumedAdmissionTickets ?? 50_000,
       heartbeatMilliseconds: options.heartbeatMilliseconds ?? 30_000,
@@ -291,6 +304,48 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     }
   }
 
+  async consumeRealtimeCommandThrottle(
+    request: RealtimeCommandThrottleRequest,
+  ): Promise<RealtimeCommandThrottleDecision> {
+    if (this.#options.topology === 'redis') {
+      if (!this.#backplane) throw new Error('Keryx Redis backplane is unavailable.')
+      return await this.#backplane.consumeRealtimeCommandThrottle(request)
+    }
+    const now = Date.now()
+    const key = JSON.stringify([request.actorId, request.command])
+    const currentBucket = this.#commandAttempts.get(key)
+    if (currentBucket?.expiresAt && currentBucket.expiresAt <= now) {
+      this.#commandAttempts.delete(key)
+    }
+    if (
+      !this.#commandAttempts.has(key) &&
+      this.#commandAttempts.size >= this.#options.maxCommandThrottleBuckets
+    ) {
+      for (const [attemptKey, bucket] of this.#commandAttempts)
+        if (bucket.expiresAt <= now) this.#commandAttempts.delete(attemptKey)
+      if (this.#commandAttempts.size >= this.#options.maxCommandThrottleBuckets) {
+        return { allowed: false, retryAfterMs: request.throttle.windowMs }
+      }
+    }
+    const cutoff = now - request.throttle.windowMs
+    const attempts = (this.#commandAttempts.get(key)?.attempts ?? []).filter(
+      (value) => value > cutoff,
+    )
+    if (attempts.length >= request.throttle.limit) {
+      this.#commandAttempts.set(key, {
+        attempts,
+        expiresAt: attempts.at(-1)! + request.throttle.windowMs,
+      })
+      return {
+        allowed: false,
+        retryAfterMs: Math.max(1, attempts[0]! + request.throttle.windowMs - now),
+      }
+    }
+    attempts.push(now)
+    this.#commandAttempts.set(key, { attempts, expiresAt: now + request.throttle.windowMs })
+    return { allowed: true }
+  }
+
   issueConnectionTicket(input: KeryxConnectionTicketInput): KeryxConnectionTicketGrant {
     if (!this.#roles.web || !this.#ready || this.#draining)
       throw new Error('Keryx is not accepting connection tickets.')
@@ -330,6 +385,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     this.#connections.clear()
     this.#publishedMessageIds.clear()
     this.#consumedAdmissionTickets.clear()
+    this.#commandAttempts.clear()
   }
 
   get address(): {
@@ -401,6 +457,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
         subscriptions: new Map(),
         alive: true,
         inbound: Promise.resolve(),
+        queuedFrames: 0,
       }
       this.#connections.add(connection)
       socket.on('pong', () => (connection.alive = true))
@@ -481,6 +538,20 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   }
 
   #queueFrame(connection: Connection, data: WebSocket.RawData, binary: boolean): void {
+    if (connection.queuedFrames >= this.#options.maxPendingFrames) {
+      this.#reject(
+        connection,
+        new KeryxProtocolError(
+          'inbound_queue_exceeded',
+          'Too many realtime frames are pending.',
+          'receive',
+          true,
+          true,
+        ),
+      )
+      return
+    }
+    connection.queuedFrames += 1
     connection.inbound = connection.inbound
       .then(() => this.#receive(connection, data, binary))
       .catch(() =>
@@ -495,6 +566,9 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
           ),
         ),
       )
+      .finally(() => {
+        connection.queuedFrames -= 1
+      })
   }
 
   async #receive(connection: Connection, data: WebSocket.RawData, binary: boolean): Promise<void> {
@@ -534,6 +608,19 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
         protocol: KERYX_PROTOCOL,
         type: 'pong',
         ...(frame.id ? { id: frame.id } : {}),
+      })
+      return
+    }
+    if (frame.type === 'command') {
+      const result = await this.#gateway!.command(connection.admission, {
+        id: frame.id,
+        command: frame.command,
+        payload: frame.payload,
+      })
+      this.#send(connection.socket, {
+        protocol: KERYX_PROTOCOL,
+        type: 'command_ack',
+        ...result,
       })
       return
     }

@@ -4,8 +4,9 @@
 > Improvements is the sole supported consumer. External use is permitted without compatibility,
 > support, warranty, roadmap, or production-readiness commitments.
 
-Keryx is Doxa's first-party WebSocket broadcasting server. It is an optional core module, not an
-application plugin or an application-owned provider.
+Keryx is Doxa's first-party authenticated WebSocket transport for broadcasting and registered
+ephemeral commands. It is an optional core module, not an application plugin or an application-owned
+provider.
 
 ```sh
 pnpm doxa add keryx
@@ -41,6 +42,9 @@ origin-bound, single-use admission ticket. The realtime client presents that tic
 subprotocol offer, so production does not widen the Doxa session cookie to sibling subdomains or put
 credentials in a URL. In Redis topology, ticket consumption is atomic across web replicas.
 
-Keryx protocol v2 waits for Doxa authentication before emitting `connected`. Signed publication,
-bounded message-ID deduplication, admission tickets, Redis fanout, distributed presence leases, and
-backplane recovery are framework behavior; applications do not implement a backchannel.
+Keryx protocol v3 waits for Doxa authentication before emitting `connected`. It accepts only
+manifest-registered `RealtimeCommand` names, uses the admitted actor, and delegates throttling,
+schema validation, declared-ability authorization, deadlines, and safe acknowledgements to Doxa.
+Signed publication, bounded message-ID deduplication, admission tickets, Redis fanout, distributed
+presence leases, and backplane recovery are framework behavior; applications do not implement a
+backchannel.

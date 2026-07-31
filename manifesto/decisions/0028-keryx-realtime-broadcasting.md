@@ -1,4 +1,4 @@
-# 0028: Name Doxa's Realtime Broadcasting Implementation Keryx
+# 0028: Name Doxa's Realtime Transport Implementation Keryx
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-11
@@ -8,7 +8,9 @@
   v2 readiness, and Redis replication
 - **Amended:** 2026-07-25 — Origin-bound admission tickets for separately addressed browser
   listeners
-- **Scope:** Optional post-MVP core WebSocket and broadcasting capability
+- **Amended:** 2026-07-31 — Authenticated, application-declared ephemeral realtime commands and
+  protocol v3
+- **Scope:** Optional post-MVP core WebSocket broadcasting and ephemeral-command capability
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -41,6 +43,26 @@ Protocol v2 makes authentication readiness explicit. A WebSocket transport openi
 subscription permission. Keryx installs its frame buffer before asynchronous authentication, sends
 `connected` only after admission succeeds, and only then may `@doxajs/realtime` subscribe.
 
+Protocol v3 adds one deliberately bounded client-originated direction. Applications may declare a
+`RealtimeCommand` with a stable command ID, Standard Schema payload, non-public ability, required
+rolling throttle, and bounded execution timeout. The compiler records those facts in the manifest;
+Keryx rejects every unregistered command. Each accepted command creates a fresh Doxa execution from
+the socket's admitted actor, consumes an actor-and-command throttle, validates its payload, resolves
+the declared ability through Doxa authorization composition, and only then calls `handle()`. When a
+resource Policy is selected, the complete validated input is its resource. The client receives one
+bounded `command_ack` success or safe failure envelope.
+
+Realtime commands are authenticated and ephemeral. They create no command-specific durable, journal,
+outbox, retry, or replay record; Doxa still records the mandatory authorization decision through its
+normal authorization audit and telemetry path. They own no writable transaction or Unit of Work;
+authorization and QueryBus reads may open bounded read-only sessions. They may synchronously emit
+existing immediate broadcasts, but cannot dispatch Actions, Jobs, durable events, queued listeners,
+or queued broadcasts. Durable business mutation remains an Action admitted over HTTP. The compiler
+also prevents commands from reaching raw transaction, queue, communication, authentication, or
+broadcasting providers through their dependency graph. Queries carry the same raw mutable-provider
+restriction so QueryBus cannot be used to escape the command boundary. Disconnection and missing
+acknowledgement are ordinary loss; the client never queues or automatically retries a command.
+
 When the browser-facing Keryx listener has a different hostname from the application's authenticated
 HTTP origin, the generated web role exposes `POST /broadcasting/authorize`. The already
 authenticated HTTP execution mints a short-lived, encrypted, origin-bound, single-use admission
@@ -68,11 +90,11 @@ without leaking its native API into actions, events, listeners, or browser code.
   signed publish ingress, optional Redis replication, presence leases, and delivery implementation,
   as defined by the
   [realtime broadcasting specification](../specifications/realtime-broadcasting.md).
-- `@doxajs/realtime` owns the subscriber-facing client API for Doxa broadcasts.
+- `@doxajs/realtime` owns the client API for Doxa subscriptions and ephemeral commands.
 - Doxa core owns event capabilities, authorization integration, execution-context creation, typed
   broadcast contracts, fakes, and diagnostics.
-- Application code speaks in terms of events, channels, subscriptions, and broadcasting; it never
-  imports Keryx engine types.
+- Application code speaks in terms of events, channels, subscriptions, broadcasting, and registered
+  realtime commands; it never imports Keryx engine types or invents frames.
 - Framework composition may import Keryx, but application Features and plugin declarations may not
   own or replace the generated first-party provider.
 - A Keryx connection authenticates at connection admission, but each admitted message creates a
@@ -101,6 +123,10 @@ without leaking its native API into actions, events, listeners, or browser code.
   scope weakens sibling-host isolation and conflicts with `__Host-` cookie guarantees.
 - **Put an admission credential in the WebSocket URL:** rejected. Query strings are routinely
   retained by browser history, reverse-proxy access logs, and observability systems.
+- **Application-defined Keryx frames or unrestricted socket RPC:** rejected. Both bypass compiled
+  identity, schema validation, authorization, throttling, safe failures, and inspection.
+- **Reuse Actions for socket ingress:** rejected. It would disguise an unreliable, non-transactional
+  transport as a durable mutation boundary.
 
 ## Consequences
 
@@ -115,8 +141,9 @@ without leaking its native API into actions, events, listeners, or browser code.
   readiness routing.
 - A separately addressed browser listener uses the generated same-origin authorization route; it
   does not require a shared cookie domain or an application-authored authorization endpoint.
-- Protocol v1 clients are deliberately incompatible with protocol v2 during controlled alpha
-  adoption.
+- Protocol v2 browser clients and signed worker publishers are deliberately incompatible with
+  protocol v3. Adoption is a coordinated cutover across web replicas, worker roles, and browser
+  clients; mixed v2/v3 fleets are unsupported.
 - Keryx is a public package name, but alpha publication alone does not create external compatibility
   or support commitments.
 - Broadcasting remains optional for applications and outside the MVP viability bar, while its
@@ -134,6 +161,8 @@ Keryx's specification and implementation proof must show:
 5. Doxa-owned fakes and diagnostics can inspect and assert subscriptions, authorization, broadcasts,
    delivery failures, and reconnect behavior.
 6. Protocol and server engines are replaceable behind conformance tests.
+7. Registered commands prove actor provenance, validation, authorization, throttling, deadlines,
+   safe acknowledgements, and rejection of durable dispatch.
 
 The
 [realtime broadcasting vertical slice](../implementation/realtime-broadcasting-vertical-slice.md)

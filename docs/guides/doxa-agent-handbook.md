@@ -343,6 +343,29 @@ Example: class GetReminder extends Query<Input, ReminderView> { ... }
 Anti-patterns: Mutation in Query.handle(); Nested Action dispatch; Raw database access
 Testing: Test authorization and result shape; Assert mutation attempts fail
 
+### RealtimeCommand
+
+Stable guide: `role.realtime-command`
+
+Handle authenticated client-originated ephemeral realtime intent.
+
+Purpose: Handle authenticated client-originated ephemeral realtime intent.
+Use when: A transient interaction must reach the application without becoming durable work.
+Registration: Declare it in Feature.realtimeCommands with schema, ability, throttle, and stable ID.
+Generator: doxa make:realtime-command Feature/Name --ability=<ability>
+Canonical folder: src/features/<feature>/realtime-commands
+Invocation: @doxajs/realtime sends it only after Keryx authenticated connected state.
+Authorization: Doxa resolves the declared ability through PermissionSource and optional resource Policy composition; a selected Policy receives the validated input.
+Transaction: Owns no writable Unit of Work; authorization and QueryBus reads may use bounded read-only sessions.
+Injection: Extend RealtimeCommand and use this.inject().
+Scope: One transient instance in one fresh WebSocket-message execution.
+Lifecycle: May dispose scope-local resources; cannot own start, drain, or stop phases.
+Dependencies: Use QueryBus, read-only services, cache, observability, immediate Signals, or ShouldBroadcastNow events; raw mutable infrastructure providers are forbidden.
+Rationale: Registered ingress preserves actor authority and avoids an unrestricted socket RPC surface.
+Example: A typing command authorizes conversation participation and broadcasts typing immediately.
+Anti-patterns: Dispatching Actions or Jobs; Queued delivery; Client-supplied actor data
+Testing: Test schema and authorization denial; Test throttling and immediate broadcast
+
 ### Route
 
 Stable guide: `role.route`
@@ -490,7 +513,7 @@ Stable guide: `concept.execution-transactions`
 
 Every admitted entry point owns one execution; asynchronous delivery starts another.
 
-Requests, Actions, Queries, Job attempts, Commands, and queued listeners are admitted boundaries.
+Requests, Actions, Queries, Job attempts, Commands, RealtimeCommands, and queued listeners are admitted boundaries.
 Inline services, local listeners, observers, and signals share the current execution.
 Actions and Jobs receive writable model sessions. Queries receive read-only model sessions.
 Services resolve in the caller’s scope and therefore see the caller’s active model session and unit of work.
@@ -513,7 +536,7 @@ Stable guide: `concept.praxis-generators`
 
 Praxis is the canonical way to create Doxa declarations, migrations, and architectural tests.
 
-Use doxa new for an application; make:feature, make:model, make:action, make:query, make:route, make:event, make:listener, make:signal, make:signal-handler, make:observer, make:job, make:schedule, make:policy, make:permission-source, make:config, make:provider, make:service, and make:command for declared architecture; make:migration for application-owned schema changes; and make:test for admitted feature tests. Read the matching role guide before choosing role-specific flags.
+Use doxa new for an application; make:feature, make:model, make:action, make:query, make:route, make:event, make:listener, make:signal, make:signal-handler, make:observer, make:job, make:schedule, make:policy, make:permission-source, make:config, make:provider, make:service, make:command, and make:realtime-command for declared architecture; make:migration for application-owned schema changes; and make:test for admitted feature tests. Read the matching role guide before choosing role-specific flags.
 
 ### Providers, services, and Feature exports
 
@@ -559,6 +582,14 @@ Stable guide: `diagnostic.provider-service-location`
 Compilation and Gnosis warn when provider/service names or opposite canonical folders communicate the wrong role.
 
 Move ordinary services from providers to services and infrastructure providers from services to providers. The advisory never changes compiled ownership or scope.
+
+### Read-only boundary mutable infrastructure reachability
+
+Stable guide: `diagnostic.realtime-command-infrastructure`
+
+Queries and RealtimeCommands cannot directly or transitively reach raw transaction, queue, communication, authentication, or broadcasting providers.
+
+Use read-only application services for reads. RealtimeCommands may emit declared immediate Signals or ShouldBroadcastNow events. Move durable work to an HTTP-admitted Action or Job.
 
 ## First-party modules
 
@@ -638,7 +669,7 @@ Jobs are at-least-once writable executions. Queued listener intent is outbox-bac
 
 Stable guide: `module.realtime`
 
-The browser client follows Keryx admission and protocol contracts; application authorization remains server-owned.
+The browser client follows Keryx protocol v3 admission, subscription, and command contracts; application authorization remains server-owned. Commands reject while disconnected and are never queued, replayed, or automatically retried.
 
 ### Artifact-only runtime
 
@@ -656,7 +687,7 @@ Queue mail inside an Action or Job so delivery intent commits atomically with ap
 
 Stable guide: `module.testing`
 
-Use admitted Action, Query, HTTP, event, and Job harness paths to prove transaction, authorization, and delivery guarantees.
+Use admitted Action, Query, HTTP, event, Job, and realtime-command harness paths to prove transaction, authorization, and delivery guarantees.
 
 ### Theoria diagnostics
 

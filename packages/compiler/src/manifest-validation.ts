@@ -3,6 +3,7 @@ import type {
   JobManifestEntry,
   OperationManifestEntry,
   ProviderManifestEntry,
+  RealtimeCommandManifestEntry,
   SourceProvenance,
 } from '@doxajs/manifest'
 
@@ -92,20 +93,45 @@ export function assertNoNestedActionBusReachability(
   providers: readonly ProviderManifestEntry[],
   operations: readonly OperationManifestEntry[],
   jobs: readonly JobManifestEntry[],
+  realtimeCommands: readonly RealtimeCommandManifestEntry[] = [],
 ): void {
   const providersById = new Map(providers.map((provider) => [provider.id, provider]))
-  for (const root of [...operations, ...jobs]) {
+  const realtimeCommandIds = new Set(realtimeCommands.map((command) => command.id))
+  const readOnlyRootIds = new Set([
+    ...operations
+      .filter((operation) => operation.role === 'query')
+      .map((operation) => operation.id),
+    ...realtimeCommandIds,
+  ])
+  const forbiddenReadOnlyCapabilities = new Set<ProviderManifestEntry['capabilities'][number]>([
+    'authentication',
+    'transactions',
+    'queues',
+    'mail',
+    'sms',
+    'broadcasting',
+  ])
+  for (const root of [...operations, ...jobs, ...realtimeCommands]) {
     const visited = new Set<string>()
     const visit = (targetId: string, path: readonly string[]): void => {
       if (targetId === 'doxa:action-bus') {
         throw new DoxaCompilationError(
-          `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, and Jobs is prohibited. Move reusable mutation behavior into an ordinary service and let each top-level Action or Job call it inside its own transaction. See Gnosis guide diagnostic.nested-action-dispatch.`,
+          `[DOXA-COMPILER-ARCH-001] ${root.id} reaches ActionBus through ${[...path, targetId].join(' -> ')}. Nested Action dispatch from Actions, Queries, Jobs, and RealtimeCommands is prohibited. Move reusable behavior into an ordinary service and let a durable top-level Action or Job own mutations. See Gnosis guide diagnostic.nested-action-dispatch.`,
         )
       }
       if (visited.has(targetId)) return
       visited.add(targetId)
       const provider = providersById.get(targetId)
       if (!provider) return
+      const forbiddenCapability = readOnlyRootIds.has(root.id)
+        ? provider.capabilities.find((capability) => forbiddenReadOnlyCapabilities.has(capability))
+        : undefined
+      if (forbiddenCapability) {
+        const role = realtimeCommandIds.has(root.id) ? 'RealtimeCommands' : 'Queries'
+        throw new DoxaCompilationError(
+          `[DOXA-COMPILER-ARCH-002] ${root.id} reaches mutable ${forbiddenCapability} infrastructure through ${[...path, targetId].join(' -> ')}. ${role} may use read-only application services, cache, and observability, but cannot reach transaction, queue, communication, authentication, or raw broadcasting providers. See Gnosis guide diagnostic.realtime-command-infrastructure.`,
+        )
+      }
       for (const dependency of provider.dependencies) {
         if (dependency.targetId) {
           visit(dependency.targetId, [...path, targetId])
@@ -132,6 +158,7 @@ export function architectureAdvisories(
 type AdvisoryComponentKind =
   | 'action'
   | 'command'
+  | 'realtime-command'
   | 'configuration'
   | 'event'
   | 'job'
@@ -163,6 +190,7 @@ function componentEntries(
   }
   add('action', manifest.actions)
   add('command', manifest.commands)
+  add('realtime-command', manifest.realtimeCommands)
   add('configuration', manifest.configurations)
   add('event', manifest.events)
   add('job', manifest.jobs)
@@ -254,6 +282,7 @@ function componentAdvisories(
 const canonicalRoleFolders = new Set([
   'actions',
   'commands',
+  'realtime-commands',
   'config',
   'events',
   'http',
@@ -286,6 +315,7 @@ function canonicalFolder(kind: AdvisoryComponentKind): string {
   return {
     action: 'actions',
     command: 'commands',
+    'realtime-command': 'realtime-commands',
     configuration: 'config',
     event: 'events',
     job: 'jobs',

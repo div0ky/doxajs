@@ -6,17 +6,25 @@ import {
   validateBroadcastChannelName,
 } from '@doxajs/core'
 
-export const KERYX_PROTOCOL = 2
+export const KERYX_PROTOCOL = 3
 
-export type KeryxOperation = 'connect' | 'subscribe' | 'unsubscribe' | 'publish' | 'receive'
+export type KeryxOperation =
+  'connect' | 'subscribe' | 'unsubscribe' | 'command' | 'publish' | 'receive'
 
 export type ClientFrame =
-  | { readonly protocol: 2; readonly type: 'subscribe'; readonly channel: BroadcastDestination }
-  | { readonly protocol: 2; readonly type: 'unsubscribe'; readonly channel: BroadcastDestination }
-  | { readonly protocol: 2; readonly type: 'ping'; readonly id?: string }
+  | { readonly protocol: 3; readonly type: 'subscribe'; readonly channel: BroadcastDestination }
+  | { readonly protocol: 3; readonly type: 'unsubscribe'; readonly channel: BroadcastDestination }
+  | { readonly protocol: 3; readonly type: 'ping'; readonly id?: string }
+  | {
+      readonly protocol: 3
+      readonly type: 'command'
+      readonly id: string
+      readonly command: string
+      readonly payload: unknown
+    }
 
 export interface KeryxErrorFrame {
-  readonly protocol: 2
+  readonly protocol: 3
   readonly type: 'error'
   readonly code: string
   readonly message: string
@@ -75,6 +83,34 @@ export function parseClientFrame(value: string): ClientFrame {
       protocol: KERYX_PROTOCOL,
       type: 'ping',
       ...(typeof frame.id === 'string' ? { id: frame.id } : {}),
+    }
+  }
+  if (frame.type === 'command') {
+    if (typeof frame.id !== 'string' || frame.id.length === 0 || frame.id.length > 200) {
+      throw new KeryxProtocolError(
+        'invalid_frame',
+        'Command identifiers must be non-empty strings of at most 200 characters.',
+        'command',
+        false,
+        false,
+      )
+    }
+    if (typeof frame.command !== 'string' || !/^[a-z][a-z0-9._:-]{1,127}$/.test(frame.command)) {
+      throw new KeryxProtocolError(
+        'invalid_frame',
+        'The command name is invalid.',
+        'command',
+        false,
+        false,
+      )
+    }
+    assertJson(frame.payload)
+    return {
+      protocol: KERYX_PROTOCOL,
+      type: 'command',
+      id: frame.id,
+      command: frame.command,
+      payload: frame.payload,
     }
   }
   if (frame.type !== 'subscribe' && frame.type !== 'unsubscribe') {

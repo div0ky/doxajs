@@ -101,6 +101,32 @@ publisher must synchronously observe transport success or failure.
 Enable Doxa's first-party transport with `doxa add keryx`. Keryx is a framework-owned optional core
 module; application Features continue to depend only on the broadcasting contracts above.
 
+Authenticated clients may send explicitly registered ephemeral commands without an HTTP Action:
+
+```ts
+import { RealtimeCommand } from '@doxajs/core'
+import { z } from 'zod'
+
+const TypingInput = z.object({ conversationId: z.string() })
+
+export class SendTyping extends RealtimeCommand<z.infer<typeof TypingInput>> {
+  static override readonly id = 'direct-messages.typing'
+  static override readonly access = 'direct-messages.participate'
+  static override readonly schema = TypingInput
+  static override readonly throttle = { limit: 4, windowMs: 2_000 }
+
+  async handle(input: z.infer<typeof TypingInput>): Promise<void> {
+    // Emit transient local coordination or a ShouldBroadcastNow event.
+  }
+}
+```
+
+Register the role in `Feature.realtimeCommands`. Doxa throttles, validates, and resolves its
+declared ability against the socket's admitted actor through the normal `PermissionSource` and
+optional resource `Policy` composition. Realtime commands own no writable transaction, are
+non-retryable, and may not dispatch Actions or durable work; durable mutation remains an HTTP
+Action.
+
 ## SMS
 
 Queue provider-independent SMS inside an Action or Job so the delivery intent commits atomically

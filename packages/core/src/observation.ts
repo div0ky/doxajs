@@ -10,6 +10,7 @@ export type ObservationKind =
   | 'model'
   | 'event'
   | 'broadcast'
+  | 'realtime-command'
   | 'listener'
   | 'reaction'
   | 'signal'

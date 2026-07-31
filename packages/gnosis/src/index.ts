@@ -306,6 +306,7 @@ const surfaceTools: Readonly<Record<string, InspectionSurface>> = {
   list_permission_sources: 'permissionSources',
   list_policies: 'policies',
   list_commands: 'commands',
+  list_realtime_commands: 'realtimeCommands',
   list_providers: 'providers',
   list_services: 'services',
 }
@@ -329,6 +330,7 @@ const roleNames = [
   'signal',
   'signal-handler',
   'command',
+  'realtime-command',
 ] as const satisfies readonly DoxaRole[]
 
 export function createGnosisKnowledge(manifest: DoxaManifest): GnosisEngineeringKnowledge {

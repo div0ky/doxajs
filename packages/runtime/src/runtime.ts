@@ -17,6 +17,8 @@ import {
   type BroadcastMessage,
   type BroadcastSubscriptionAdmission,
   type BroadcastSubscriptionResource,
+  type RealtimeCommandRequest,
+  type RealtimeCommandResult,
   BroadcastTransport,
   validateBroadcastChannelName,
   Authorization,
@@ -61,6 +63,8 @@ import {
   type ModelOperationObserver,
   type Query,
   type QueryClass,
+  type RealtimeCommand,
+  type StandardSchema,
   type OperationMode,
   type Observer,
   type Observation,
@@ -132,6 +136,7 @@ import {
   type PermissionSourceManifestEntry,
   type ProviderManifestEntry,
   type PolicyManifestEntry,
+  type RealtimeCommandManifestEntry,
   type RegistryModule,
   type RouteManifestEntry,
   type SignalHandlerManifestEntry,
@@ -250,7 +255,8 @@ interface RuntimeGraph {
 interface ExecutionStore {
   readonly context: ExecutionContext
   readonly scope: ExecutionScope
-  readonly operationStack: ('action' | 'job' | 'query')[]
+  readonly operationStack: ('action' | 'job' | 'query' | 'realtime-command')[]
+  readonly boundary?: 'realtime-command'
   permissionAbilities?: Promise<ReadonlySet<string>>
   job?: import('@doxajs/core').CurrentJobContext
 }
@@ -311,6 +317,7 @@ export class DoxaRuntime {
   readonly #policiesByAbility = new Map<string, PolicyManifestEntry>()
   readonly #schedulesById = new Map<string, DoxaManifest['schedules'][number]>()
   readonly #commandsByName = new Map<string, CommandManifestEntry>()
+  readonly #realtimeCommandsByName = new Map<string, RealtimeCommandManifestEntry>()
   readonly #jobDispatcher: JobDispatcher
   readonly #currentJob: CurrentJob
   readonly actions: ActionBus
@@ -444,10 +451,13 @@ export class DoxaRuntime {
     }
     for (const schedule of manifest.schedules) this.#schedulesById.set(schedule.id, schedule)
     for (const command of manifest.commands) this.#commandsByName.set(command.command, command)
+    for (const command of manifest.realtimeCommands)
+      this.#realtimeCommandsByName.set(command.command, command)
     broadcastTransport?.bind({
       connect: (connectionId, request) => this.connectBroadcast(connectionId, request),
       subscribe: (admission, destination) => this.subscribeBroadcast(admission, destination),
       unsubscribe: (admission, destination) => this.unsubscribeBroadcast(admission, destination),
+      command: (admission, request) => this.dispatchRealtimeCommand(admission, request),
     })
     queues?.bind((delivery) => this.handleQueueDelivery(delivery))
     queues?.reconcileSchedules(
@@ -785,7 +795,15 @@ export class DoxaRuntime {
       this.deliveryLedger,
       this.logger,
     )
-    const store: ExecutionStore = { context, scope, operationStack: [] }
+    const store: ExecutionStore = {
+      context,
+      scope,
+      operationStack: [],
+      ...(seed.transport.kind === 'websocket' &&
+      seed.transport.name?.startsWith('realtime.command:')
+        ? { boundary: 'realtime-command' as const }
+        : {}),
+    }
     const execution = Promise.resolve(
       this.#storage.run(store, () =>
         this.#traceStorage.run(context.trace, () =>
@@ -1595,6 +1613,20 @@ export class DoxaRuntime {
         `${event.constructor.name || 'Anonymous event'} is not declared by a selected Feature.`,
       )
     }
+    if (store.boundary === 'realtime-command') {
+      store.context.cancellation.throwIfAborted()
+      const listeners = this.#listenersByEvent.get(manifest.id) ?? []
+      if (
+        manifest.domain ||
+        manifest.dispatch === 'after-commit' ||
+        manifest.broadcast === 'queued' ||
+        listeners.some((listener) => listener.delivery !== 'local')
+      ) {
+        throw new OperationDispatchError(
+          'Realtime commands may dispatch only immediate, non-durable Events and ShouldBroadcastNow broadcasts.',
+        )
+      }
+    }
     const unitOfWork = store.scope.currentUnitOfWork
     if (manifest.domain) {
       if (!unitOfWork) {
@@ -1654,6 +1686,7 @@ export class DoxaRuntime {
 
   private async dispatchSignal(signal: Signal<unknown>): Promise<void> {
     const store = this.requireExecution('signal')
+    if (store.boundary === 'realtime-command') store.context.cancellation.throwIfAborted()
     const manifest = this.#signalsByConstructor.get(signal.constructor)
     if (!manifest) {
       throw new OperationDispatchError(
@@ -1916,6 +1949,127 @@ export class DoxaRuntime {
     )
   }
 
+  dispatchRealtimeCommand(
+    admission: BroadcastConnectionAdmission,
+    request: RealtimeCommandRequest,
+  ): Promise<RealtimeCommandResult> {
+    if (
+      admission.actor.kind === 'anonymous' ||
+      !admission.actor.id ||
+      admission.authentication.state !== 'authenticated'
+    ) {
+      return Promise.resolve(
+        commandFailure(
+          request.id,
+          'command_unauthenticated',
+          'That command requires authentication.',
+        ),
+      )
+    }
+    const manifest = this.#realtimeCommandsByName.get(request.command)
+    if (!manifest)
+      return Promise.resolve(
+        commandFailure(request.id, 'command_unknown', 'That command is not available.'),
+      )
+    const Constructor = this.artifacts.registry.constructors[manifest.id] as
+      | ((new (...dependencies: unknown[]) => RealtimeCommand<unknown>) & {
+          readonly schema: StandardSchema<unknown, unknown>
+        })
+      | undefined
+    if (!Constructor) {
+      return Promise.resolve(
+        commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
+      )
+    }
+    const deadline = new Date(Date.now() + manifest.timeoutMs)
+    const execution = this.admit(
+      {
+        actor: admission.actor,
+        authentication: admission.authentication,
+        ...(admission.tenant ? { tenant: admission.tenant } : {}),
+        correlationId: admission.correlationId,
+        causationId: request.id,
+        deadline,
+        transport: { kind: 'websocket', name: `realtime.command:${manifest.command}` },
+      },
+      async () => {
+        const store = this.requireExecution('realtime command')
+        store.operationStack.push('realtime-command')
+        try {
+          store.context.cancellation.throwIfAborted()
+          const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
+            actorId: admission.actor.id!,
+            command: manifest.command,
+            requestId: request.id,
+            throttle: manifest.throttle,
+          })
+          store.context.cancellation.throwIfAborted()
+          if (!throttle.allowed) {
+            return commandFailure(
+              request.id,
+              'command_throttled',
+              'That command is being sent too frequently.',
+              throttle.retryAfterMs,
+            )
+          }
+          const validation = await Constructor.schema['~standard'].validate(request.payload)
+          store.context.cancellation.throwIfAborted()
+          if ('issues' in validation && validation.issues) {
+            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
+          }
+          const input = validation.value
+          await this.authorization.authorize(manifest.access, input)
+          store.context.cancellation.throwIfAborted()
+          const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
+          await this.observeObservation(
+            'realtime-command',
+            manifest.command,
+            {},
+            async () => {
+              try {
+                await command.handle(input)
+              } catch (error) {
+                throwPrivacySensitiveFailure(error, 'Realtime command failed.')
+              }
+            },
+            manifest.id,
+          )
+          store.context.cancellation.throwIfAborted()
+          return Object.freeze({ id: request.id, ok: true as const })
+        } catch (error) {
+          if (error instanceof AuthorizationError) {
+            return commandFailure(request.id, 'command_forbidden', 'That command is not allowed.')
+          }
+          if (store.context.cancellation.aborted) {
+            return commandFailure(
+              request.id,
+              'command_timeout',
+              'That command exceeded its execution deadline.',
+            )
+          }
+          return commandFailure(
+            request.id,
+            'command_failed',
+            'That command could not be processed.',
+          )
+        } finally {
+          store.operationStack.pop()
+        }
+      },
+    )
+    return settleAtDeadline(
+      execution,
+      deadline,
+      commandFailure(
+        request.id,
+        'command_timeout',
+        'That command exceeded its execution deadline.',
+      ),
+    ).catch(() =>
+      commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
+    )
+  }
+
   private async enqueueListener(
     listener: ListenerManifestEntry,
     eventManifest: EventManifestEntry,
@@ -1947,6 +2101,10 @@ export class DoxaRuntime {
     options?: JobDispatchOptions,
   ): Promise<string> {
     const store = this.requireExecution('job')
+    if (store.boundary === 'realtime-command') {
+      store.context.cancellation.throwIfAborted()
+      throw new OperationDispatchError('Realtime commands cannot dispatch durable Jobs.')
+    }
     const manifest = this.#jobsByConstructor.get(Constructor)
     if (!manifest) {
       throw new OperationDispatchError(
@@ -2421,12 +2579,20 @@ export class DoxaRuntime {
       | 'sms'
       | 'delivery ledger'
       | 'command'
+      | 'realtime command'
       | 'HTTP route'
       | 'authorization',
   ): ExecutionStore {
     const store = this.#storage.getStore()
     if (!store) {
       throw new OperationDispatchError(`${role} dispatch requires an active admitted execution.`)
+    }
+    if (
+      role !== 'realtime command' &&
+      store.boundary === 'realtime-command' &&
+      store.context.cancellation.aborted
+    ) {
+      store.context.cancellation.throwIfAborted()
     }
     return store
   }
@@ -2559,14 +2725,22 @@ export class DoxaRuntime {
       'authorization',
       manifest.id,
       { ability },
-      () =>
-        policy.decide({
-          actor: context.actor,
-          ability,
-          ...(resource === undefined ? {} : { resource }),
-          ...(context.tenant ? { tenant: context.tenant } : {}),
-          context,
-        }),
+      async () => {
+        try {
+          return await policy.decide({
+            actor: context.actor,
+            ability,
+            ...(resource === undefined ? {} : { resource }),
+            ...(context.tenant ? { tenant: context.tenant } : {}),
+            context,
+          })
+        } catch (error) {
+          if (store.boundary === 'realtime-command') {
+            throwPrivacySensitiveFailure(error, 'Realtime command authorization failed.')
+          }
+          throw error
+        }
+      },
       manifest.id,
     )
     if ((decision.effect !== 'allow' && decision.effect !== 'deny') || !decision.code) {
@@ -3014,6 +3188,7 @@ async function loadArtifacts(artifactsDirectory: string): Promise<RuntimeArtifac
     ...manifest.signals.map((entry) => entry.id),
     ...manifest.signalHandlers.map((entry) => entry.id),
     ...manifest.commands.map((entry) => entry.id),
+    ...manifest.realtimeCommands.map((entry) => entry.id),
   ].sort()
   const registryIds = Object.keys(registry.constructors ?? {}).sort()
   if (JSON.stringify(expectedIds) !== JSON.stringify(registryIds)) {
@@ -3274,6 +3449,7 @@ class ExecutionScope {
     | SignalHandlerManifestEntry
     | ObserverManifestEntry
     | CommandManifestEntry
+    | RealtimeCommandManifestEntry
   >
   readonly #dependencyOwnerById: ReadonlyMap<
     string,
@@ -3289,6 +3465,7 @@ class ExecutionScope {
     | SignalHandlerManifestEntry
     | ObserverManifestEntry
     | CommandManifestEntry
+    | RealtimeCommandManifestEntry
   >
   readonly #instances = new Map<string, object>()
   readonly #constructionStack = new Set<string>()
@@ -3328,6 +3505,7 @@ class ExecutionScope {
         ...artifacts.manifest.signalHandlers,
         ...artifacts.manifest.observers,
         ...artifacts.manifest.commands,
+        ...artifacts.manifest.realtimeCommands,
       ].map((executable) => [executable.id, executable]),
     )
     this.#dependencyOwnerById = new Map(
@@ -3345,6 +3523,7 @@ class ExecutionScope {
         ...artifacts.manifest.signalHandlers,
         ...artifacts.manifest.observers,
         ...artifacts.manifest.commands,
+        ...artifacts.manifest.realtimeCommands,
       ].map((entry) => [entry.id, entry]),
     )
     for (const [id, Constructor] of Object.entries(artifacts.registry.constructors)) {
@@ -3465,6 +3644,7 @@ class ExecutionScope {
       | SignalHandlerManifestEntry
       | ObserverManifestEntry
       | CommandManifestEntry
+      | RealtimeCommandManifestEntry
       | ProviderManifestEntry,
     token: RoleInjectionToken,
     optional: boolean,
@@ -3796,6 +3976,40 @@ function createExecutionContext(
     cancellation,
   }
   return Object.freeze(context)
+}
+
+function commandFailure(
+  id: string,
+  code: string,
+  message: string,
+  retryAfterMs?: number,
+): RealtimeCommandResult {
+  return Object.freeze({
+    id,
+    ok: false as const,
+    error: Object.freeze({
+      code,
+      message,
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+    }),
+  })
+}
+
+async function settleAtDeadline<Output>(
+  work: Promise<Output>,
+  deadline: Date,
+  fallback: Output,
+): Promise<Output> {
+  let timer: NodeJS.Timeout | undefined
+  const expired = new Promise<Output>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), Math.max(0, deadline.getTime() - Date.now()))
+    timer.unref()
+  })
+  try {
+    return await Promise.race([work, expired])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function telemetryAttributes(
@@ -4304,6 +4518,21 @@ class PermissionSourceResolutionFailure extends Error {
     super('Permission source failed.')
     markPrivacySensitiveError(this, 'Permission source failed.')
   }
+}
+
+class PrivacySensitiveFailure extends Error {
+  constructor(message: string) {
+    super(message)
+    markPrivacySensitiveError(this, message)
+  }
+}
+
+function throwPrivacySensitiveFailure(error: unknown, diagnosticMessage: string): never {
+  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+    markPrivacySensitiveError(error, diagnosticMessage)
+    throw error
+  }
+  throw new PrivacySensitiveFailure(diagnosticMessage)
 }
 
 function uuid(value: unknown): boolean {

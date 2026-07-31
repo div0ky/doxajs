@@ -58,6 +58,27 @@ Before the first stable release, a release may explicitly re-baseline Doxa-owned
 instead of preserving alpha migration history. Such a release requires recreating prerelease
 databases; it must never present rewritten migration checksums as a compatible forward migration.
 
+## Keryx protocol v3
+
+Protocol v3 adds registered, authenticated `RealtimeCommand` ingress and deliberately breaks
+protocol v2. Upgrade `@doxajs/core`, `@doxajs/compiler`, `@doxajs/runtime`, `@doxajs/keryx`, and
+`@doxajs/realtime` together. Realtime clients now offer `doxa.realtime.v3`; earlier clients cannot
+connect to a v3 server.
+
+Deploy protocol v3 as a coordinated cutover across every web replica, worker role, and browser
+client. The signed worker publish envelope also carries the protocol version, so a rolling fleet
+must not mix v2 and v3 web or worker processes behind shared routing. This upgrade requires no
+database migration or new environment variable, but all realtime participants must change together.
+
+Applications must declare commands in `Feature.realtimeCommands` and provide a Standard Schema,
+declared non-public ability, throttle, and optional bounded timeout. The ability may be granted by a
+`PermissionSource`; a resource `Policy` may narrow it using the validated input. Replace
+application-specific socket frames with `Realtime.command()`. Do not move durable Action behavior to
+commands: commands create no command-specific durable, retry, replay, journal, or outbox record.
+Their required authorization decisions still use Doxa's normal authorization audit and telemetry
+path. Command handlers own no writable Unit of Work, while authorization and QueryBus reads may use
+bounded read-only sessions.
+
 ## Keryx protocol v2
 
 The alpha release that introduced Keryx protocol v2 deliberately breaks protocol v1. Upgrade

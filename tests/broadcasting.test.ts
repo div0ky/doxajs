@@ -249,6 +249,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
   it('delivers through Keryx and the reconnecting subscriber protocol', async () => {
     let subscribed = false
     let connectionCount = 0
+    const commands: unknown[] = []
     const gateway: BroadcastGateway = {
       connect: async (connectionId) => {
         const identityId = connectionCount++ === 0 ? 'ada' : 'grace'
@@ -264,6 +265,10 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         return destination.kind === 'presence' ? { member: admission.actor } : {}
       },
       unsubscribe: async () => undefined,
+      command: async (admission, request) => {
+        commands.push({ actor: admission.actor, request })
+        return { id: request.id, ok: true as const }
+      },
     }
     const keryx = new Keryx({ port: 0, heartbeatMilliseconds: 50 })
     keryx.bind(gateway)
@@ -285,6 +290,18 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       .listen('counter.changed', (data) => received.push(data))
     try {
       await waitFor(() => subscribed)
+      await expect(realtime.command('counters.touch', { counterId: 'counter-1' })).resolves.toEqual(
+        expect.objectContaining({ ok: true }),
+      )
+      expect(commands).toEqual([
+        {
+          actor: { kind: 'user', id: 'ada' },
+          request: expect.objectContaining({
+            command: 'counters.touch',
+            payload: { counterId: 'counter-1' },
+          }),
+        },
+      ])
       const message: BroadcastMessage = {
         id: 'message-1',
         event: 'counter.changed',
@@ -350,6 +367,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         return {}
       },
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     }
     const keryx = new Keryx({ port: 0 })
     keryx.bind(gateway)
@@ -367,7 +385,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       await new Promise<void>((resolve) => socket.once('open', () => resolve()))
       socket.send(
         JSON.stringify({
-          protocol: 2,
+          protocol: 3,
           type: 'subscribe',
           channel: { name: 'counters.public', kind: 'public' },
         }),
@@ -400,6 +418,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         return {}
       },
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     }
     const keryx = new Keryx({
       applicationId: 'browser-admission',
@@ -426,7 +445,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     })
     const wrongOriginSocket = new WebSocket(
       `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
-      ['doxa.realtime.v2', `doxa.ticket.${grant.ticket}`],
+      ['doxa.realtime.v3', `doxa.ticket.${grant.ticket}`],
       { origin: 'https://hostile.example.test' },
     )
     const wrongOriginFrames: Record<string, unknown>[] = []
@@ -469,7 +488,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         () => subscription.state === 'subscribed' && secondSubscription.state === 'subscribed',
       )
       expect(authorizationRequests).toBe(1)
-      expect(browserSocket?.protocol).toBe('doxa.realtime.v2')
+      expect(browserSocket?.protocol).toBe('doxa.realtime.v3')
       expect(admitted).toEqual(
         expect.objectContaining({
           actor: { kind: 'user', id: 'ada' },
@@ -487,7 +506,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
 
       const replay = new WebSocket(
         `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
-        ['doxa.realtime.v2', `doxa.ticket.${grant.ticket}`],
+        ['doxa.realtime.v3', `doxa.ticket.${grant.ticket}`],
         { origin },
       )
       const replayFrames: Record<string, unknown>[] = []
@@ -523,6 +542,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         return {}
       },
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     }
     const web = new Keryx({ applicationId: 'remote-test', port: 0, secret })
     web.selectRoles({
@@ -605,6 +625,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       }),
       subscribe: async () => ({}),
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     })
     const lifecycle = {
       signal: new AbortController().signal,
@@ -628,6 +649,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       }),
       subscribe: async () => ({}),
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     }
     const keryx = new Keryx({
       applicationId: 'signed-test',
@@ -644,7 +666,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     const path = keryx.address.publishPath
     const url = `http://${keryx.address.host}:${keryx.address.port}${path}`
     const body = JSON.stringify({
-      protocol: 2,
+      protocol: 3,
       message: {
         id: 'signed-message',
         event: 'counter.changed',
@@ -718,7 +740,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
           })
         ).status,
       ).toBe(401)
-      const oldProtocolBody = body.replace('"protocol":2', '"protocol":1')
+      const oldProtocolBody = body.replace('"protocol":3', '"protocol":2')
       expect(
         (
           await fetch(url, {
@@ -797,6 +819,23 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       .leaving((member) => left.push(member))
     let secondPresence: ReturnType<typeof secondRealtime.presence> | undefined
     try {
+      await expect(
+        first.consumeRealtimeCommandThrottle({
+          actorId: 'shared-actor',
+          command: 'counters.touch',
+          requestId: 'redis-command-one',
+          throttle: { limit: 1, windowMs: 5_000 },
+        }),
+      ).resolves.toEqual({ allowed: true })
+      await expect(
+        second.consumeRealtimeCommandThrottle({
+          actorId: 'shared-actor',
+          command: 'counters.touch',
+          requestId: 'redis-command-two',
+          throttle: { limit: 1, windowMs: 5_000 },
+        }),
+      ).resolves.toEqual({ allowed: false, retryAfterMs: expect.any(Number) })
+
       const ticket = first.issueConnectionTicket({
         actor: { kind: 'user', id: 'ticketed' },
         authentication: {
@@ -807,7 +846,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         correlationId: 'replicated-admission',
         origin: 'https://evergreen.example.test',
       })
-      const ticketProtocols = ['doxa.realtime.v2', `doxa.ticket.${ticket.ticket}`]
+      const ticketProtocols = ['doxa.realtime.v3', `doxa.ticket.${ticket.ticket}`]
       const ticketedSocket = new WebSocket(
         `ws://${second.address.host}:${second.address.port}${second.address.path}`,
         ticketProtocols,
@@ -966,16 +1005,16 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     subscription.onStateChange((state) => subscriptionStates.push(state))
     sockets[0]!.open()
     expect(sockets[0]!.sent).toEqual([])
-    sockets[0]!.receive({ protocol: 2, type: 'connected', connectionId: 'connection-1' })
+    sockets[0]!.receive({ protocol: 3, type: 'connected', connectionId: 'connection-1' })
     expect(sockets[0]!.sent).toEqual([
       JSON.stringify({
-        protocol: 2,
+        protocol: 3,
         type: 'subscribe',
         channel: { name: 'counters.ada', kind: 'private' },
       }),
     ])
     sockets[0]!.receive({
-      protocol: 2,
+      protocol: 3,
       type: 'subscribed',
       channel: { name: 'counters.ada', kind: 'private' },
     })
@@ -985,7 +1024,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     await waitFor(() => sockets.length === 2)
     sockets[1]!.open()
     expect(sockets[1]!.sent).toEqual([])
-    sockets[1]!.receive({ protocol: 2, type: 'connected', connectionId: 'connection-2' })
+    sockets[1]!.receive({ protocol: 3, type: 'connected', connectionId: 'connection-2' })
     expect(sockets[1]!.sent).toEqual(sockets[0]!.sent)
 
     realtime.disconnect()
@@ -1014,9 +1053,9 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     const denied = realtime.private('counters.denied')
     denied.onError((error) => errors.push(error))
     sockets[0]!.open()
-    sockets[0]!.receive({ protocol: 2, type: 'connected', connectionId: 'connection-1' })
+    sockets[0]!.receive({ protocol: 3, type: 'connected', connectionId: 'connection-1' })
     sockets[0]!.receive({
-      protocol: 2,
+      protocol: 3,
       type: 'error',
       code: 'subscription_denied',
       message: 'The subscription was not admitted.',
@@ -1053,7 +1092,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     realtime.channel('counters.public')
     sockets[0]!.open()
     sockets[0]!.receive({
-      protocol: 2,
+      protocol: 3,
       type: 'error',
       code: 'authentication_failed',
       message: 'Connection admission failed.',
@@ -1169,6 +1208,7 @@ function gatewayFor(identityId: string): {
           : {}
       },
       unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
     } satisfies BroadcastGateway,
   }
   return Object.defineProperties(
