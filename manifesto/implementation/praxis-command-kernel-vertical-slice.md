@@ -17,7 +17,8 @@ without placing credentials in command arguments. Generators use the canonical F
 add imports and role-array entries automatically, and reject overwrites. Route generation requires
 an explicit path, defaults to `GET`, and emits explicitly public access unless `--ability=...`
 protects it. Other generated entry points continue to require an explicit `--public` or
-`--ability=...` posture.
+`--ability=...` posture. `--help` and `-h` print the complete command surface and exit successfully
+from every argument position before any command validation, application dispatch, or side effect.
 
 `make:permission-source` generates and registers the application's static ability catalog.
 `make:service --provide` creates an ordinary service and intentionally exports it without promoting

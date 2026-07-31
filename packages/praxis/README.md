@@ -15,7 +15,8 @@ pnpm install
 pnpm dev
 ```
 
-Run `doxa --help` for the complete command surface.
+Run `doxa --help`, `doxa -h`, or `doxa <command> --help` for the complete command surface. Help
+flags exit successfully without running the selected command or creating generator output.
 
 Install Doxa's optional realtime broadcasting core with `doxa add keryx`. Praxis enables
 `framework.broadcasting` and scaffolds the web listener, signed worker publish path, readiness
