@@ -28,9 +28,9 @@ import {
   TransactionManager,
   UnitOfWork,
 } from '@doxajs/core'
-import { and, eq, sql, type SQL } from 'drizzle-orm'
+import { and, DrizzleQueryError, eq, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { Pool, type PoolClient } from 'pg'
+import { DatabaseError, Pool, type PoolClient } from 'pg'
 
 import {
   entityStates,
@@ -94,7 +94,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
       this.#database = drizzle(pool, { schema: persistenceSchema })
     } catch (error) {
       await pool.end().catch(() => undefined)
-      throw translatePersistenceError(error)
+      throw translatePostgresOperationError(error)
     }
   }
 
@@ -105,18 +105,22 @@ export class PostgresTransactionManager extends TransactionManager implements St
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
     let unitOfWork: PostgresUnitOfWork | undefined
+    let workFailure: { readonly error: unknown } | undefined
     let result: Output
     try {
       result = await database.transaction(async (transaction) => {
         unitOfWork = new PostgresUnitOfWork(transaction, context)
         try {
           return await work(unitOfWork)
+        } catch (error) {
+          workFailure = { error }
+          throw error
         } finally {
           unitOfWork.close()
         }
       })
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
     await unitOfWork?.releaseAfterCommit()
     return result
@@ -130,6 +134,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
     let unitOfWork: PostgresUnitOfWork | undefined
+    let workFailure: { readonly error: unknown } | undefined
     let result: Output
     try {
       result = await database.transaction(async (transaction) => {
@@ -146,16 +151,23 @@ export class PostgresTransactionManager extends TransactionManager implements St
               text: string,
               values?: readonly unknown[],
             ) => {
-              const result = await client.query<Row>(text, values as unknown[] | undefined)
-              return { rows: result.rows, rowCount: result.rowCount }
+              try {
+                const result = await client.query<Row>(text, values as unknown[] | undefined)
+                return { rows: result.rows, rowCount: result.rowCount }
+              } catch (error) {
+                throw translatePostgresOperationError(error)
+              }
             },
           })
+        } catch (error) {
+          workFailure = { error }
+          throw error
         } finally {
           unitOfWork.close()
         }
       })
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
     await unitOfWork?.releaseAfterCommit()
     return result
@@ -167,12 +179,16 @@ export class PostgresTransactionManager extends TransactionManager implements St
   ): Promise<Output> {
     const database = this.#database
     if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
+    let workFailure: { readonly error: unknown } | undefined
     try {
       return await database.transaction(
         async (transaction) => {
           const reader = new PostgresUnitOfWork(transaction, context)
           try {
             return await work(reader)
+          } catch (error) {
+            workFailure = { error }
+            throw error
           } finally {
             reader.close()
           }
@@ -180,7 +196,7 @@ export class PostgresTransactionManager extends TransactionManager implements St
         { accessMode: 'read only', isolationLevel: 'repeatable read' },
       )
     } catch (error) {
-      throw translatePersistenceError(error)
+      throw transactionFailure(error, workFailure)
     }
   }
 
@@ -1261,19 +1277,62 @@ function deliveryContext(context: ExecutionContext): DurableExecutionEnvelope {
   }
 }
 
-function translatePersistenceError(error: unknown): Error {
+function translatePersistenceError(error: unknown): unknown {
   if (error instanceof PersistenceError) return error
-  if (!postgresCode(error) && error instanceof Error) return error
-  return new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+  return postgresDriverFailure(error)
+    ? new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+    : error
+}
+
+function translatePostgresOperationError(error: unknown): PersistenceError {
+  return error instanceof PersistenceError
+    ? error
+    : new PersistenceError('PostgreSQL persistence operation failed.', { cause: error })
+}
+
+/** @internal Exported only for adapter regression tests; not part of the package entry point. */
+export function transactionFailure(
+  error: unknown,
+  workFailure: { readonly error: unknown } | undefined,
+): unknown {
+  if (workFailure) return translatePersistenceError(workFailure.error)
+  return translatePostgresOperationError(error)
+}
+
+/** @internal Creates a vendor error without exposing its type through the package boundary. */
+export function drizzleDriverFailureForTesting(cause: Error): Error {
+  return new DrizzleQueryError('select 1', [], cause)
 }
 
 function postgresCode(error: unknown): string | undefined {
-  let current: unknown = error
+  return postgresError(error)?.code
+}
+
+function postgresError(error: unknown): DatabaseError | undefined {
+  return findError(
+    error,
+    (candidate): candidate is DatabaseError => candidate instanceof DatabaseError,
+  )
+}
+
+function postgresDriverFailure(error: unknown): Error | undefined {
+  if (error instanceof DatabaseError) return error
+  return error instanceof DrizzleQueryError ? error : undefined
+}
+
+function findError<ErrorType>(
+  error: unknown,
+  predicate: (candidate: unknown) => candidate is ErrorType,
+): ErrorType | undefined {
   const visited = new Set<unknown>()
-  while (typeof current === 'object' && current !== null && !visited.has(current)) {
+  const remaining: unknown[] = [error]
+  while (remaining.length > 0) {
+    const current = remaining.pop()
+    if (typeof current !== 'object' || current === null || visited.has(current)) continue
     visited.add(current)
-    if ('code' in current && typeof current.code === 'string') return current.code
-    current = 'cause' in current ? current.cause : undefined
+    if (predicate(current)) return current
+    if (current instanceof AggregateError) remaining.push(...current.errors)
+    if ('cause' in current) remaining.push(current.cause)
   }
   return undefined
 }
