@@ -312,14 +312,21 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
       return await this.#backplane.consumeRealtimeCommandThrottle(request)
     }
     const now = Date.now()
-    for (const [attemptKey, bucket] of this.#commandAttempts)
-      if (bucket.expiresAt <= now) this.#commandAttempts.delete(attemptKey)
-    const key = `${request.actorId}:${request.command}`
+    const key = JSON.stringify([request.actorId, request.command])
+    const currentBucket = this.#commandAttempts.get(key)
+    if (currentBucket?.expiresAt && currentBucket.expiresAt <= now) {
+      this.#commandAttempts.delete(key)
+    }
     if (
       !this.#commandAttempts.has(key) &&
       this.#commandAttempts.size >= this.#options.maxCommandThrottleBuckets
-    )
-      return { allowed: false, retryAfterMs: request.throttle.windowMs }
+    ) {
+      for (const [attemptKey, bucket] of this.#commandAttempts)
+        if (bucket.expiresAt <= now) this.#commandAttempts.delete(attemptKey)
+      if (this.#commandAttempts.size >= this.#options.maxCommandThrottleBuckets) {
+        return { allowed: false, retryAfterMs: request.throttle.windowMs }
+      }
+    }
     const cutoff = now - request.throttle.windowMs
     const attempts = (this.#commandAttempts.get(key)?.attempts ?? []).filter(
       (value) => value > cutoff,

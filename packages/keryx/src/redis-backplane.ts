@@ -236,7 +236,7 @@ export class RedisBackplane {
   ): Promise<RealtimeCommandThrottleDecision> {
     if (!this.#available) throw new Error('Keryx Redis backplane is unavailable.')
     const bucketHash = createHash('sha256')
-      .update(`${request.actorId}:${request.command}`)
+      .update(JSON.stringify([request.actorId, request.command]))
       .digest('hex')
     const result = (await this.#commands.eval(CONSUME_REALTIME_COMMAND_THROTTLE, {
       keys: [`${this.#prefix}:commands:${bucketHash}`],

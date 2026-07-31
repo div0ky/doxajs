@@ -50,11 +50,14 @@ retry IDs, fake transport assertions, private-channel authorization, delayed aut
 observable client failures, cross-origin ticket admission and replay rejection, signed worker
 publication, tamper/replay/size rejection, worker role isolation, real Redis fanout, ticket
 consumption, and presence across replicas, message deduplication, readiness loss, and recovery.
-`tests/realtime-command.test.ts` proves registered compilation, actor provenance, validation, Policy
-denial, anonymous rejection, immediate broadcasting, and rolling throttling. `tests/praxis.test.ts`
-proves installation, the generated authorization route, and compiler-owned composition. The
-repository verification gate covers package boundaries, publishable declarations, documentation
-links, formatting, linting, coverage, and dependency security.
+`tests/realtime-command.test.ts` proves registered compilation, actor provenance without command
+enumeration, validation, Policy denial, anonymous rejection, immediate broadcasting, unambiguous
+rolling-throttle buckets, complete-pipeline deadlines, and durable-dispatch rejection through nested
+queries. `tests/foundation.test.ts` proves commands fail compilation without Keryx.
+`tests/praxis.test.ts` proves installation, the generated authorization route, every canonical role
+generator including realtime commands, and compiler-owned composition. The repository verification
+gate covers package boundaries, publishable declarations, documentation links, formatting, linting,
+coverage, and dependency security.
 
 ## Deliberate guarantees
 

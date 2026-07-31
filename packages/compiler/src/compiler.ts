@@ -504,6 +504,11 @@ export async function compileApplication(
   const broadcastingProviders = providers.filter((provider) =>
     provider.capabilities.includes('broadcasting'),
   )
+  if (realtimeCommands.length > 0 && broadcastingProviders.length !== 1) {
+    throw new DoxaCompilationError(
+      `Applications with realtime commands require exactly one broadcasting provider; found ${broadcastingProviders.length}. Enable Keryx with doxa add keryx.`,
+    )
+  }
   if (events.some((event) => event.broadcast !== false) && broadcastingProviders.length !== 1) {
     throw new DoxaCompilationError(
       `Applications with broadcast events require exactly one broadcasting provider; found ${broadcastingProviders.length}.`,

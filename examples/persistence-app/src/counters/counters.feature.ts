@@ -48,6 +48,7 @@ import { LegacyNote } from './models/legacy-note.js'
 import { CounterObserver } from './observers/counter.observer.js'
 import { AttemptCounterWrite } from './queries/attempt-counter-write.js'
 import { InspectCounterQueries } from './queries/inspect-counter-queries.js'
+import { QueueCounterFromQuery } from './queries/queue-counter-from-query.js'
 import { ProcessCountersSchedule } from './schedules/process-counters.schedule.js'
 import { CounterTouched } from './signals/counter-touched.js'
 import { RecordCounterTouched } from './signal-handlers/record-counter-touched.js'
@@ -95,7 +96,7 @@ export class CountersFeature extends Feature {
     DeleteLegacyCustomer,
     SaveLegacyNote,
   ]
-  queries = [AttemptCounterWrite, InspectCounterQueries]
+  queries = [AttemptCounterWrite, InspectCounterQueries, QueueCounterFromQuery]
   commands = [MarkCounterCommand]
   realtimeCommands = [TouchCounter]
   routes = [IncrementCounterRoute, DeleteCounterRoute, SecureIncrementCounterRoute]

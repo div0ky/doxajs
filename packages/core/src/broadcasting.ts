@@ -143,7 +143,7 @@ export class FakeBroadcastTransport extends BroadcastTransport {
     const now = Date.now()
     for (const [attemptKey, bucket] of this.#commandAttempts)
       if (bucket.expiresAt <= now) this.#commandAttempts.delete(attemptKey)
-    const key = `${request.actorId}:${request.command}`
+    const key = JSON.stringify([request.actorId, request.command])
     const cutoff = now - request.throttle.windowMs
     const attempts = (this.#commandAttempts.get(key)?.attempts ?? []).filter(
       (value) => value > cutoff,

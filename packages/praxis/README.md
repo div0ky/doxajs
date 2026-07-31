@@ -26,6 +26,8 @@ check, same-origin browser authorization route, and optional Redis topology. Ker
 Use `doxa make:realtime-command Feature/SendTyping --ability=messages.participate` to scaffold a
 Standard Schema-validated, throttled role and register it in `Feature.realtimeCommands`. Use
 `doxa realtime-command:list` to inspect the compiled command ID, ability, throttle, and deadline.
+Applications that register realtime commands must enable Keryx; compilation fails closed when no
+broadcasting provider owns their authenticated ingress and throttling.
 
 Praxis follows a Laravel-like migration lifecycle with developer-authored, forward-only SQL. Use
 `doxa make:migration <Name>` to create a timestamped stub, `doxa migrate:status` to inspect pending

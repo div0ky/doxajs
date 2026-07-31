@@ -958,6 +958,44 @@ describe('foundational compile-to-boot slice', () => {
     )
   })
 
+  it('requires Keryx when an application declares realtime commands', async () => {
+    await expect(
+      compileFixture(`
+        import { allow, DoxaApplication, Feature, Policy, RealtimeCommand } from '@doxajs/core'
+
+        class TouchCursor extends RealtimeCommand<Record<string, never>> {
+          static override readonly id = 'collaboration.touch-cursor'
+          static override readonly access = 'collaboration.command'
+          static override readonly schema = {
+            '~standard': {
+              version: 1 as const,
+              vendor: 'test',
+              validate: (value: unknown) => ({ value: value as Record<string, never> }),
+            },
+          }
+          static override readonly throttle = { limit: 4, windowMs: 2000 }
+          handle(_input: Record<string, never>): void {}
+        }
+        class CollaborationPolicy extends Policy {
+          static override readonly id = 'collaboration'
+          static override readonly abilities = ['collaboration.command']
+          decide(_request: unknown) { return allow('collaboration') }
+        }
+        class CollaborationFeature extends Feature {
+          id = 'collaboration'
+          policies = [CollaborationPolicy]
+          realtimeCommands = [TouchCursor]
+        }
+        export class Application extends DoxaApplication {
+          id = 'realtime-command-without-keryx'
+          features = [CollaborationFeature]
+        }
+      `),
+    ).rejects.toThrow(
+      'Applications with realtime commands require exactly one broadcasting provider; found 0. Enable Keryx with doxa add keryx.',
+    )
+  })
+
   it('rejects direct and transitive ActionBus reachability from operation boundaries', async () => {
     await expect(
       compileFixture(`

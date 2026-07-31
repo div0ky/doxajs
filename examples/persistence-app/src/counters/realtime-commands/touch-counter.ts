@@ -1,7 +1,8 @@
-import { CurrentExecution, RealtimeCommand } from '@doxajs/core'
+import { CurrentExecution, QueryBus, RealtimeCommand } from '@doxajs/core'
 import { z } from 'zod'
 
 import { CounterBroadcastedNow } from '../events/counter-broadcasted-now.js'
+import { QueueCounterFromQuery } from '../queries/queue-counter-from-query.js'
 
 const TouchCounterInput = z.object({ counterId: z.string().min(1), ownerId: z.string().min(1) })
 type TouchCounterInput = z.infer<typeof TouchCounterInput>
@@ -20,10 +21,15 @@ export class TouchCounter extends RealtimeCommand<TouchCounterInput> {
   static override readonly timeoutMs = 50
 
   private readonly execution = this.inject(CurrentExecution)
+  private readonly queries = this.inject(QueryBus)
 
   async handle(input: TouchCounterInput): Promise<void> {
     if (input.counterId === 'timeout') {
       await new Promise((resolve) => setTimeout(resolve, 200))
+      return
+    }
+    if (input.counterId === 'nested-job') {
+      await this.queries.execute(QueueCounterFromQuery, 'realtime-nested-job')
       return
     }
     realtimeCounterTouches.push({

@@ -113,7 +113,8 @@ An authenticated client may invoke only a compiled `RealtimeCommand`. The role d
 `id`, non-public `access` ability, Standard Schema `schema`, required `{ limit, windowMs }`
 throttle, and an optional `timeoutMs` which defaults to 2 seconds and may not exceed 10 seconds. It
 implements `handle(validatedInput)`. Features register commands explicitly in `realtimeCommands`;
-folder names carry no meaning.
+folder names carry no meaning. Declaring a realtime command requires Keryx to be enabled so every
+compiled command has an authenticated WebSocket ingress and throttle authority.
 
 The compiler rejects duplicate or invalid IDs, public access, missing schemas or throttles,
 non-positive throttle values, invalid timeouts, lifecycle capabilities, and reachable `ActionBus`
@@ -125,7 +126,7 @@ execution containing the admitted actor, authentication, tenant, connection corr
 causation, and deadline. Client payloads can never supply actor or authentication facts. Runtime
 ordering is schema validation, actor-and-command rolling throttle, application Policy authorization
 with the complete validated input as resource, then handler execution. Missing policy coverage and
-all denials fail closed.
+all denials fail closed. The command deadline bounds that complete pipeline, not only the handler.
 
 Command handlers are transient execution-scoped roles. They are non-transactional and may dispatch
 only local immediate events whose listeners remain local and `ShouldBroadcastNow` events. Action,

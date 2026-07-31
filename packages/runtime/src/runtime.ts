@@ -256,6 +256,7 @@ interface ExecutionStore {
   readonly context: ExecutionContext
   readonly scope: ExecutionScope
   readonly operationStack: ('action' | 'job' | 'query' | 'realtime-command')[]
+  readonly boundary?: 'realtime-command'
   permissionAbilities?: Promise<ReadonlySet<string>>
   job?: import('@doxajs/core').CurrentJobContext
 }
@@ -794,7 +795,15 @@ export class DoxaRuntime {
       this.deliveryLedger,
       this.logger,
     )
-    const store: ExecutionStore = { context, scope, operationStack: [] }
+    const store: ExecutionStore = {
+      context,
+      scope,
+      operationStack: [],
+      ...(seed.transport.kind === 'websocket' &&
+      seed.transport.name?.startsWith('realtime.command:')
+        ? { boundary: 'realtime-command' as const }
+        : {}),
+    }
     const execution = Promise.resolve(
       this.#storage.run(store, () =>
         this.#traceStorage.run(context.trace, () =>
@@ -1604,7 +1613,8 @@ export class DoxaRuntime {
         `${event.constructor.name || 'Anonymous event'} is not declared by a selected Feature.`,
       )
     }
-    if (store.operationStack.at(-1) === 'realtime-command') {
+    if (store.boundary === 'realtime-command') {
+      store.context.cancellation.throwIfAborted()
       const listeners = this.#listenersByEvent.get(manifest.id) ?? []
       if (
         manifest.domain ||
@@ -1942,11 +1952,6 @@ export class DoxaRuntime {
     admission: BroadcastConnectionAdmission,
     request: RealtimeCommandRequest,
   ): Promise<RealtimeCommandResult> {
-    const manifest = this.#realtimeCommandsByName.get(request.command)
-    if (!manifest)
-      return Promise.resolve(
-        commandFailure(request.id, 'command_unknown', 'That command is not available.'),
-      )
     if (
       admission.actor.kind === 'anonymous' ||
       !admission.actor.id ||
@@ -1960,6 +1965,11 @@ export class DoxaRuntime {
         ),
       )
     }
+    const manifest = this.#realtimeCommandsByName.get(request.command)
+    if (!manifest)
+      return Promise.resolve(
+        commandFailure(request.id, 'command_unknown', 'That command is not available.'),
+      )
     const Constructor = this.artifacts.registry.constructors[manifest.id] as
       | ((new (...dependencies: unknown[]) => RealtimeCommand<unknown>) & {
           readonly schema: StandardSchema<unknown, unknown>
@@ -1984,35 +1994,45 @@ export class DoxaRuntime {
         const store = this.requireExecution('realtime command')
         store.operationStack.push('realtime-command')
         try {
-          const validation = await Constructor.schema['~standard'].validate(request.payload)
-          if ('issues' in validation && validation.issues) {
-            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
-          }
-          const input = validation.value
-          const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
-            actorId: admission.actor.id!,
-            command: manifest.command,
-            requestId: request.id,
-            throttle: manifest.throttle,
-          })
-          if (!throttle.allowed) {
-            return commandFailure(
-              request.id,
-              'command_throttled',
-              'That command is being sent too frequently.',
-              throttle.retryAfterMs,
+          return await runUntilCancelled(async () => {
+            const validation = await Constructor.schema['~standard'].validate(request.payload)
+            store.context.cancellation.throwIfAborted()
+            if ('issues' in validation && validation.issues) {
+              return commandFailure(
+                request.id,
+                'command_invalid',
+                'The command payload is invalid.',
+              )
+            }
+            const input = validation.value
+            const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
+              actorId: admission.actor.id!,
+              command: manifest.command,
+              requestId: request.id,
+              throttle: manifest.throttle,
+            })
+            store.context.cancellation.throwIfAborted()
+            if (!throttle.allowed) {
+              return commandFailure(
+                request.id,
+                'command_throttled',
+                'That command is being sent too frequently.',
+                throttle.retryAfterMs,
+              )
+            }
+            await this.authorization.authorize(manifest.access, input)
+            store.context.cancellation.throwIfAborted()
+            const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
+            await this.observeObservation(
+              'realtime-command',
+              manifest.command,
+              {},
+              () => command.handle(input),
+              manifest.id,
             )
-          }
-          await this.authorization.authorize(manifest.access, input)
-          const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
-          await this.observeObservation(
-            'realtime-command',
-            manifest.command,
-            {},
-            () => runUntilCancelled(command.handle(input), store.context.cancellation),
-            manifest.id,
-          )
-          return Object.freeze({ id: request.id, ok: true as const })
+            store.context.cancellation.throwIfAborted()
+            return Object.freeze({ id: request.id, ok: true as const })
+          }, store.context.cancellation)
         } catch (error) {
           if (error instanceof AuthorizationError) {
             return commandFailure(request.id, 'command_forbidden', 'That command is not allowed.')
@@ -2069,7 +2089,8 @@ export class DoxaRuntime {
     options?: JobDispatchOptions,
   ): Promise<string> {
     const store = this.requireExecution('job')
-    if (store.operationStack.at(-1) === 'realtime-command') {
+    if (store.boundary === 'realtime-command') {
+      store.context.cancellation.throwIfAborted()
       throw new OperationDispatchError('Realtime commands cannot dispatch durable Jobs.')
     }
     const manifest = this.#jobsByConstructor.get(Constructor)
@@ -3947,10 +3968,10 @@ function commandFailure(
   })
 }
 
-async function runUntilCancelled(
-  work: void | Promise<void>,
+async function runUntilCancelled<Output>(
+  work: () => Output | Promise<Output>,
   cancellation: AbortSignal,
-): Promise<void> {
+): Promise<Output> {
   if (cancellation.aborted) throw cancellation.reason
   let removeAbortListener = (): void => undefined
   const aborted = new Promise<never>((_resolve, reject) => {
@@ -3959,7 +3980,13 @@ async function runUntilCancelled(
     removeAbortListener = () => cancellation.removeEventListener('abort', listener)
   })
   try {
-    await Promise.race([Promise.resolve(work), aborted])
+    return await Promise.race([
+      Promise.resolve().then(() => {
+        cancellation.throwIfAborted()
+        return work()
+      }),
+      aborted,
+    ])
   } finally {
     removeAbortListener()
   }

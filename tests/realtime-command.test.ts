@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { compileApplication } from '@doxajs/compiler'
-import { FakeBroadcastTransport } from '@doxajs/core'
+import {
+  FakeBroadcastTransport,
+  type RealtimeCommandThrottleDecision,
+  type RealtimeCommandThrottleRequest,
+} from '@doxajs/core'
+import { Keryx } from '@doxajs/keryx'
 import {
   DoxaTestHarness,
   FakeQueueManager,
@@ -23,6 +28,18 @@ const workspace = path.resolve(import.meta.dirname, '..')
 const applicationRoot = path.join(workspace, 'examples/persistence-app')
 let artifacts: string
 
+class SlowThrottleBroadcastTransport extends FakeBroadcastTransport {
+  completed = false
+
+  override async consumeRealtimeCommandThrottle(
+    request: RealtimeCommandThrottleRequest,
+  ): Promise<RealtimeCommandThrottleDecision> {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    this.completed = true
+    return super.consumeRealtimeCommandThrottle(request)
+  }
+}
+
 describe('Doxa realtime commands', () => {
   beforeAll(async () => {
     artifacts = await mkdtemp(path.join(tmpdir(), 'doxa-realtime-command-'))
@@ -37,9 +54,8 @@ describe('Doxa realtime commands', () => {
 
   afterAll(async () => rm(artifacts, { recursive: true, force: true }))
 
-  async function harness() {
+  async function harness(broadcasts: FakeBroadcastTransport = new FakeBroadcastTransport()) {
     const queue = new FakeQueueManager()
-    const broadcasts = new FakeBroadcastTransport()
     const value = await DoxaTestHarness.boot(Application, {
       artifactsDirectory: artifacts,
       dotenvPath: false,
@@ -53,7 +69,7 @@ describe('Doxa realtime commands', () => {
         'provider:infrastructure/broadcasting': broadcasts,
       },
     })
-    return { value, broadcasts }
+    return { value, broadcasts, queue }
   }
 
   it('compiles and executes authenticated, validated, policy-protected ephemeral commands', async () => {
@@ -112,6 +128,14 @@ describe('Doxa realtime commands', () => {
           error: expect.objectContaining({ code: 'command_unauthenticated' }),
         }),
       )
+      await expect(
+        value.realtimeCommand('not.registered', {}, 'anonymous-unknown'),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_unauthenticated' }),
+        }),
+      )
       value.actingAsUser('ada')
       await value.realtimeCommand('counters.touch', { counterId: 'one', ownerId: 'ada' }, 'one')
       await value.realtimeCommand('counters.touch', { counterId: 'two', ownerId: 'ada' }, 'two')
@@ -152,6 +176,74 @@ describe('Doxa realtime commands', () => {
       )
     } finally {
       await value.shutdown()
+    }
+  })
+
+  it('bounds validation, throttling, authorization, and handling with one deadline', async () => {
+    const broadcasts = new SlowThrottleBroadcastTransport()
+    const { value } = await harness(broadcasts)
+    try {
+      value.actingAsUser('ada')
+      await expect(
+        value.realtimeCommand(
+          'counters.touch',
+          { counterId: 'counter-1', ownerId: 'ada' },
+          'slow-throttle',
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_timeout' }),
+        }),
+      )
+      expect(broadcasts.completed).toBe(false)
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    } finally {
+      await value.shutdown()
+    }
+  })
+
+  it('keeps durable dispatch forbidden through nested queries', async () => {
+    const { value, queue } = await harness()
+    try {
+      value.actingAsUser('ada')
+      await expect(
+        value.realtimeCommand(
+          'counters.touch',
+          { counterId: 'nested-job', ownerId: 'ada' },
+          'nested-job',
+        ),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_failed' }),
+        }),
+      )
+      expect(queue.queued).toEqual([])
+    } finally {
+      await value.shutdown()
+    }
+  })
+
+  it('keeps throttle buckets distinct for unambiguous actor-command tuples', async () => {
+    const throttle = { limit: 1, windowMs: 2_000 }
+    for (const broadcasts of [new FakeBroadcastTransport(), new Keryx()]) {
+      await expect(
+        broadcasts.consumeRealtimeCommandThrottle({
+          actorId: 'a:b',
+          command: 'c',
+          requestId: 'first',
+          throttle,
+        }),
+      ).resolves.toEqual({ allowed: true })
+      await expect(
+        broadcasts.consumeRealtimeCommandThrottle({
+          actorId: 'a',
+          command: 'b:c',
+          requestId: 'second',
+          throttle,
+        }),
+      ).resolves.toEqual({ allowed: true })
     }
   })
 })
