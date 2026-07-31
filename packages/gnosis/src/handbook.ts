@@ -561,8 +561,9 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       canonicalFolder: 'src/features/<feature>/realtime-commands',
       invocation: '@doxajs/realtime sends it only after Keryx authenticated connected state.',
       authorization:
-        'Doxa validates input, then passes it as the resource to the declared ability policy.',
-      transaction: 'Read-only and non-transactional; it cannot create durable work.',
+        'Doxa resolves the declared ability through PermissionSource and optional resource Policy composition; a selected Policy receives the validated input.',
+      transaction:
+        'Owns no writable Unit of Work; authorization and QueryBus reads may use bounded read-only sessions.',
       injection: 'Extend RealtimeCommand and use this.inject().',
       scope: 'One transient instance in one fresh WebSocket-message execution.',
       lifecycle: 'May dispose scope-local resources; cannot own start, drain, or stop phases.',
@@ -577,7 +578,7 @@ const roleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
         'Queued delivery',
         'Client-supplied actor data',
       ],
-      testing: ['Test schema and policy denial', 'Test throttling and immediate broadcast'],
+      testing: ['Test schema and authorization denial', 'Test throttling and immediate broadcast'],
     },
   ),
 ]

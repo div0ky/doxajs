@@ -28,6 +28,9 @@ export class TouchCounter extends RealtimeCommand<TouchCounterInput> {
   private handling = false
 
   async handle(input: TouchCounterInput): Promise<void> {
+    if (input.counterId.startsWith('handler-secret:')) {
+      throw new Error(`Handler exposed ${input.counterId}.`)
+    }
     if (input.counterId === 'timeout') {
       this.handling = true
       try {

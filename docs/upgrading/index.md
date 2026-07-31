@@ -65,10 +65,19 @@ protocol v2. Upgrade `@doxajs/core`, `@doxajs/compiler`, `@doxajs/runtime`, `@do
 `@doxajs/realtime` together. Realtime clients now offer `doxa.realtime.v3`; earlier clients cannot
 connect to a v3 server.
 
+Deploy protocol v3 as a coordinated cutover across every web replica, worker role, and browser
+client. The signed worker publish envelope also carries the protocol version, so a rolling fleet
+must not mix v2 and v3 web or worker processes behind shared routing. This upgrade requires no
+database migration or new environment variable, but all realtime participants must change together.
+
 Applications must declare commands in `Feature.realtimeCommands` and provide a Standard Schema,
-non-public Policy ability, throttle, and optional bounded timeout. Replace application-specific
-socket frames with `Realtime.command()`. Do not move durable Action behavior to commands: commands
-have no transaction, retry, replay, audit, journal, or outbox semantics.
+declared non-public ability, throttle, and optional bounded timeout. The ability may be granted by a
+`PermissionSource`; a resource `Policy` may narrow it using the validated input. Replace
+application-specific socket frames with `Realtime.command()`. Do not move durable Action behavior to
+commands: commands create no command-specific durable, retry, replay, journal, or outbox record.
+Their required authorization decisions still use Doxa's normal authorization audit and telemetry
+path. Command handlers own no writable Unit of Work, while authorization and QueryBus reads may use
+bounded read-only sessions.
 
 ## Keryx protocol v2
 

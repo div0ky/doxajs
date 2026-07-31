@@ -20,8 +20,9 @@ realtime-command proof completed on 2026-07-31 against the normative
 - `RealtimeCommand` declarations compile into stable manifest entries with schemas, abilities,
   actor-command throttles, deadlines, dependencies, and generated registry constructors.
 - Keryx admits registered commands only after authentication. Runtime creates a fresh execution,
-  validates, throttles, authorizes with the admitted actor, executes without a transaction, and
-  returns a bounded safe acknowledgement.
+  throttles, validates, authorizes with the admitted actor, executes without a writable Unit of
+  Work, and returns a bounded safe acknowledgement. Authorization and QueryBus reads retain their
+  bounded read-only sessions.
 - Command execution rejects Actions, Jobs, durable events, queued listeners, and queued broadcasts;
   immediate local coordination and `ShouldBroadcastNow` remain available.
 - The generated same-origin authorization route mints encrypted, origin-bound, single-use admission
@@ -51,22 +52,24 @@ observable client failures, cross-origin ticket admission and replay rejection, 
 publication, tamper/replay/size rejection, worker role isolation, real Redis fanout, ticket
 consumption, and presence across replicas, message deduplication, readiness loss, and recovery.
 `tests/realtime-command.test.ts` proves registered compilation, actor provenance without command
-enumeration, validation, Policy denial, anonymous rejection, immediate broadcasting, unambiguous
-rolling-throttle buckets, complete-pipeline deadlines without concurrent scope disposal, late-work
-cancellation, and durable-dispatch rejection through nested queries. `tests/foundation.test.ts`
-proves commands fail compilation without Keryx and cannot use constructors, direct role injection,
-or raw mutable infrastructure providers. `tests/realtime-client-command.test.ts` proves success,
-safe failure, timeout, late-acknowledgement, and disconnect behavior. `tests/broadcasting.test.ts`
-proves distributed Redis throttle authority across replicas. `tests/praxis.test.ts` proves
-installation, the generated authorization route, every canonical role generator including realtime
-commands, and compiler-owned composition. The repository verification gate covers package
-boundaries, publishable declarations, documentation links, formatting, linting, coverage, and
-dependency security.
+enumeration, validation, throttling of invalid authenticated attempts, Policy denial, authorization
+audit recording, anonymous rejection, immediate broadcasting, unambiguous rolling-throttle buckets,
+privacy-safe handler and Policy failure observations, complete-pipeline deadlines without concurrent
+scope disposal, late-work cancellation, and durable-dispatch rejection through nested queries.
+`tests/foundation.test.ts` proves commands fail compilation without Keryx and cannot use
+constructors, direct role injection, or raw mutable infrastructure providers.
+`tests/realtime-client-command.test.ts` proves success, safe failure, observable rejection of
+malformed acknowledgements, timeout, late-acknowledgement, and disconnect behavior.
+`tests/broadcasting.test.ts` proves distributed Redis throttle authority across replicas.
+`tests/praxis.test.ts` proves installation, the generated authorization route, every canonical role
+generator including realtime commands, and compiler-owned composition. The repository verification
+gate covers package boundaries, publishable declarations, documentation links, formatting, linting,
+coverage, and dependency security.
 
 ## Deliberate guarantees
 
-Realtime socket delivery and command ingress are at-most-once and non-replayable. Commands are
-non-transactional, produce no durable record, and are never automatically retried. Transactional
-queued intent remains durable until the broadcast transport accepts it. Accepted message IDs are
-deduplicated for a bounded interval, but Redis Pub/Sub is not a durable subscriber log. Cross-worker
-and cross-replica total ordering is not promised.
+Realtime socket delivery and command ingress are at-most-once and non-replayable. Commands own no
+writable Unit of Work, produce no command-specific durable record, and are never automatically
+retried. Transactional queued intent remains durable until the broadcast transport accepts it.
+Accepted message IDs are deduplicated for a bounded interval, but Redis Pub/Sub is not a durable
+subscriber log. Cross-worker and cross-replica total ordering is not promised.

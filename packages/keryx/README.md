@@ -43,7 +43,8 @@ subprotocol offer, so production does not widen the Doxa session cookie to sibli
 credentials in a URL. In Redis topology, ticket consumption is atomic across web replicas.
 
 Keryx protocol v3 waits for Doxa authentication before emitting `connected`. It accepts only
-manifest-registered `RealtimeCommand` names, uses the admitted actor, and delegates schema
-validation, throttling, Policy authorization, deadlines, and safe acknowledgements to Doxa. Signed
-publication, bounded message-ID deduplication, admission tickets, Redis fanout, distributed presence
-leases, and backplane recovery are framework behavior; applications do not implement a backchannel.
+manifest-registered `RealtimeCommand` names, uses the admitted actor, and delegates throttling,
+schema validation, declared-ability authorization, deadlines, and safe acknowledgements to Doxa.
+Signed publication, bounded message-ID deduplication, admission tickets, Redis fanout, distributed
+presence leases, and backplane recovery are framework behavior; applications do not implement a
+backchannel.

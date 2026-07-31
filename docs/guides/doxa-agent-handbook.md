@@ -355,8 +355,8 @@ Registration: Declare it in Feature.realtimeCommands with schema, ability, throt
 Generator: doxa make:realtime-command Feature/Name --ability=<ability>
 Canonical folder: src/features/<feature>/realtime-commands
 Invocation: @doxajs/realtime sends it only after Keryx authenticated connected state.
-Authorization: Doxa validates input, then passes it as the resource to the declared ability policy.
-Transaction: Read-only and non-transactional; it cannot create durable work.
+Authorization: Doxa resolves the declared ability through PermissionSource and optional resource Policy composition; a selected Policy receives the validated input.
+Transaction: Owns no writable Unit of Work; authorization and QueryBus reads may use bounded read-only sessions.
 Injection: Extend RealtimeCommand and use this.inject().
 Scope: One transient instance in one fresh WebSocket-message execution.
 Lifecycle: May dispose scope-local resources; cannot own start, drain, or stop phases.
@@ -364,7 +364,7 @@ Dependencies: Use QueryBus, read-only services, cache, observability, immediate 
 Rationale: Registered ingress preserves actor authority and avoids an unrestricted socket RPC surface.
 Example: A typing command authorizes conversation participation and broadcasts typing immediately.
 Anti-patterns: Dispatching Actions or Jobs; Queued delivery; Client-supplied actor data
-Testing: Test schema and policy denial; Test throttling and immediate broadcast
+Testing: Test schema and authorization denial; Test throttling and immediate broadcast
 
 ### Route
 

@@ -47,18 +47,21 @@ Protocol v3 adds one deliberately bounded client-originated direction. Applicati
 `RealtimeCommand` with a stable command ID, Standard Schema payload, non-public ability, required
 rolling throttle, and bounded execution timeout. The compiler records those facts in the manifest;
 Keryx rejects every unregistered command. Each accepted command creates a fresh Doxa execution from
-the socket's admitted actor, validates its payload, consumes an actor-and-command throttle, invokes
-the application Policy, and only then calls `handle()`. The client receives one bounded
-`command_ack` success or safe failure envelope.
+the socket's admitted actor, consumes an actor-and-command throttle, validates its payload, resolves
+the declared ability through Doxa authorization composition, and only then calls `handle()`. When a
+resource Policy is selected, the complete validated input is its resource. The client receives one
+bounded `command_ack` success or safe failure envelope.
 
-Realtime commands are authenticated, ephemeral, and non-transactional. They create no audit,
-journal, outbox, retry, or replay record. They may synchronously emit existing immediate broadcasts,
-but cannot dispatch Actions, Jobs, durable events, queued listeners, or queued broadcasts. Durable
-business mutation remains an Action admitted over HTTP. The compiler also prevents commands from
-reaching raw transaction, queue, communication, authentication, or broadcasting providers through
-their dependency graph. Queries carry the same raw mutable-provider restriction so QueryBus cannot
-be used to escape the command boundary. Disconnection and missing acknowledgement are ordinary loss;
-the client never queues or automatically retries a command.
+Realtime commands are authenticated and ephemeral. They create no command-specific durable, journal,
+outbox, retry, or replay record; Doxa still records the mandatory authorization decision through its
+normal authorization audit and telemetry path. They own no writable transaction or Unit of Work;
+authorization and QueryBus reads may open bounded read-only sessions. They may synchronously emit
+existing immediate broadcasts, but cannot dispatch Actions, Jobs, durable events, queued listeners,
+or queued broadcasts. Durable business mutation remains an Action admitted over HTTP. The compiler
+also prevents commands from reaching raw transaction, queue, communication, authentication, or
+broadcasting providers through their dependency graph. Queries carry the same raw mutable-provider
+restriction so QueryBus cannot be used to escape the command boundary. Disconnection and missing
+acknowledgement are ordinary loss; the client never queues or automatically retries a command.
 
 When the browser-facing Keryx listener has a different hostname from the application's authenticated
 HTTP origin, the generated web role exposes `POST /broadcasting/authorize`. The already
@@ -138,8 +141,9 @@ without leaking its native API into actions, events, listeners, or browser code.
   readiness routing.
 - A separately addressed browser listener uses the generated same-origin authorization route; it
   does not require a shared cookie domain or an application-authored authorization endpoint.
-- Protocol v2 clients are deliberately incompatible with protocol v3 during controlled alpha
-  adoption.
+- Protocol v2 browser clients and signed worker publishers are deliberately incompatible with
+  protocol v3. Adoption is a coordinated cutover across web replicas, worker roles, and browser
+  clients; mixed v2/v3 fleets are unsupported.
 - Keryx is a public package name, but alpha publication alone does not create external compatibility
   or support commitments.
 - Broadcasting remains optional for applications and outside the MVP viability bar, while its

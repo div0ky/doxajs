@@ -1997,12 +1997,6 @@ export class DoxaRuntime {
         store.operationStack.push('realtime-command')
         try {
           store.context.cancellation.throwIfAborted()
-          const validation = await Constructor.schema['~standard'].validate(request.payload)
-          store.context.cancellation.throwIfAborted()
-          if ('issues' in validation && validation.issues) {
-            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
-          }
-          const input = validation.value
           const throttle = await this.broadcastTransport!.consumeRealtimeCommandThrottle({
             actorId: admission.actor.id!,
             command: manifest.command,
@@ -2018,6 +2012,12 @@ export class DoxaRuntime {
               throttle.retryAfterMs,
             )
           }
+          const validation = await Constructor.schema['~standard'].validate(request.payload)
+          store.context.cancellation.throwIfAborted()
+          if ('issues' in validation && validation.issues) {
+            return commandFailure(request.id, 'command_invalid', 'The command payload is invalid.')
+          }
+          const input = validation.value
           await this.authorization.authorize(manifest.access, input)
           store.context.cancellation.throwIfAborted()
           const command = store.scope.resolve(manifest.id) as RealtimeCommand<unknown>
@@ -2025,7 +2025,13 @@ export class DoxaRuntime {
             'realtime-command',
             manifest.command,
             {},
-            () => command.handle(input),
+            async () => {
+              try {
+                await command.handle(input)
+              } catch (error) {
+                throwPrivacySensitiveFailure(error, 'Realtime command failed.')
+              }
+            },
             manifest.id,
           )
           store.context.cancellation.throwIfAborted()
@@ -2719,14 +2725,22 @@ export class DoxaRuntime {
       'authorization',
       manifest.id,
       { ability },
-      () =>
-        policy.decide({
-          actor: context.actor,
-          ability,
-          ...(resource === undefined ? {} : { resource }),
-          ...(context.tenant ? { tenant: context.tenant } : {}),
-          context,
-        }),
+      async () => {
+        try {
+          return await policy.decide({
+            actor: context.actor,
+            ability,
+            ...(resource === undefined ? {} : { resource }),
+            ...(context.tenant ? { tenant: context.tenant } : {}),
+            context,
+          })
+        } catch (error) {
+          if (store.boundary === 'realtime-command') {
+            throwPrivacySensitiveFailure(error, 'Realtime command authorization failed.')
+          }
+          throw error
+        }
+      },
       manifest.id,
     )
     if ((decision.effect !== 'allow' && decision.effect !== 'deny') || !decision.code) {
@@ -4504,6 +4518,21 @@ class PermissionSourceResolutionFailure extends Error {
     super('Permission source failed.')
     markPrivacySensitiveError(this, 'Permission source failed.')
   }
+}
+
+class PrivacySensitiveFailure extends Error {
+  constructor(message: string) {
+    super(message)
+    markPrivacySensitiveError(this, message)
+  }
+}
+
+function throwPrivacySensitiveFailure(error: unknown, diagnosticMessage: string): never {
+  if ((typeof error === 'object' && error !== null) || typeof error === 'function') {
+    markPrivacySensitiveError(error, diagnosticMessage)
+    throw error
+  }
+  throw new PrivacySensitiveFailure(diagnosticMessage)
 }
 
 function uuid(value: unknown): boolean {

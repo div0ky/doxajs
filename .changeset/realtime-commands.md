@@ -11,6 +11,7 @@
 '@doxajs/gnosis': minor
 ---
 
-Add compiled, authenticated `RealtimeCommand` roles, Keryx protocol v3 command ingress, Policy
-authorization, actor-command throttling, bounded acknowledgements, a no-retry realtime client API,
-testing support, generators, inspection, Gnosis knowledge, and normative documentation.
+Add compiled, authenticated `RealtimeCommand` roles, Keryx protocol v3 command ingress, Doxa
+authorization composition, actor-command throttling, bounded acknowledgements, a no-retry realtime
+client API, testing support, generators, inspection, Gnosis knowledge, and normative documentation.
+Protocol v3 requires a coordinated web, worker, and browser-client rollout.

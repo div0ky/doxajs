@@ -121,9 +121,11 @@ export class SendTyping extends RealtimeCommand<z.infer<typeof TypingInput>> {
 }
 ```
 
-Register the role in `Feature.realtimeCommands`. Doxa validates, throttles, and Policy-authorizes it
-against the socket's admitted actor. Realtime commands are non-transactional, non-retryable, and may
-not dispatch Actions or durable work; durable mutation remains an HTTP Action.
+Register the role in `Feature.realtimeCommands`. Doxa throttles, validates, and resolves its
+declared ability against the socket's admitted actor through the normal `PermissionSource` and
+optional resource `Policy` composition. Realtime commands own no writable transaction, are
+non-retryable, and may not dispatch Actions or durable work; durable mutation remains an HTTP
+Action.
 
 ## SMS
 

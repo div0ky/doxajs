@@ -26,6 +26,9 @@ export class CounterPolicy extends Policy<OwnedCounter> {
     if (request.actor.kind !== 'user' || !request.actor.id) {
       return deny('counter', 'authentication_required')
     }
+    if (request.resource?.ownerId?.startsWith('policy-secret:')) {
+      throw new Error(`Policy exposed ${request.resource.ownerId}.`)
+    }
     if (request.ability === 'counters.write' && !request.resource) return allow('counter')
     if (request.ability === 'broadcast.subscribe' && request.resource?.channel) {
       await Counter.find(request.resource.channel.replace(/^counters\./, ''))

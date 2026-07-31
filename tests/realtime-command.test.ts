@@ -101,10 +101,11 @@ describe('Doxa realtime commands', () => {
           error: expect.objectContaining({ code: 'command_invalid' }),
         }),
       )
+      value.actingAsUser('grace')
       await expect(
         value.realtimeCommand(
           'counters.touch',
-          { counterId: 'counter-2', ownerId: 'grace' },
+          { counterId: 'counter-2', ownerId: 'ada' },
           'denied',
         ),
       ).resolves.toEqual(
@@ -113,6 +114,16 @@ describe('Doxa realtime commands', () => {
           error: expect.objectContaining({ code: 'command_forbidden' }),
         }),
       )
+      expect(value.auth?.authorizationDecisions).toEqual([
+        {
+          ability: 'counters.realtime',
+          decision: expect.objectContaining({ effect: 'allow' }),
+        },
+        {
+          ability: 'counters.realtime',
+          decision: expect.objectContaining({ effect: 'deny' }),
+        },
+      ])
     } finally {
       await value.shutdown()
     }
@@ -153,6 +164,39 @@ describe('Doxa realtime commands', () => {
             code: 'command_throttled',
             retryAfterMs: expect.any(Number),
           }),
+        }),
+      )
+    } finally {
+      await value.shutdown()
+    }
+  })
+
+  it('counts invalid authenticated attempts against the command throttle', async () => {
+    const { value } = await harness()
+    try {
+      value.actingAsUser('ada')
+      await expect(
+        value.realtimeCommand('counters.touch', { counterId: '', ownerId: 'ada' }, 'invalid-one'),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_invalid' }),
+        }),
+      )
+      await expect(
+        value.realtimeCommand('counters.touch', { counterId: '', ownerId: 'ada' }, 'invalid-two'),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_invalid' }),
+        }),
+      )
+      await expect(
+        value.realtimeCommand('counters.touch', { counterId: '', ownerId: 'ada' }, 'invalid-three'),
+      ).resolves.toEqual(
+        expect.objectContaining({
+          ok: false,
+          error: expect.objectContaining({ code: 'command_throttled' }),
         }),
       )
     } finally {
@@ -234,6 +278,45 @@ describe('Doxa realtime commands', () => {
       expect(queue.queued).toEqual([])
     } finally {
       await value.shutdown()
+    }
+  })
+
+  it('redacts command payloads from handler and Policy failure observations', async () => {
+    for (const [id, counterId, ownerId, diagnostic] of [
+      [
+        'handler-failure',
+        'handler-secret:private-handler-token',
+        'ada',
+        'Realtime command failed.',
+      ],
+      [
+        'policy-failure',
+        'counter-1',
+        'policy-secret:private-policy-token',
+        'Realtime command authorization failed.',
+      ],
+    ] as const) {
+      const { value } = await harness()
+      try {
+        value.actingAsUser('ada')
+        await expect(
+          value.realtimeCommand('counters.touch', { counterId, ownerId }, id),
+        ).resolves.toEqual(
+          expect.objectContaining({
+            ok: false,
+            error: {
+              code: 'command_failed',
+              message: 'That command could not be processed.',
+            },
+          }),
+        )
+        const observations = JSON.stringify(value.observations?.observations)
+        expect(observations).toContain(diagnostic)
+        expect(observations).not.toContain('private-handler-token')
+        expect(observations).not.toContain('private-policy-token')
+      } finally {
+        await value.shutdown()
+      }
     }
   })
 

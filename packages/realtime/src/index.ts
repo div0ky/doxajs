@@ -649,6 +649,11 @@ export class Realtime {
       typeof frame.error.code !== 'string' ||
       typeof frame.error.message !== 'string'
     ) {
+      this.#protocolError(
+        'invalid_command_ack',
+        'Keryx sent an invalid command acknowledgement.',
+        false,
+      )
       pending.resolve(commandFailure(frame.id, 'command_failed', 'Keryx rejected the command.'))
       return
     }

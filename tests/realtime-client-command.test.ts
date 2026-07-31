@@ -1,5 +1,5 @@
 import { parseClientFrame } from '@doxajs/keryx'
-import { Realtime, type RealtimeSocket } from '@doxajs/realtime'
+import { Realtime, type RealtimeError, type RealtimeSocket } from '@doxajs/realtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 class TestSocket implements RealtimeSocket {
@@ -125,6 +125,46 @@ describe('Realtime commands', () => {
         retryAfterMs: 125,
       },
     })
+    realtime.disconnect()
+  })
+
+  it('reports malformed matching failures as protocol errors and settles safely', async () => {
+    const socket = new TestSocket()
+    const errors: RealtimeError[] = []
+    const realtime = new Realtime({
+      url: 'ws://example.test/app',
+      reconnect: false,
+      socketFactory: () => socket,
+    })
+    realtime.onError((error) => errors.push(error))
+    realtime.connect()
+    socket.onmessage?.({
+      data: JSON.stringify({ protocol: 3, type: 'connected', connectionId: 'socket-1' }),
+    })
+    const result = realtime.command('presence.cursor', { x: 1 })
+    const frame = JSON.parse(socket.sent.at(-1)!) as Record<string, unknown>
+    socket.onmessage?.({
+      data: JSON.stringify({
+        protocol: 3,
+        type: 'command_ack',
+        id: frame.id,
+        ok: false,
+        error: { code: 42 },
+      }),
+    })
+
+    await expect(result).resolves.toEqual({
+      id: frame.id,
+      ok: false,
+      error: { code: 'command_failed', message: 'Keryx rejected the command.' },
+    })
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        scope: 'protocol',
+        code: 'invalid_command_ack',
+        fatal: false,
+      }),
+    )
     realtime.disconnect()
   })
 

@@ -127,24 +127,28 @@ registry.
 Keryx accepts a command only after authenticated `connected` admission. Each frame creates a fresh
 execution containing the admitted actor, authentication, tenant, connection correlation, frame
 causation, and deadline. Client payloads can never supply actor or authentication facts. Runtime
-ordering is schema validation, actor-and-command rolling throttle, application Policy authorization
-with the complete validated input as resource, then handler execution. Missing policy coverage and
-all denials fail closed. The command deadline bounds that complete pipeline, not only the handler.
+ordering is actor-and-command rolling throttle, schema validation, Doxa authorization composition,
+then handler execution. Credential constraints deny first, a `PermissionSource` may supply the
+application grant, and a selected resource `Policy` may narrow it using the complete validated input
+as its resource. Missing declared-ability coverage and all denials fail closed. The command deadline
+bounds that complete pipeline, not only the handler.
 
-Command handlers are transient execution-scoped roles. They are non-transactional and may dispatch
-only immediate Signals, local immediate events whose listeners remain local, and
-`ShouldBroadcastNow` events. Action, Job, queued listener, queued broadcast, domain-event, journal,
-outbox, audit, retry, and replay paths are prohibited. A disconnect prevents acknowledgement
-delivery but does not cancel or roll back a handler that already started; its declared deadline
-remains authoritative. The acknowledgement may settle at that deadline, but Doxa retains and later
-disposes the execution scope only after non-cooperative handler work settles. Cancellation prevents
-that late work from entering another Doxa operation. Applications must keep handlers ephemeral and
-safe to abandon.
+Command handlers are transient execution-scoped roles. They own no writable transaction or Unit of
+Work; authorization and QueryBus reads may open bounded read-only sessions. They may dispatch only
+immediate Signals, local immediate events whose listeners remain local, and `ShouldBroadcastNow`
+events. Action, Job, queued listener, queued broadcast, domain-event, journal, outbox,
+command-specific audit, retry, and replay paths are prohibited. The mandatory authorization decision
+still uses Doxa's normal authorization audit and telemetry path. A disconnect prevents
+acknowledgement delivery but does not cancel or roll back a handler that already started; its
+declared deadline remains authoritative. The acknowledgement may settle at that deadline, but Doxa
+retains and later disposes the execution scope only after non-cooperative handler work settles.
+Cancellation prevents that late work from entering another Doxa operation. Applications must keep
+handlers ephemeral and safe to abandon.
 
 The throttle key is the admitted actor ID plus registered command ID. Single-process Keryx keeps
 expiring, bounded buckets; Redis topology consumes the rolling-window decision atomically across
-replicas. Rejected attempts do not invoke authorization or the handler. Command observations and
-errors must not record payloads, credentials, or Policy resources.
+replicas. Invalid or throttled attempts do not invoke authorization or the handler. Command
+observations and errors must not record payloads, credentials, or Policy resources.
 
 ## Wire protocol
 
@@ -153,12 +157,16 @@ and `command`. Server frames are `connected`, `subscribed`, `unsubscribed`, `eve
 `presence_joined`, `presence_left`, `pong`, `command_ack`, and `error`. Every frame has
 `protocol: 3`; earlier protocol versions are not accepted.
 
+The signed worker publish envelope uses the same protocol version. A protocol upgrade therefore
+requires a coordinated cutover across every web replica, worker role, and browser client; mixed
+protocol fleets behind shared routing are unsupported.
+
 A command frame contains a client-generated bounded `id`, registered `command` name, and JSON
 `payload`. Exactly one acknowledgement for a handled frame repeats `id` and contains either
 `{ ok: true }` or `{ ok: false, error: { code, message, retryAfterMs? } }`. Stable command failure
-codes distinguish unknown, unauthenticated, invalid, forbidden, throttled, timed out, unavailable,
-and failed commands without exposing internal exceptions. Invalid protocol shape is a connection
-error; application command rejection is a nonfatal acknowledgement.
+codes distinguish unknown, unauthenticated, invalid, forbidden, throttled, timed out, and failed
+commands without exposing internal exceptions. Invalid protocol shape is a connection error;
+application command rejection is a nonfatal acknowledgement.
 
 The network transport's `open` event does not mean the Doxa connection is authenticated. Keryx must
 install a bounded pending-frame handler before starting asynchronous admission. After authentication
