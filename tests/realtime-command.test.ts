@@ -290,6 +290,12 @@ describe('Doxa realtime commands', () => {
         'Realtime command failed.',
       ],
       [
+        'handler-primitive-failure',
+        'handler-primitive-secret:private-primitive-token',
+        'ada',
+        'Realtime command failed.',
+      ],
+      [
         'policy-failure',
         'counter-1',
         'policy-secret:private-policy-token',
@@ -313,6 +319,7 @@ describe('Doxa realtime commands', () => {
         const observations = JSON.stringify(value.observations?.observations)
         expect(observations).toContain(diagnostic)
         expect(observations).not.toContain('private-handler-token')
+        expect(observations).not.toContain('private-primitive-token')
         expect(observations).not.toContain('private-policy-token')
       } finally {
         await value.shutdown()
