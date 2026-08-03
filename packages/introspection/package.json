@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/introspection",
-  "version": "0.1.0-alpha.31",
+  "version": "0.1.0-alpha.32",
   "description": "Typed, bounded, protocol-independent inspection of Doxa application manifests.",
   "license": "Apache-2.0",
   "repository": {

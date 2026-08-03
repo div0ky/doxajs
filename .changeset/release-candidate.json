@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "channel": "alpha",
+  "version": "0.1.0-alpha.32",
+  "packages": [
+    "@doxajs/auth-postgres",
+    "@doxajs/compiler",
+    "@doxajs/core",
+    "@doxajs/gnosis",
+    "@doxajs/http-hono",
+    "@doxajs/introspection",
+    "@doxajs/keryx",
+    "@doxajs/manifest",
+    "@doxajs/opentelemetry",
+    "@doxajs/postgres-drizzle",
+    "@doxajs/praxis",
+    "@doxajs/queue-pg-boss",
+    "@doxajs/realtime",
+    "@doxajs/runtime",
+    "@doxajs/sendgrid",
+    "@doxajs/testing",
+    "@doxajs/theoria",
+    "@doxajs/twilio-sms"
+  ]
+}
