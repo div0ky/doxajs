@@ -16,9 +16,9 @@ Then commit or stash application work and upgrade:
 pnpm doxa upgrade
 ```
 
-The default target preserves the installed prerelease channel, so an alpha application resolves the
-current `alpha` release instead of crossing into another channel. Pin a target when reproducibility
-requires it:
+The default target resolves npm's sole moving `latest` dist-tag. The version itself communicates
+whether that newest release is alpha, beta, a release candidate, or stable. Pin a target when
+reproducibility requires it:
 
 ```sh
 pnpm doxa upgrade --to=0.1.0-alpha.5
@@ -28,8 +28,8 @@ Applications created before Praxis provided this command need one bootstrap invo
 current CLI against the existing application; subsequent upgrades use the locally installed CLI:
 
 ```sh
-pnpm dlx @doxajs/praxis@alpha upgrade --dry-run
-pnpm dlx @doxajs/praxis@alpha upgrade
+pnpm dlx @doxajs/praxis upgrade --dry-run
+pnpm dlx @doxajs/praxis upgrade
 ```
 
 ## Safety contract

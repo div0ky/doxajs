@@ -22,12 +22,11 @@ unused repository features instead of leaving unmaintained support surfaces visi
 3. Configure `release.yml` as the trusted publisher for every package and restrict token-based
    publication afterward.
 4. Protect the `npm` GitHub environment and require maintainer approval.
-5. Publish prereleases under the tag configured by Changesets prerelease mode. The current release
-   train uses `alpha`; do not introduce a parallel `next` channel unless a release decision changes
-   `.changeset/pre.json`, upgrade guidance, and installation documentation together.
-6. Do not advance `latest` during prereleases. npm rejects removing the existing special tag, so the
-   historical `0.1.0-alpha.31` value remains frozen until the accepted 1.0 maturity bar is met.
-   Prerelease installation and upgrade guidance must use `@alpha` or an exact version.
+5. Publish every coordinated release to `latest`, including prereleases. The semantic version itself
+   communicates alpha, beta, release-candidate, or stable maturity.
+6. Keep `latest` as the sole moving dist-tag. Do not create parallel `alpha`, `beta`, or `next`
+   channels. Use tagless installs for the newest Doxa release and exact versions for
+   reproducibility.
 
 ## Alpha release state machine
 
@@ -63,13 +62,13 @@ When the version pull request merges, `release.yml` notices that the release-can
 changed in that exact `main` commit. It checks out the immutable event SHA again inside the
 protected `npm` environment and runs only `pnpm release:publish`. The command repeats package
 artifact validation, confirms `HEAD` equals the selected full SHA, preflights registry state, and
-invokes plain `changeset publish`. It then requires every coordinated package version and every
-`alpha` dist-tag to match, and requires the unavoidable historical `latest` tag to remain frozen at
-alpha.31, before the job succeeds. `id-token: write`, package `publishConfig.provenance`, and the
-absence of npm tokens preserve npm OIDC trusted publishing and provenance. The publish job also
-deliberately omits `setup-node`'s `registry-url` input: that input generates a token-backed
-temporary `.npmrc`, which can preempt npm's trusted-publisher exchange and turn an OIDC mismatch
-into a misleading registry `E404`.
+invokes plain `changeset publish`. Doxa patches Changesets so that plain publication always advances
+`latest`, including while Changesets prerelease mode is active. It then requires every coordinated
+package version and `latest` to match and rejects an obsolete `alpha` tag before the job succeeds.
+`id-token: write`, package `publishConfig.provenance`, and the absence of npm tokens preserve npm
+OIDC trusted publishing and provenance. The publish job also deliberately omits `setup-node`'s
+`registry-url` input: that input generates a token-backed temporary `.npmrc`, which can preempt
+npm's trusted-publisher exchange and turn an OIDC mismatch into a misleading registry `E404`.
 
 After publication succeeds, a separate least-privilege job creates the complete public package tag
 set at the same immutable release commit. Existing tags at that commit are accepted, missing tags
@@ -85,9 +84,14 @@ handbook, or manifest disagree.
 
 The registry preflight treats an already complete candidate as a successful no-op and lets
 Changesets fill packages missing from a partial attempt. It refuses a retry when any package already
-has a newer `alpha` tag, preventing tag rollback. New Changesets or feature merges on `main` cannot
-join a retry because both automatic and manual publication check out the selected candidate commit,
-not the current branch tip.
+has a newer `latest` tag, preventing tag rollback, and treats any obsolete `alpha` tag as
+incomplete. New Changesets or feature merges on `main` cannot join a retry because both automatic
+and manual publication check out the selected candidate commit, not the current branch tip.
+
+After Changesets returns successfully, coordinated registry verification polls for up to two minutes
+so npm's package metadata and dist-tags can propagate. It fails only when the exact version and tag
+contract remain incomplete after that bounded window; rerunning the immutable candidate is still the
+recovery path for a genuine partial publication.
 
 Do not dispatch the workflow with a feature commit. Ordinary `main` pushes do not modify the
 release-candidate manifest and therefore skip publication.

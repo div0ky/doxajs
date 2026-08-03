@@ -7,11 +7,14 @@ settings:
 overrides:
   '@esbuild-kit/core-utils>esbuild': 0.25.12
   '@hono/node-server': 2.0.11
-  brace-expansion@5.0.7: 5.0.8
+  brace-expansion@5.0.7: 5.0.9
   fast-uri: 3.1.4
-  postcss: 8.5.18
+  postcss: 8.5.23
   sharp: 0.35.3
   svgo: 4.0.2
+
+patchedDependencies:
+  '@changesets/cli@2.31.0': c4306e74af302456b0b9765a0308824fe038107c85bedf0ad94a2dbc4945fea2
 
 importers:
 
@@ -22,7 +25,7 @@ importers:
         version: 0.18.5
       '@changesets/cli':
         specifier: 2.31.0
-        version: 2.31.0(@types/node@24.13.3)
+        version: 2.31.0(patch_hash=c4306e74af302456b0b9765a0308824fe038107c85bedf0ad94a2dbc4945fea2)(@types/node@24.13.3)
       '@doxajs/auth-postgres':
         specifier: workspace:*
         version: link:packages/auth-postgres
@@ -2519,8 +2522,8 @@ packages:
   brace-expansion@2.1.2:
     resolution: {integrity: sha512-w5JZcKgdhDOgOwm8H+KgbosopHMuGcl6qbulwjtz3SM7I7P3yW1eAjzMPLrIE+NQ9vjgANKHWeMHnrT0OXW1oA==}
 
-  brace-expansion@5.0.8:
-    resolution: {integrity: sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==}
+  brace-expansion@5.0.9:
+    resolution: {integrity: sha512-ScQ4IuvIEF1TMlP7Zt+vjJ//9zlPb2SDcxWxM3bk8s6t6GGdJ7KO1dCcTidOPJKePW30LE/2cT7wCyPho9/Wxg==}
     engines: {node: 20 || >=22}
 
   braces@3.0.3:
@@ -4824,8 +4827,8 @@ packages:
     resolution: {integrity: sha512-HeP7D2wyhkR+XaK6v4W8oRF62Dsz4flyuczALJp61GckGm42u1saSSJ/0auvcBqxs3jMRFEcPK34At/0JBKdOg==}
     engines: {node: '>=4'}
 
-  postcss@8.5.18:
-    resolution: {integrity: sha512-xdB1oSLHbz1vRWgCDalrCqEFTWzFlhqFC5tIHLMOSUIjhm3XXQ1qrFy8S/ESr1JYRRXqM3c1QFiMZUJdUTqyMQ==}
+  postcss@8.5.23:
+    resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
   postgres-array@2.0.0:
@@ -6597,7 +6600,7 @@ snapshots:
     dependencies:
       '@changesets/types': 6.1.0
 
-  '@changesets/cli@2.31.0(@types/node@24.13.3)':
+  '@changesets/cli@2.31.0(patch_hash=c4306e74af302456b0b9765a0308824fe038107c85bedf0ad94a2dbc4945fea2)(@types/node@24.13.3)':
     dependencies:
       '@changesets/apply-release-plan': 7.1.1
       '@changesets/assemble-release-plan': 6.0.10
@@ -7552,7 +7555,7 @@ snapshots:
       '@alloc/quick-lru': 5.2.0
       '@tailwindcss/node': 4.3.2
       '@tailwindcss/oxide': 4.3.2
-      postcss: 8.5.18
+      postcss: 8.5.23
       tailwindcss: 4.3.2
 
   '@tailwindcss/vite@4.3.2(vite@8.1.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.0)(yaml@2.9.0))':
@@ -8425,7 +8428,7 @@ snapshots:
     dependencies:
       balanced-match: 1.0.2
 
-  brace-expansion@5.0.8:
+  brace-expansion@5.0.9:
     dependencies:
       balanced-match: 4.0.4
 
@@ -10586,7 +10589,7 @@ snapshots:
 
   minimatch@10.2.5:
     dependencies:
-      brace-expansion: 5.0.8
+      brace-expansion: 5.0.9
 
   minimatch@3.1.5:
     dependencies:
@@ -10646,7 +10649,7 @@ snapshots:
       '@swc/helpers': 0.5.15
       baseline-browser-mapping: 2.10.42
       caniuse-lite: 1.0.30001803
-      postcss: 8.5.18
+      postcss: 8.5.23
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
       styled-jsx: 5.1.6(@babel/core@7.29.7)(react@19.2.4)
@@ -11001,7 +11004,7 @@ snapshots:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
 
-  postcss@8.5.18:
+  postcss@8.5.23:
     dependencies:
       nanoid: 3.3.15
       picocolors: 1.1.1
@@ -11504,7 +11507,7 @@ snapshots:
       kleur: 4.1.5
       open: 11.0.0
       ora: 8.2.0
-      postcss: 8.5.18
+      postcss: 8.5.23
       postcss-selector-parser: 7.1.4
       prompts: 2.4.2
       recast: 0.23.12
@@ -12268,7 +12271,7 @@ snapshots:
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
-      postcss: 8.5.18
+      postcss: 8.5.23
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:

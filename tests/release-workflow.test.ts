@@ -2,7 +2,7 @@ import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node
 import os from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 const repositoryRoot = path.resolve(import.meta.dirname, '..')
 const temporaryDirectories: string[] = []
@@ -26,6 +26,17 @@ let publicationDecision: (
   candidate: Candidate,
   registry: Record<string, { version?: string; alpha?: string; latest?: string }>,
 ) => { alreadyComplete: boolean; missing: string[] }
+let verifyCoordinatedPublication: (
+  candidate: Candidate,
+  options: {
+    inspect: (
+      candidate: Candidate,
+    ) => Promise<Record<string, { version?: string; alpha?: string; latest?: string }>>
+    wait: (milliseconds: number) => Promise<void>
+    attempts: number
+    delayMs: number
+  },
+) => Promise<Record<string, { version?: string; alpha?: string; latest?: string }>>
 let planReleaseTags: (
   candidate: Candidate,
   commit: string,
@@ -48,6 +59,7 @@ beforeAll(async () => {
     pathToFileURL(path.join(repositoryRoot, 'scripts/publish-release.mjs')).href
   )) as {
     publicationDecision: typeof publicationDecision
+    verifyCoordinatedPublication: typeof verifyCoordinatedPublication
   }
   const tagModule = (await import(
     pathToFileURL(path.join(repositoryRoot, 'scripts/tag-release.mjs')).href
@@ -58,6 +70,7 @@ beforeAll(async () => {
   validateReleaseCandidate = candidateModule.validateReleaseCandidate
   selectReleaseCommit = selectionModule.selectReleaseCommit
   publicationDecision = publishModule.publicationDecision
+  verifyCoordinatedPublication = publishModule.verifyCoordinatedPublication
   planReleaseTags = tagModule.planReleaseTags
 })
 
@@ -70,6 +83,22 @@ afterEach(async () => {
 })
 
 describe('alpha release state machine', () => {
+  it('pins the Changesets latest-only prerelease publication patch', async () => {
+    const workspace = await readFile(path.join(repositoryRoot, 'pnpm-workspace.yaml'), 'utf8')
+    const patch = await readFile(
+      path.join(repositoryRoot, 'patches/@changesets__cli@2.31.0.patch'),
+      'utf8',
+    )
+
+    expect(workspace).toContain("'@changesets/cli@2.31.0': patches/@changesets__cli@2.31.0.patch")
+    expect(patch).toContain(
+      '-  if (preState !== undefined && pkgInfo.publishedState !== "only-pre") {',
+    )
+    expect(patch).toContain(
+      '+    warn(`You are in prerelease mode; Doxa publishes the newest coordinated version to the ${pc.cyan("latest")} dist tag`);',
+    )
+  })
+
   it('generates one candidate for the repository current coordinated package set', async () => {
     const root = await currentReleaseMirror()
     const candidate = await generateReleaseCandidate(root)
@@ -148,7 +177,7 @@ describe('alpha release state machine', () => {
     ).toThrow('full 40-character commit SHA')
   })
 
-  it('retries a partial candidate but refuses to roll alpha tags backward', () => {
+  it('requires latest as the sole tag and refuses to roll it backward', () => {
     const candidate: Candidate = {
       schemaVersion: 1,
       channel: 'alpha',
@@ -157,76 +186,89 @@ describe('alpha release state machine', () => {
     }
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
-        '@doxajs/gnosis': { alpha: '0.1.0-alpha.30', latest: '0.1.0-alpha.31' },
+        '@doxajs/core': { version: candidate.version, latest: candidate.version },
+        '@doxajs/gnosis': { latest: candidate.version },
       }),
     ).toEqual({ alreadyComplete: false, missing: ['@doxajs/gnosis'] })
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': { version: candidate.version, latest: '0.1.0-alpha.31' },
-        '@doxajs/gnosis': {
+        '@doxajs/core': {
           version: candidate.version,
           alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
+          latest: candidate.version,
+        },
+        '@doxajs/gnosis': {
+          version: candidate.version,
+          latest: candidate.version,
         },
       }),
     ).toEqual({ alreadyComplete: false, missing: ['@doxajs/core'] })
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
-        '@doxajs/gnosis': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
+        '@doxajs/core': { version: candidate.version, latest: candidate.version },
+        '@doxajs/gnosis': { version: candidate.version, latest: candidate.version },
       }),
     ).toEqual({ alreadyComplete: true, missing: [] })
     expect(() =>
       publicationDecision(candidate, {
-        '@doxajs/core': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
-        '@doxajs/gnosis': { alpha: '0.1.0-alpha.32', latest: '0.1.0-alpha.31' },
-      }),
-    ).toThrow('refusing to move its tag backward')
-    expect(() =>
-      publicationDecision(candidate, {
-        '@doxajs/core': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.32',
-        },
+        '@doxajs/core': { version: candidate.version, latest: '0.1.0-alpha.32' },
         '@doxajs/gnosis': {
           version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
+          latest: candidate.version,
         },
       }),
-    ).toThrow('latest tag must remain frozen at 0.1.0-alpha.31')
-    expect(
-      publicationDecision(candidate, {
-        '@doxajs/core': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
-        '@doxajs/gnosis': {
-          version: candidate.version,
-          alpha: candidate.version,
-          latest: '0.1.0-alpha.31',
-        },
-      }),
-    ).toEqual({ alreadyComplete: true, missing: [] })
+    ).toThrow('already has newer latest 0.1.0-alpha.32; refusing to move its tag backward')
+  })
+
+  it('retries coordinated registry verification while published versions and tags propagate', async () => {
+    const candidate: Candidate = {
+      schemaVersion: 1,
+      channel: 'alpha',
+      version: '0.1.0-alpha.32',
+      packages: ['@doxajs/core', '@doxajs/gnosis'],
+    }
+    const stale = {
+      '@doxajs/core': { version: candidate.version, latest: '0.1.0-alpha.31' },
+      '@doxajs/gnosis': { alpha: '0.1.0-alpha.31', latest: '0.1.0-alpha.31' },
+    }
+    const complete = {
+      '@doxajs/core': {
+        version: candidate.version,
+        latest: candidate.version,
+      },
+      '@doxajs/gnosis': {
+        version: candidate.version,
+        latest: candidate.version,
+      },
+    }
+    const inspect = vi.fn().mockResolvedValueOnce(stale).mockResolvedValueOnce(complete)
+    const wait = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      verifyCoordinatedPublication(candidate, { inspect, wait, attempts: 3, delayMs: 25 }),
+    ).resolves.toEqual(complete)
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(wait).toHaveBeenCalledOnce()
+    expect(wait).toHaveBeenCalledWith(25)
+  })
+
+  it('fails coordinated registry verification after the bounded propagation window', async () => {
+    const candidate: Candidate = {
+      schemaVersion: 1,
+      channel: 'alpha',
+      version: '0.1.0-alpha.32',
+      packages: ['@doxajs/core'],
+    }
+    const inspect = vi.fn().mockResolvedValue({
+      '@doxajs/core': { alpha: '0.1.0-alpha.31', latest: '0.1.0-alpha.31' },
+    })
+    const wait = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      verifyCoordinatedPublication(candidate, { inspect, wait, attempts: 2, delayMs: 25 }),
+    ).rejects.toThrow('Coordinated publication is incomplete for 0.1.0-alpha.32: @doxajs/core')
+    expect(inspect).toHaveBeenCalledTimes(2)
+    expect(wait).toHaveBeenCalledOnce()
   })
 
   it('creates only missing package tags and rejects conflicting source commits', () => {

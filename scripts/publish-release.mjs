@@ -5,7 +5,8 @@ import { validateReleaseCandidate } from './release-candidate.mjs'
 
 const execute = promisify(execFile)
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
-export const FROZEN_ALPHA_LATEST = '0.1.0-alpha.31'
+const REGISTRY_VERIFY_ATTEMPTS = 24
+const REGISTRY_VERIFY_DELAY_MS = 5_000
 
 export function compareAlphaVersions(left, right) {
   const parse = (version) => {
@@ -24,25 +25,58 @@ export function compareAlphaVersions(left, right) {
 export function publicationDecision(candidate, registryPackages) {
   const states = candidate.packages.map((name) => {
     const registry = registryPackages[name] ?? {}
-    if (registry.latest !== FROZEN_ALPHA_LATEST) {
+    if (registry.latest && compareAlphaVersions(registry.latest, candidate.version) > 0) {
       throw new Error(
-        `${name} latest tag must remain frozen at ${FROZEN_ALPHA_LATEST}; found ${registry.latest ?? 'no tag'}.`,
-      )
-    }
-    if (registry.alpha && compareAlphaVersions(registry.alpha, candidate.version) > 0) {
-      throw new Error(
-        `${name} already has newer alpha ${registry.alpha}; refusing to move its tag backward.`,
+        `${name} already has newer latest ${registry.latest}; refusing to move its tag backward.`,
       )
     }
     return {
       name,
-      published: registry.version === candidate.version && registry.alpha === candidate.version,
+      published:
+        registry.version === candidate.version &&
+        registry.latest === candidate.version &&
+        registry.alpha === undefined,
     }
   })
   return {
     alreadyComplete: states.every(({ published }) => published),
     missing: states.filter(({ published }) => !published).map(({ name }) => name),
   }
+}
+
+export function incompletePublication(candidate, registryPackages) {
+  return candidate.packages.filter(
+    (name) =>
+      registryPackages[name]?.version !== candidate.version ||
+      registryPackages[name]?.latest !== candidate.version ||
+      registryPackages[name]?.alpha !== undefined,
+  )
+}
+
+export async function verifyCoordinatedPublication(
+  candidate,
+  {
+    inspect = inspectRegistry,
+    wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    attempts = REGISTRY_VERIFY_ATTEMPTS,
+    delayMs = REGISTRY_VERIFY_DELAY_MS,
+  } = {},
+) {
+  let incomplete = [...candidate.packages]
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const registry = await inspect(candidate)
+    incomplete = incompletePublication(candidate, registry)
+    if (incomplete.length === 0) return registry
+    if (attempt < attempts) {
+      console.log(
+        `Registry propagation pending for ${incomplete.join(', ')}; retrying in ${delayMs}ms (${attempt}/${attempts}).`,
+      )
+      await wait(delayMs)
+    }
+  }
+  throw new Error(
+    `Coordinated publication is incomplete for ${candidate.version}: ${incomplete.join(', ')}.`,
+  )
 }
 
 async function main() {
@@ -74,20 +108,9 @@ async function main() {
     console.log(`${candidate.version} is already fully published; verifying tags without mutation.`)
   }
 
-  const after = await inspectRegistry(candidate)
-  const incomplete = candidate.packages.filter(
-    (name) =>
-      after[name]?.version !== candidate.version ||
-      after[name]?.alpha !== candidate.version ||
-      after[name]?.latest !== FROZEN_ALPHA_LATEST,
-  )
-  if (incomplete.length > 0) {
-    throw new Error(
-      `Coordinated publication is incomplete for ${candidate.version}: ${incomplete.join(', ')}.`,
-    )
-  }
+  await verifyCoordinatedPublication(candidate)
   console.log(
-    `Verified ${candidate.version} and the alpha tag for ${candidate.packages.length} packages.`,
+    `Verified ${candidate.version}, the latest tag, and no obsolete alpha tag for ${candidate.packages.length} packages.`,
   )
 }
 
