@@ -66,7 +66,10 @@ artifact validation, confirms `HEAD` equals the selected full SHA, preflights re
 invokes plain `changeset publish`. It then requires every coordinated package version and every
 `alpha` dist-tag to match, and requires the unavoidable historical `latest` tag to remain frozen at
 alpha.31, before the job succeeds. `id-token: write`, package `publishConfig.provenance`, and the
-absence of npm tokens preserve npm OIDC trusted publishing and provenance.
+absence of npm tokens preserve npm OIDC trusted publishing and provenance. The publish job also
+deliberately omits `setup-node`'s `registry-url` input: that input generates a token-backed
+temporary `.npmrc`, which can preempt npm's trusted-publisher exchange and turn an OIDC mismatch
+into a misleading registry `E404`.
 
 After publication succeeds, a separate least-privilege job creates the complete public package tag
 set at the same immutable release commit. Existing tags at that commit are accepted, missing tags

@@ -280,6 +280,7 @@ describe('alpha release state machine', () => {
     expect(releaseWorkflow).toContain('needs: [detect, publish]')
     expect(releaseWorkflow).toContain('contents: write')
     expect(releaseWorkflow).not.toContain('pnpm verify')
+    expect(releaseWorkflow).not.toContain('registry-url:')
     expect(releaseWorkflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/)
   })
 })
