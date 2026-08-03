@@ -157,26 +157,46 @@ describe('alpha release state machine', () => {
     }
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': { version: candidate.version, alpha: candidate.version },
-        '@doxajs/gnosis': { alpha: '0.1.0-alpha.30' },
+        '@doxajs/core': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
+        '@doxajs/gnosis': { alpha: '0.1.0-alpha.30', latest: '0.1.0-alpha.31' },
       }),
     ).toEqual({ alreadyComplete: false, missing: ['@doxajs/gnosis'] })
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': { version: candidate.version },
-        '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
+        '@doxajs/core': { version: candidate.version, latest: '0.1.0-alpha.31' },
+        '@doxajs/gnosis': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
       }),
     ).toEqual({ alreadyComplete: false, missing: ['@doxajs/core'] })
     expect(
       publicationDecision(candidate, {
-        '@doxajs/core': { version: candidate.version, alpha: candidate.version },
-        '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
+        '@doxajs/core': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
+        '@doxajs/gnosis': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
       }),
     ).toEqual({ alreadyComplete: true, missing: [] })
     expect(() =>
       publicationDecision(candidate, {
-        '@doxajs/core': { version: candidate.version, alpha: candidate.version },
-        '@doxajs/gnosis': { alpha: '0.1.0-alpha.32' },
+        '@doxajs/core': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
+        '@doxajs/gnosis': { alpha: '0.1.0-alpha.32', latest: '0.1.0-alpha.31' },
       }),
     ).toThrow('refusing to move its tag backward')
     expect(() =>
@@ -184,11 +204,29 @@ describe('alpha release state machine', () => {
         '@doxajs/core': {
           version: candidate.version,
           alpha: candidate.version,
-          latest: candidate.version,
+          latest: '0.1.0-alpha.32',
         },
-        '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
+        '@doxajs/gnosis': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
       }),
-    ).toThrow('Doxa prereleases must use alpha only')
+    ).toThrow('latest tag must remain frozen at 0.1.0-alpha.31')
+    expect(
+      publicationDecision(candidate, {
+        '@doxajs/core': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
+        '@doxajs/gnosis': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: '0.1.0-alpha.31',
+        },
+      }),
+    ).toEqual({ alreadyComplete: true, missing: [] })
   })
 
   it('creates only missing package tags and rejects conflicting source commits', () => {
