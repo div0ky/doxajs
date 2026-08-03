@@ -12,7 +12,7 @@ Create a production-shaped Doxa application in a few minutes.
 ## Create and run
 
 ```sh
-pnpm dlx @doxajs/praxis@alpha new MyApplication
+pnpm dlx @doxajs/praxis new MyApplication
 cd my-application
 pnpm install
 cp .env.example .env

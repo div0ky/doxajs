@@ -77,7 +77,7 @@ export async function runUpgrade(
   }
 
   const currentVersion = currentFrameworkVersion(packageJson)
-  const targetSpecifier = options.to ?? prereleaseChannel(currentVersion) ?? 'latest'
+  const targetSpecifier = options.to ?? 'latest'
   const target = await resolveTarget(cwd, targetSpecifier, io)
   assertSupportedTarget(target)
   assertNotDowngrade(currentVersion, target.version)
@@ -302,10 +302,6 @@ function versionFromRange(range: string): string {
   return version
 }
 
-function prereleaseChannel(version: string): string | undefined {
-  return version.match(/-([A-Za-z][A-Za-z0-9-]*)\./)?.[1]
-}
-
 function assertNotDowngrade(current: string, target: string): void {
   if (compareVersions(target, current) < 0)
     throw new PraxisCommandError(`Refusing to downgrade Doxa from ${current} to ${target}.`)
@@ -376,9 +372,7 @@ function printPlan(
   options: UpgradeOptions,
 ): void {
   if (current === target.version) {
-    const release = options.to
-      ? 'the requested release'
-      : `the latest${prereleaseChannel(current) ? ` ${prereleaseChannel(current)}` : ''} release`
+    const release = options.to ? 'the requested release' : 'the latest release'
     io.out(`Doxa is already on ${release}: ${target.version}.`)
     if (changes.length > 0) io.out('Doxa package and toolchain alignment plan:')
   } else {

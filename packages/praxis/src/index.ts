@@ -135,7 +135,7 @@ Runtime:
   theoria:prune         Enforce Theoria retention [--days=7] [--maximum=50000]
 
 Framework:
-  upgrade [--to=alpha|version] [--dry-run] [--force] [--verify] [--skip-migration-status]
+  upgrade [--to=tag|version] [--dry-run] [--force] [--verify] [--skip-migration-status]
 `
 
 export async function runPraxis(

@@ -12,9 +12,8 @@ misuse.
 > **Controlled-adoption alpha:** Doxa is independently owned and maintained by div0ky. Midtown Home
 > Improvements is its sole supported consumer. Prereleases are publicly downloadable under
 > Apache-2.0, but the adoption program and roadmap are closed. External use is permitted without any
-> compatibility, support, warranty, or production-readiness commitment. Install prereleases through
-> the explicit `alpha` tag or an exact version; tagless installs are reserved for a future stable
-> release.
+> compatibility, support, warranty, or production-readiness commitment. Tagless installs receive the
+> newest release regardless of prerelease maturity; use an exact version for reproducibility.
 
 ## The Doxa experience
 
@@ -49,7 +48,7 @@ context, records structured evidence, and returns
 After the alpha packages are published:
 
 ```sh
-pnpm dlx @doxajs/praxis@alpha new MyApplication
+pnpm dlx @doxajs/praxis new MyApplication
 cd my-application
 pnpm install
 cp .env.example .env

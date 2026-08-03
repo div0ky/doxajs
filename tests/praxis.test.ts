@@ -1113,6 +1113,7 @@ describe('Praxis command suite', () => {
     await writeFile(path.join(root, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
     const output: string[] = []
     const invocations: string[][] = []
+    const registryQueries: string[][] = []
 
     expect(
       await runPraxis(['upgrade'], root, {
@@ -1124,20 +1125,25 @@ describe('Praxis command suite', () => {
           invocations.push([...args])
           return Promise.resolve(0)
         },
-        capture: (_command, args) =>
-          Promise.resolve(
+        capture: (_command, args) => {
+          if (args[0] === 'view') registryQueries.push([...args])
+          return Promise.resolve(
             args[0] === 'view'
               ? registryUpgradeTarget('0.1.0-alpha.5')
               : { code: 0, stdout: '', stderr: '' },
-          ),
+          )
+        },
       }),
     ).toBe(0)
 
-    expect(output).toContain('Doxa is already on the latest alpha release: 0.1.0-alpha.5.')
+    expect(output).toContain('Doxa is already on the latest release: 0.1.0-alpha.5.')
     expect(output).toContain('Doxa package and toolchain alignment plan:')
     expect(output).not.toContain('Doxa upgrade plan: 0.1.0-alpha.5 -> 0.1.0-alpha.5')
     expect(output).toContain('Aligning Doxa package and toolchain declarations with pnpm...')
     expect(output).toContain('Validating the alignment with the installed Praxis...')
+    expect(registryQueries).toEqual([
+      ['view', '@doxajs/praxis@latest', 'version', 'doxaCompatibility', '--json'],
+    ])
     expect(invocations).toEqual([
       ['install'],
       ['exec', 'doxa', 'upgrade', '--continue', '--from=0.1.0-alpha.5', '--to=0.1.0-alpha.5'],
