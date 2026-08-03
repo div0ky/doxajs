@@ -1,5 +1,20 @@
 # @doxajs/runtime
 
+## 0.1.0-alpha.32
+
+### Minor Changes
+
+- efebf4e: Add compiled, authenticated `RealtimeCommand` roles, Keryx protocol v3 command ingress,
+  Doxa authorization composition, actor-command throttling, bounded acknowledgements, a no-retry
+  realtime client API, testing support, generators, inspection, Gnosis knowledge, and normative
+  documentation. Protocol v3 requires a coordinated web, worker, and browser-client rollout.
+
+### Patch Changes
+
+- Updated dependencies [efebf4e]
+  - @doxajs/core@0.1.0-alpha.32
+  - @doxajs/manifest@0.1.0-alpha.32
+
 ## 0.1.0-alpha.31
 
 ### Patch Changes

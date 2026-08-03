@@ -1,5 +1,15 @@
 # @doxajs/postgres-drizzle
 
+## 0.1.0-alpha.32
+
+### Patch Changes
+
+- f1b8d80: Preserve application and framework errors thrown through PostgreSQL read, write, and
+  shared framework transactions. Only errors originating from the PostgreSQL driver are translated
+  into a `PersistenceError` after transaction cleanup.
+- Updated dependencies [efebf4e]
+  - @doxajs/core@0.1.0-alpha.32
+
 ## 0.1.0-alpha.31
 
 ### Patch Changes

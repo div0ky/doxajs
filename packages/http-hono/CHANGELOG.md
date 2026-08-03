@@ -1,5 +1,13 @@
 # @doxajs/http-hono
 
+## 0.1.0-alpha.32
+
+### Patch Changes
+
+- Updated dependencies [efebf4e]
+  - @doxajs/core@0.1.0-alpha.32
+  - @doxajs/runtime@0.1.0-alpha.32
+
 ## 0.1.0-alpha.31
 
 ### Patch Changes
