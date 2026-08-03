@@ -25,6 +25,8 @@ unused repository features instead of leaving unmaintained support surfaces visi
 5. Publish prereleases under the tag configured by Changesets prerelease mode. The current release
    train uses `alpha`; do not introduce a parallel `next` channel unless a release decision changes
    `.changeset/pre.json`, upgrade guidance, and installation documentation together.
+6. Keep `latest` absent from every public package until the accepted 1.0 maturity bar is met.
+   Prerelease installation and upgrade guidance must use `@alpha` or an exact version.
 
 ## Alpha release state machine
 
@@ -61,9 +63,13 @@ changed in that exact `main` commit. It checks out the immutable event SHA again
 protected `npm` environment and runs only `pnpm release:publish`. The command repeats package
 artifact validation, confirms `HEAD` equals the selected full SHA, preflights registry state, and
 invokes plain `changeset publish`. It then requires every coordinated package version and every
-`alpha` dist-tag to match before the job succeeds. `id-token: write`, package
-`publishConfig.provenance`, and the absence of npm tokens preserve npm OIDC trusted publishing and
-provenance.
+`alpha` dist-tag to match, and requires `latest` to remain absent, before the job succeeds.
+`id-token: write`, package `publishConfig.provenance`, and the absence of npm tokens preserve npm
+OIDC trusted publishing and provenance.
+
+After publication succeeds, a separate least-privilege job creates the complete public package tag
+set at the same immutable release commit. Existing tags at that commit are accepted, missing tags
+are created, and any tag that resolves to another commit fails closed before anything is pushed.
 
 ### Retry an alpha publication
 

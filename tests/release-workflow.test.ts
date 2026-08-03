@@ -24,8 +24,13 @@ let selectReleaseCommit: (input: {
 }) => { commit: string; shouldPublish: boolean }
 let publicationDecision: (
   candidate: Candidate,
-  registry: Record<string, { version?: string; alpha?: string }>,
+  registry: Record<string, { version?: string; alpha?: string; latest?: string }>,
 ) => { alreadyComplete: boolean; missing: string[] }
+let planReleaseTags: (
+  candidate: Candidate,
+  commit: string,
+  existingTags?: Record<string, string>,
+) => { tags: string[]; missing: string[] }
 
 beforeAll(async () => {
   const candidateModule = (await import(
@@ -44,10 +49,16 @@ beforeAll(async () => {
   )) as {
     publicationDecision: typeof publicationDecision
   }
+  const tagModule = (await import(
+    pathToFileURL(path.join(repositoryRoot, 'scripts/tag-release.mjs')).href
+  )) as {
+    planReleaseTags: typeof planReleaseTags
+  }
   generateReleaseCandidate = candidateModule.generateReleaseCandidate
   validateReleaseCandidate = candidateModule.validateReleaseCandidate
   selectReleaseCommit = selectionModule.selectReleaseCommit
   publicationDecision = publishModule.publicationDecision
+  planReleaseTags = tagModule.planReleaseTags
 })
 
 afterEach(async () => {
@@ -168,6 +179,40 @@ describe('alpha release state machine', () => {
         '@doxajs/gnosis': { alpha: '0.1.0-alpha.32' },
       }),
     ).toThrow('refusing to move its tag backward')
+    expect(() =>
+      publicationDecision(candidate, {
+        '@doxajs/core': {
+          version: candidate.version,
+          alpha: candidate.version,
+          latest: candidate.version,
+        },
+        '@doxajs/gnosis': { version: candidate.version, alpha: candidate.version },
+      }),
+    ).toThrow('Doxa prereleases must use alpha only')
+  })
+
+  it('creates only missing package tags and rejects conflicting source commits', () => {
+    const candidate: Candidate = {
+      schemaVersion: 1,
+      channel: 'alpha',
+      version: '0.1.0-alpha.32',
+      packages: ['@doxajs/core', '@doxajs/gnosis'],
+    }
+    const commit = 'a'.repeat(40)
+    const coreTag = '@doxajs/core@0.1.0-alpha.32'
+    const gnosisTag = '@doxajs/gnosis@0.1.0-alpha.32'
+
+    expect(planReleaseTags(candidate, commit, { [coreTag]: commit })).toEqual({
+      tags: [coreTag, gnosisTag],
+      missing: [gnosisTag],
+    })
+    expect(planReleaseTags(candidate, commit, { [coreTag]: commit, [gnosisTag]: commit })).toEqual({
+      tags: [coreTag, gnosisTag],
+      missing: [],
+    })
+    expect(() => planReleaseTags(candidate, commit, { [coreTag]: 'b'.repeat(40) })).toThrow(
+      `expected ${commit}`,
+    )
   })
 
   it('keeps full verification on feature PRs and publication scoped to exact commits', async () => {
@@ -193,6 +238,9 @@ describe('alpha release state machine', () => {
     expect(releaseWorkflow).toContain('DOXA_RELEASE_COMMIT: ${{ needs.detect.outputs.commit }}')
     expect(releaseWorkflow).toContain('id-token: write')
     expect(releaseWorkflow).toContain('environment: npm')
+    expect(releaseWorkflow).toContain('run: node scripts/tag-release.mjs')
+    expect(releaseWorkflow).toContain('needs: [detect, publish]')
+    expect(releaseWorkflow).toContain('contents: write')
     expect(releaseWorkflow).not.toContain('pnpm verify')
     expect(releaseWorkflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN/)
   })

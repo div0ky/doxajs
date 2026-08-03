@@ -23,6 +23,11 @@ export function compareAlphaVersions(left, right) {
 export function publicationDecision(candidate, registryPackages) {
   const states = candidate.packages.map((name) => {
     const registry = registryPackages[name] ?? {}
+    if (registry.latest) {
+      throw new Error(
+        `${name} retains forbidden latest tag ${registry.latest}; Doxa prereleases must use alpha only.`,
+      )
+    }
     if (registry.alpha && compareAlphaVersions(registry.alpha, candidate.version) > 0) {
       throw new Error(
         `${name} already has newer alpha ${registry.alpha}; refusing to move its tag backward.`,
@@ -71,7 +76,9 @@ async function main() {
   const after = await inspectRegistry(candidate)
   const incomplete = candidate.packages.filter(
     (name) =>
-      after[name]?.version !== candidate.version || after[name]?.alpha !== candidate.version,
+      after[name]?.version !== candidate.version ||
+      after[name]?.alpha !== candidate.version ||
+      after[name]?.latest !== undefined,
   )
   if (incomplete.length > 0) {
     throw new Error(
