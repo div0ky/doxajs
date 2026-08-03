@@ -5,6 +5,7 @@ import { validateReleaseCandidate } from './release-candidate.mjs'
 
 const execute = promisify(execFile)
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/
+export const FROZEN_ALPHA_LATEST = '0.1.0-alpha.31'
 
 export function compareAlphaVersions(left, right) {
   const parse = (version) => {
@@ -23,9 +24,9 @@ export function compareAlphaVersions(left, right) {
 export function publicationDecision(candidate, registryPackages) {
   const states = candidate.packages.map((name) => {
     const registry = registryPackages[name] ?? {}
-    if (registry.latest) {
+    if (registry.latest !== FROZEN_ALPHA_LATEST) {
       throw new Error(
-        `${name} retains forbidden latest tag ${registry.latest}; Doxa prereleases must use alpha only.`,
+        `${name} latest tag must remain frozen at ${FROZEN_ALPHA_LATEST}; found ${registry.latest ?? 'no tag'}.`,
       )
     }
     if (registry.alpha && compareAlphaVersions(registry.alpha, candidate.version) > 0) {
@@ -78,7 +79,7 @@ async function main() {
     (name) =>
       after[name]?.version !== candidate.version ||
       after[name]?.alpha !== candidate.version ||
-      after[name]?.latest !== undefined,
+      after[name]?.latest !== FROZEN_ALPHA_LATEST,
   )
   if (incomplete.length > 0) {
     throw new Error(
