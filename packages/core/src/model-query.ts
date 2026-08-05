@@ -1,4 +1,5 @@
 import { currentModelSession } from './model-session-context.js'
+import { Duration, Graphite, Instant, LocalDate } from './graphite.js'
 import {
   ModelNotFoundError,
   StaleModelError,
@@ -10,7 +11,8 @@ import {
 
 export type ModelQueryOperator = '=' | '!=' | '<' | '<=' | '>' | '>=' | 'like' | 'ilike'
 export type ModelQueryDirection = 'asc' | 'desc'
-export type ModelQueryValue = string | number | boolean | Date | null
+export type ModelQueryValue =
+  string | number | boolean | Graphite | Instant | LocalDate | Duration | null
 export const MODEL_QUERY_MAX_PAGE_SIZE = 1_000
 
 export type ModelQueryPredicate =
@@ -171,9 +173,12 @@ type AttributeNameMatching<Attributes, Value> = {
 }[AttributeName<Attributes>]
 type ScalarAttributeName<Attributes> = AttributeNameMatching<
   Attributes,
-  string | number | boolean | Date
+  string | number | boolean | Graphite | Instant | LocalDate | Duration
 >
-type OrderedAttributeName<Attributes> = AttributeNameMatching<Attributes, string | number | Date>
+type OrderedAttributeName<Attributes> = AttributeNameMatching<
+  Attributes,
+  string | number | Graphite | Instant | LocalDate
+>
 type NumericAttributeName<Attributes> = AttributeNameMatching<Attributes, number>
 type AttributeValue<Value> =
   Extract<Value, ModelQueryValue> | (undefined extends Value ? null : never)
@@ -182,7 +187,7 @@ type OrderedOperator = EqualityOperator | '<' | '<=' | '>' | '>='
 type OperatorFor<Value> =
   NonNullable<Value> extends string
     ? ModelQueryOperator
-    : NonNullable<Value> extends number | Date
+    : NonNullable<Value> extends number | Graphite | Instant | LocalDate
       ? OrderedOperator
       : EqualityOperator
 type RelationName<Relations> = Extract<keyof Relations, string>
@@ -748,18 +753,18 @@ function queryValue(value: unknown): ModelQueryValue {
     typeof value === 'string' ||
     typeof value === 'number' ||
     typeof value === 'boolean' ||
-    value instanceof Date
+    value instanceof Graphite ||
+    value instanceof Instant ||
+    value instanceof LocalDate ||
+    value instanceof Duration
   ) {
     if (typeof value === 'number' && !Number.isFinite(value)) {
       throw new ModelQueryError('Model query numbers must be finite.')
     }
-    if (value instanceof Date && Number.isNaN(value.getTime())) {
-      throw new ModelQueryError('Model query dates must be valid.')
-    }
     return value
   }
   throw new ModelQueryError(
-    'Model query values must be strings, numbers, booleans, dates, or null.',
+    'Model query values must be strings, numbers, booleans, Doxa datetime values, or null.',
   )
 }
 
@@ -931,8 +936,8 @@ function comparisonMatches(left: unknown, operator: ModelQueryOperator, right: u
 }
 
 function compare(left: unknown, right: unknown): number {
-  const normalizedLeft = left instanceof Date ? left.getTime() : left
-  const normalizedRight = right instanceof Date ? right.getTime() : right
+  const normalizedLeft = comparableValue(left)
+  const normalizedRight = comparableValue(right)
   if (isDeepEqual(normalizedLeft, normalizedRight)) return 0
   if (normalizedLeft === null || normalizedLeft === undefined) return -1
   if (normalizedRight === null || normalizedRight === undefined) return 1
@@ -941,7 +946,14 @@ function compare(left: unknown, right: unknown): number {
 
 function isDeepEqual(left: unknown, right: unknown): boolean {
   if ((left === null || left === undefined) && (right === null || right === undefined)) return true
-  return JSON.stringify(left) === JSON.stringify(right)
+  return Object.is(comparableValue(left), comparableValue(right))
+}
+
+function comparableValue(value: unknown): unknown {
+  if (value instanceof Graphite) return value.epochMicroseconds
+  if (value instanceof Instant) return value.epochMicroseconds
+  if (value instanceof LocalDate || value instanceof Duration) return value.toString()
+  return value
 }
 
 function freezePlan(plan: ModelQueryPlan): ModelQueryPlan {

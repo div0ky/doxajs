@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@11.18.0",
   "engines": {
-    "node": ">=24.7 <25"
+    "node": ">=26.6 <27"
   },
   "scripts": {
     "build": "tsc -b",
@@ -67,7 +67,7 @@
     "@eslint/js": "10.0.1",
     "@testcontainers/postgresql": "12.0.4",
     "@testcontainers/redis": "12.0.4",
-    "@types/node": "24.13.3",
+    "@types/node": "26.1.2",
     "@types/pg": "8.20.0",
     "@types/ws": "8.18.1",
     "@vitest/coverage-v8": "4.1.10",

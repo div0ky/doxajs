@@ -8,6 +8,11 @@ Framework-owned PostgreSQL authentication for Doxa: existing identity models, Ar
 opaque browser sessions, opaque bearer tokens, verification and recovery challenges, durable abuse
 controls, audit evidence, and existing-table mapping.
 
+Authentication identities, sessions, access tokens, challenges, and authentication context expose
+`Instant` values from `@doxajs/core`; JavaScript `Date` never crosses the application-facing auth
+boundary. PostgreSQL stores those instants in UTC, and the adapter keeps any driver-level `Date`
+conversion private.
+
 ```sh
 pnpm add @doxajs/auth-postgres
 ```

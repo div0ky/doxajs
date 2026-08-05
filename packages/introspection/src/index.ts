@@ -50,6 +50,7 @@ export interface ApplicationInfo {
   readonly compilerVersion: string
   readonly manifestFormatVersion: number
   readonly buildHash: string
+  readonly time: { readonly timeZone: string; readonly locale: string }
   readonly plugins: readonly string[]
 }
 
@@ -212,6 +213,7 @@ export function applicationInfo(manifest: DoxaManifest): ApplicationInfo {
     compilerVersion: manifest.compilerVersion,
     manifestFormatVersion: manifest.formatVersion,
     buildHash: manifest.buildHash,
+    time: Object.freeze({ ...manifest.time }),
     plugins: Object.freeze(manifest.plugins.map((plugin) => plugin.package).sort()),
   })
 }

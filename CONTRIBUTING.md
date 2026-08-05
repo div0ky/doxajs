@@ -18,7 +18,7 @@ does not create compatibility, support, roadmap, or production-readiness commitm
 
 ## Development setup
 
-Doxa supports Node.js 24.7 or newer within the 24.x line and pnpm 11.
+Doxa supports Node.js 26.6 or newer within the 26.x line and pnpm 11.
 
 ```sh
 corepack enable

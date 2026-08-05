@@ -12,7 +12,7 @@ import {
   listQueueJobs,
   retryQueueJob,
 } from '@doxajs/queue-pg-boss'
-import type { LogFormat, LogLevel, QueueEnvelope } from '@doxajs/core'
+import { Instant, type LogFormat, type LogLevel, type QueueEnvelope } from '@doxajs/core'
 import { Doxa } from '@doxajs/runtime'
 import { Pool } from 'pg'
 
@@ -1346,11 +1346,11 @@ async function makeApplication(directory: string, rawName: string): Promise<void
         },
         devDependencies: {
           '@doxajs/testing': frameworkRange,
-          '@types/node': '^24.0.0',
+          '@types/node': '^26.0.0',
           typescript: '^6.0.0',
           vitest: '^4.0.0',
         },
-        engines: { node: '>=24.7 <25' },
+        engines: { node: '>=26.6 <27' },
       },
       null,
       2,
@@ -1400,7 +1400,7 @@ README.md
 `,
     Dockerfile: `# syntax=docker/dockerfile:1
 
-ARG NODE_VERSION=24.14.0
+ARG NODE_VERSION=26.6.0
 
 FROM node:\${NODE_VERSION}-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm
@@ -1841,7 +1841,7 @@ async function queryGnosisModels(
       actor: { kind: 'system', id: 'doxa:gnosis' },
       authentication: { state: 'authenticated', identityId: 'doxa:gnosis', method: 'console' },
       transport: { kind: 'console', name: 'gnosis:query-models' },
-      deadline: new Date(Date.now() + 30_000),
+      deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 30_000) * 1_000n),
     })
   } finally {
     await runtime.shutdown()

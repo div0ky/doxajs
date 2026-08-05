@@ -196,7 +196,7 @@ Password policy accepts 8–64 Unicode characters and favors breached-password d
 limiting, and secure recovery over arbitrary composition rules. Raw passwords must never enter logs,
 events, traces, or durable diagnostics.
 
-The preferred implementation is the Argon2id primitive supplied by Node.js 24.7 and newer. Any
+The preferred implementation is the Argon2id primitive supplied by Node.js 26.6 and newer. Any
 fallback library must be isolated behind the same `PasswordHasher` contract, exactly pinned,
 reviewed, and covered by known-answer and upgrade tests.
 

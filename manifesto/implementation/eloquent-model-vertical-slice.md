@@ -104,6 +104,10 @@ change set for `wasChanged()` and diagnostics. `wasRecentlyCreated` remains true
 model for the rest of that model's execution. Refresh replaces transient mutations with the latest
 stored state and resets change metadata.
 
+Doxa datetime values remain immutable typed attributes through cloning, dirty tracking, query
+cursors, and refresh. Mapped `Graphite` and `Instant` attributes persist their exact UTC instant;
+Graphite's viewing zone is not hidden model state and a zone-only change is clean.
+
 Model behavior may stage journal facts and outbox messages before `save()`. State, journal, and
 outbox writes use the same Unit of Work and PostgreSQL transaction. If the action later fails, all
 of them roll back together.

@@ -21,6 +21,10 @@ inspects mapped relations read-only and validates declared columns, types, nulla
 generated behavior, views, and insert viability without importing unrelated physical schema into
 Doxa artifacts. Because PostgreSQL views do not preserve reliable `NOT NULL` catalog metadata,
 required view attributes are checked against each projected row during strict hydration. Catalog
-inspection preserves quoted mixed-case and schema-qualified relation names. Logical string
-attributes may map to PostgreSQL `date`, `timestamp`, and `timestamptz` columns because hydration
-normalizes driver `Date` values to ISO strings.
+inspection preserves quoted mixed-case and schema-qualified relation names.
+
+Mapped `Graphite` and `Instant` attributes use one `timestamptz` or `timestamp` column; no time-zone
+sidecar is required. Doxa persists the exact UTC instant, hydrates Graphite in UTC, treats existing
+`timestamp without time zone` values strictly as UTC wall values, and keeps the PostgreSQL session
+time zone at UTC. `LocalDate` maps to `date`, while `Duration` maps to canonical ISO text. Any
+driver-level JavaScript `Date` conversion remains private to this adapter.

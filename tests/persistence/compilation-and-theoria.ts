@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import type { CompileApplicationResult } from '@doxajs/compiler'
-import { type ActionClass, ObservationRecorder } from '@doxajs/core'
+import { type ActionClass, Instant, ObservationRecorder } from '@doxajs/core'
 import { HonoHttpEngine } from '@doxajs/http-hono'
 import { Doxa, type DoxaRuntime } from '@doxajs/runtime'
 import { listenTheoria, PostgresTheoria, pruneTheoria, TheoriaStore } from '@doxajs/theoria'
@@ -811,7 +811,7 @@ export function registerCompilationAndTheoriaTests(
     })
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 5_000),
+      deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 5_000) * 1_000n),
     }
     await recorder.start(lifecycle)
     recorder.record({
@@ -862,7 +862,7 @@ export function registerCompilationAndTheoriaTests(
     })
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 5_000),
+      deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 5_000) * 1_000n),
     }
     await recorder.start(lifecycle)
     const executionId = randomUUID()
@@ -935,7 +935,7 @@ export function registerCompilationAndTheoriaTests(
     })
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 5_000),
+      deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 5_000) * 1_000n),
     }
     await recorder.start(lifecycle)
     const executionId = randomUUID()

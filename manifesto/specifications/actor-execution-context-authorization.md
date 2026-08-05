@@ -93,7 +93,7 @@ export interface DelegationHop {
   readonly to: ActorRef
   readonly grantId: string
   readonly reason: string
-  readonly expiresAt?: Date
+  readonly expiresAt?: Instant
 }
 ```
 
@@ -122,9 +122,9 @@ export interface ExecutionContext {
   readonly transport: TransportContext
   readonly trace: TraceContext
 
-  readonly locale?: string
-  readonly timeZone?: string
-  readonly deadline?: Date
+  readonly locale: string
+  readonly timeZone: string
+  readonly deadline?: Instant
   readonly cancellation: AbortSignal
 }
 ```
@@ -146,7 +146,7 @@ export interface AuthenticationContext {
   readonly identityId?: IdentityId
   readonly method?: string
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
-  readonly authenticatedAt?: Date
+  readonly authenticatedAt?: Instant
   readonly sessionId?: SessionId
 }
 ```
@@ -173,9 +173,11 @@ delegation, and actor data are evidence to validate, not authority to accept bli
 
 ## In-process propagation
 
-On Node.js 24, the kernel should use `AsyncLocalStorage` as the private carrier for the active
+On Node.js 26, the kernel should use `AsyncLocalStorage` as the private carrier for the active
 immutable context and execution scope. Framework services such as logging, tracing, repositories,
-and the unit of work can read that carrier without application code forwarding context manually.
+the unit of work, and Graphite's execution-owned clock can read that carrier without application
+code forwarding context manually. Every admitted context resolves an IANA time zone and locale;
+application defaults are `UTC` and `en-US`.
 
 This is an implementation detail, not the public programming model:
 

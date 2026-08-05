@@ -24,9 +24,9 @@ export function publicAccessToken(token: import('@doxajs/core').AuthAccessToken)
     name: token.name,
     displayPrefix: token.displayPrefix,
     constraints: token.constraints,
-    createdAt: token.createdAt.toISOString(),
-    expiresAt: token.expiresAt.toISOString(),
-    ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt.toISOString() } : {}),
-    ...(token.revokedAt ? { revokedAt: token.revokedAt.toISOString() } : {}),
+    createdAt: token.createdAt.toString(),
+    expiresAt: token.expiresAt.toString(),
+    ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt.toString() } : {}),
+    ...(token.revokedAt ? { revokedAt: token.revokedAt.toString() } : {}),
   }
 }

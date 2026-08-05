@@ -27,7 +27,7 @@ The MVP must include:
 - Build-time manifest generation and constructor autowiring for class-first application code.
 - Deterministic boot, readiness, drain, shutdown, partial-startup rollback, and disposal.
 - Configuration and secret validation.
-- Node.js 24 runtime integration.
+- Node.js 26 runtime integration.
 - Framework diagnostics for the application graph and lifecycle.
 
 ## Required application operations

@@ -49,7 +49,7 @@ setting exists only for the local HTTP fixture.
 
 ## Passwords
 
-Doxa uses Node 24's asynchronous Argon2id primitive with:
+Doxa uses Node 26's asynchronous Argon2id primitive with:
 
 - A unique 16-byte random salt per password.
 - 19 MiB of memory, two passes, two lanes, and a 32-byte result.
@@ -79,7 +79,9 @@ security audit event. Email uniqueness is enforced by PostgreSQL.
 
 Login always creates a new 256-bit opaque token. Only its SHA-256 digest is stored; the bearer token
 exists only in the one `Set-Cookie` response. The database session carries absolute and sliding idle
-expiry, authentication time, optional client metadata, and revocation state.
+expiry, authentication time, optional client metadata, and revocation state. Application-facing
+identity, session, and authentication timestamps are Doxa `Instant` values; PostgreSQL stores UTC
+instants and driver-level JavaScript `Date` values remain adapter-private.
 
 The production cookie is host-only and named `__Host-doxa_session`, with `Secure`, `HttpOnly`,
 `SameSite=Lax`, and `Path=/`. It is non-persistent in the browser; server-side absolute and idle
@@ -177,7 +179,7 @@ default-deny authorization policies over the shared actor and authentication con
 
 ## References
 
-- [Node.js 24 crypto documentation](https://nodejs.org/docs/latest-v24.x/api/crypto.html)
+- [Node.js 26 crypto documentation](https://nodejs.org/docs/latest-v26.x/api/crypto.html)
 - [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
 - [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html)
 - [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)

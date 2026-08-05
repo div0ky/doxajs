@@ -200,10 +200,12 @@ closed and revokes all Doxa sessions and tokens.
   type/nullability compatibility, the single-column primary key, timestamp/version sources,
   generated-column safety, view mode, and whether a writable model can insert without supplying
   undeclared required columns. Catalog lookups preserve exact quoted mixed-case and schema-qualified
-  relation names. Logical string attributes are compatible with PostgreSQL `date`, `timestamp`, and
-  `timestamptz` columns because hydration normalizes driver `Date` values to ISO strings. Because
-  PostgreSQL does not preserve reliable `NOT NULL` metadata on views, strict hydration rejects
-  actual null values for required declared view attributes.
+  relation names. `Graphite` and `Instant` attributes are compatible with PostgreSQL `timestamptz`
+  and `timestamp` columns; the latter is always read and written as a UTC wall value. `LocalDate`
+  requires `date`, while `Duration` uses canonical ISO text. PostgreSQL-driver `Date` values remain
+  adapter-private and hydrate to the declared Doxa value. Because PostgreSQL does not preserve
+  reliable `NOT NULL` metadata on views, strict hydration rejects actual null values for required
+  declared view attributes.
 - Additional columns, indexes, checks, and foreign keys outside the declared model projection are
   not imported into the manifest or Gnosis and do not fail readiness unless an undeclared required
   column makes inserts impossible.

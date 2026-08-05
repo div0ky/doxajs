@@ -5,6 +5,7 @@ import type {
   PolicyDecision,
   SecretString,
 } from './index.js'
+import { Instant } from './graphite.js'
 
 export interface AuthIdentity {
   readonly id: string
@@ -12,17 +13,17 @@ export interface AuthIdentity {
   readonly identifierKind: 'email' | 'username' | 'custom'
   readonly contactEmail?: string
   readonly verification: 'verified' | 'unverified' | 'unsupported'
-  readonly createdAt: Date
+  readonly createdAt: Instant
 }
 
 export interface AuthSession {
   readonly id: string
   readonly identityId: string
-  readonly createdAt: Date
-  readonly authenticatedAt: Date
-  readonly expiresAt: Date
-  readonly lastSeenAt?: Date
-  readonly revokedAt?: Date
+  readonly createdAt: Instant
+  readonly authenticatedAt: Instant
+  readonly expiresAt: Instant
+  readonly lastSeenAt?: Instant
+  readonly revokedAt?: Instant
 }
 
 export interface AuthSessionGrant {
@@ -37,10 +38,10 @@ export interface AuthAccessToken {
   readonly name: string
   readonly displayPrefix: string
   readonly constraints: readonly string[]
-  readonly createdAt: Date
-  readonly expiresAt: Date
-  readonly lastUsedAt?: Date
-  readonly revokedAt?: Date
+  readonly createdAt: Instant
+  readonly expiresAt: Instant
+  readonly lastUsedAt?: Instant
+  readonly revokedAt?: Instant
 }
 
 export interface AuthAccessTokenGrant {
@@ -51,7 +52,7 @@ export interface AuthAccessTokenGrant {
 export interface IssueAccessTokenInput {
   readonly name: string
   readonly constraints?: readonly string[]
-  readonly expiresAt?: Date
+  readonly expiresAt?: Instant
 }
 
 export interface RegistrationInput {
@@ -80,7 +81,7 @@ export interface AuthIdentityRegistrationFactory {
 export interface AuthChallengeGrant {
   readonly identityId: string
   readonly token: SecretString
-  readonly expiresAt: Date
+  readonly expiresAt: Instant
 }
 
 export interface AuthRequestMetadata {
@@ -97,19 +98,22 @@ export interface ResolvedHttpAuthentication {
 export function isRecentPasswordAuthentication(
   authentication: AuthenticationContext,
   maxAgeSeconds = 15 * 60,
-  now = new Date(),
+  now = Instant.now(),
 ): boolean {
   const authenticatedAt = authentication.authenticatedAt
-  const ageMilliseconds =
-    authenticatedAt instanceof Date ? now.getTime() - authenticatedAt.getTime() : Number.NaN
+  const maxAgeMicroseconds = maxAgeSeconds * 1_000_000
+  const ageMicroseconds =
+    authenticatedAt instanceof Instant
+      ? now.epochMicroseconds - authenticatedAt.epochMicroseconds
+      : -1n
   return (
-    Number.isFinite(maxAgeSeconds) &&
-    maxAgeSeconds >= 0 &&
+    Number.isSafeInteger(maxAgeMicroseconds) &&
+    maxAgeMicroseconds >= 0 &&
     authentication.state === 'authenticated' &&
     authentication.method === 'password' &&
     Boolean(authentication.sessionId && authentication.identityId) &&
-    ageMilliseconds >= 0 &&
-    ageMilliseconds <= maxAgeSeconds * 1_000
+    ageMicroseconds >= 0n &&
+    ageMicroseconds <= BigInt(maxAgeMicroseconds)
   )
 }
 
@@ -189,7 +193,7 @@ export abstract class Auth {
     sessionId: string,
     password: string,
     metadata?: AuthRequestMetadata,
-  ): Promise<Date>
+  ): Promise<Instant>
   abstract revokeSession(sessionId: string): Promise<void>
   abstract listSessions(identityId: string): Promise<readonly AuthSession[]>
   abstract revokeAllSessions(identityId: string): Promise<number>

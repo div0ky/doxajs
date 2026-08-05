@@ -23,7 +23,8 @@ still be intelligible if an engine is replaced.
 | ---------------------------------------- | -------------------------------------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------- |
 | Public HTTP contract                     | Web Standards `Request` and `Response`                                                 | Accepted              | [HTTP engine](0001-hono-http-engine.md)                                                                  |
 | Initial HTTP engine                      | Hono with the Node.js adapter                                                          | Accepted              | [HTTP engine](0001-hono-http-engine.md)                                                                  |
-| Application runtime                      | Node.js 24.7 or newer within the 24.x line                                             | Accepted              | [Runtime](0005-node-24-runtime.md)                                                                       |
+| Application runtime                      | Node.js 26.6 or newer within the 26.x line                                             | Accepted              | [Runtime](0005-node-24-runtime.md)                                                                       |
+| Application datetimes                    | Graphite values over native Temporal with UTC database persistence                     | Accepted              | [Graphite datetimes](0037-first-party-graphite-datetime.md)                                              |
 | Primary relational database              | PostgreSQL                                                                             | Accepted              | [Persistence stack](0002-postgresql-drizzle-persistence.md)                                              |
 | Persistence and query engine             | Drizzle ORM                                                                            | Accepted              | [Persistence stack](0002-postgresql-drizzle-persistence.md)                                              |
 | Database schema authority                | Reviewed forward-only SQL migrations                                                   | Accepted              | [Persistence stack](0002-postgresql-drizzle-persistence.md)                                              |
@@ -121,7 +122,8 @@ observable programming contract remains to be specified.
    Accepted on 2026-07-10.
 4. [Provide a first-party CLI, installer, and generators](0004-first-party-cli-generators.md) —
    Accepted on 2026-07-10.
-5. [Use Node.js 24 as the initial runtime](0005-node-24-runtime.md) — Accepted on 2026-07-10.
+5. [Use Node.js 26 as the runtime](0005-node-24-runtime.md) — Accepted on 2026-07-10; amended on
+   2026-08-05.
 6. [Use Standard Schema with Zod 4 as the validation default](0006-standard-schema-zod-validation.md)
    — Accepted on 2026-07-10.
 7. [Use the accepted MVP repository and testing toolchain](0007-mvp-toolchain.md) — Accepted on
@@ -187,6 +189,8 @@ observable programming contract remains to be specified.
     opens one bounded read transaction.
 36. [Make Gnosis Doxa's version-matched architectural authority](0036-gnosis-architectural-authority.md)
     — Accepted on 2026-07-30.
+37. [Provide first-party Graphite datetimes](0037-first-party-graphite-datetime.md) — Accepted on
+    2026-08-05.
 
 ## Adding a decision
 

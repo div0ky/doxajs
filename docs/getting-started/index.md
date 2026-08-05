@@ -4,7 +4,7 @@ Create a production-shaped Doxa application in a few minutes.
 
 ## Requirements
 
-- Node.js 24.7 or newer within the 24.x line
+- Node.js 26.6 or newer within the 26.x line
 - pnpm 11 through Corepack
 - PostgreSQL 16 or 17
 - Docker for the generated local PostgreSQL service

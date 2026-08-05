@@ -37,6 +37,7 @@ import {
   type ExecutionContext,
   type ExecutionContextSeed,
   HttpRequest,
+  Instant,
   type Job,
   type JobConstructor,
   type JobDispatchOptions,
@@ -104,11 +105,14 @@ import {
 } from '@doxajs/core'
 import {
   currentModelSessionState,
+  decodeDateTimeValues,
+  encodeDateTimeValues,
   type EventDispatcher,
   type JobDispatcher,
   markPrivacySensitiveError,
   ModelSession,
   runWithEventDispatcher,
+  runWithDateTimeContext,
   runWithJobDispatcher,
   runWithLogContext,
   runWithModelSession,
@@ -178,6 +182,17 @@ export type RuntimeProfile = 'application' | 'model-reader'
 
 type ApplicationDeclaration = abstract new () => DoxaApplication
 
+export interface DoxaClock {
+  now(): bigint
+}
+
+const systemClock: DoxaClock = Object.freeze({
+  now: () => {
+    const nanoseconds = Temporal.Now.instant().epochNanoseconds
+    return (nanoseconds / 1_000n) * 1_000n
+  },
+})
+
 export interface BootOptions {
   readonly artifactsDirectory?: string
   readonly profile?: RuntimeProfile
@@ -191,6 +206,8 @@ export interface BootOptions {
     readonly scheduler: boolean
   }>
   readonly providerOverrides?: Readonly<Record<string, object>>
+  /** Runtime clock override used by @doxajs/testing. */
+  readonly clock?: DoxaClock
   /** Used by @doxajs/testing to record and selectively fake Event delivery before boot. */
   readonly eventTestHook?: EventTestHook
   readonly logging?:
@@ -265,8 +282,8 @@ interface ManagedIdentityRegistrationRequest {
   readonly id: string
   readonly identifier: string
   readonly contactEmail?: string
-  readonly createdAt: Date
-  readonly updatedAt: Date
+  readonly createdAt: Instant
+  readonly updatedAt: Instant
   readonly persistAuthentication: (transaction: unknown, identityId: string) => Promise<void>
 }
 
@@ -346,6 +363,7 @@ export class DoxaRuntime {
     private readonly telemetry: Telemetry,
     private readonly observations: ObservationRecorder,
     private readonly eventTestHook: EventTestHook | undefined,
+    private readonly clock: DoxaClock,
     logger: Logger,
   ) {
     this.logger = logger
@@ -404,7 +422,10 @@ export class DoxaRuntime {
         }
         this.#modelsByConstructor.set(Constructor, {
           entityType: model.entityType,
-          storage: model.storage,
+          storage:
+            model.storage.kind === 'entity-state'
+              ? { ...model.storage, attributeTypes: model.attributeTypes }
+              : model.storage,
           ...(model.attributes ? { attributes: new Set(model.attributes) } : {}),
           optionalAttributes: new Set(
             model.attributes.filter((attribute) => model.attributeTypes[attribute]?.optional),
@@ -613,12 +634,16 @@ export class DoxaRuntime {
       telemetry,
       observations,
       options.eventTestHook,
+      options.clock ?? systemClock,
       logger,
     )
     transactions?.bindCompiledModels(
       artifacts.manifest.models.map((model) => ({
         entityType: model.entityType,
-        storage: model.storage,
+        storage:
+          model.storage.kind === 'entity-state'
+            ? { ...model.storage, attributeTypes: model.attributeTypes }
+            : model.storage,
       })),
     )
     const compiledAuth = authentication as
@@ -727,11 +752,16 @@ export class DoxaRuntime {
     if (seed.deadline) {
       deadlineTimer = setTimeout(
         () => controller.abort(new Error('Doxa execution deadline exceeded.')),
-        Math.max(0, seed.deadline.getTime() - Date.now()),
+        Math.max(0, Number(seed.deadline.epochMicroseconds / 1_000n) - Date.now()),
       )
       deadlineTimer.unref()
     }
-    let context = createExecutionContext(seed, controller.signal, executionSpanId)
+    let context = createExecutionContext(
+      seed,
+      controller.signal,
+      executionSpanId,
+      this.manifest.time,
+    )
     const startedAt = performance.now()
     const startedAtWall = new Date()
     const liveSpan = this.startTelemetrySpan(
@@ -811,40 +841,48 @@ export class DoxaRuntime {
             runWithRoleConstruction(scope.constructionContext, () =>
               runWithEventDispatcher(this.#eventDispatcher, () =>
                 runWithSignalDispatcher(this.#signalDispatcher, () =>
-                  runWithJobDispatcher(this.#jobDispatcher, async () => {
-                    let result: Output | undefined
-                    let primaryError: unknown
-                    let failed = false
-                    try {
-                      result = await work(context)
-                    } catch (error) {
-                      failed = true
-                      primaryError = error
-                    }
+                  runWithDateTimeContext(
+                    {
+                      now: () => this.clock.now(),
+                      timeZone: context.timeZone,
+                      locale: context.locale,
+                    },
+                    () =>
+                      runWithJobDispatcher(this.#jobDispatcher, async () => {
+                        let result: Output | undefined
+                        let primaryError: unknown
+                        let failed = false
+                        try {
+                          result = await work(context)
+                        } catch (error) {
+                          failed = true
+                          primaryError = error
+                        }
 
-                    const cleanupErrors = await scope.dispose(this.deadlines.dispose)
-                    if (failed && cleanupErrors.length > 0) {
-                      const diagnosticError = safeDiagnosticError(primaryError)
-                      const combined = new ExecutionFailureError(
-                        primaryError instanceof PermissionSourceResolutionFailure
-                          ? primaryError.original
-                          : primaryError,
-                        cleanupErrors,
-                      )
-                      if (diagnosticError !== primaryError) {
-                        markPrivacySensitiveError(
-                          combined,
-                          typeof diagnosticError === 'string'
-                            ? diagnosticError
-                            : 'Privacy-sensitive execution failed during cleanup.',
-                        )
-                      }
-                      throw combined
-                    }
-                    if (failed) throw primaryError
-                    if (cleanupErrors.length > 0) throw new ExecutionCleanupError(cleanupErrors)
-                    return result as Output
-                  }),
+                        const cleanupErrors = await scope.dispose(this.deadlines.dispose)
+                        if (failed && cleanupErrors.length > 0) {
+                          const diagnosticError = safeDiagnosticError(primaryError)
+                          const combined = new ExecutionFailureError(
+                            primaryError instanceof PermissionSourceResolutionFailure
+                              ? primaryError.original
+                              : primaryError,
+                            cleanupErrors,
+                          )
+                          if (diagnosticError !== primaryError) {
+                            markPrivacySensitiveError(
+                              combined,
+                              typeof diagnosticError === 'string'
+                                ? diagnosticError
+                                : 'Privacy-sensitive execution failed during cleanup.',
+                            )
+                          }
+                          throw combined
+                        }
+                        if (failed) throw primaryError
+                        if (cleanupErrors.length > 0) throw new ExecutionCleanupError(cleanupErrors)
+                        return result as Output
+                      }),
+                  ),
                 ),
               ),
             ),
@@ -1981,7 +2019,7 @@ export class DoxaRuntime {
         commandFailure(request.id, 'command_failed', 'That command could not be processed.'),
       )
     }
-    const deadline = new Date(Date.now() + manifest.timeoutMs)
+    const deadline = Instant.fromEpochMicroseconds(BigInt(Date.now() + manifest.timeoutMs) * 1_000n)
     const execution = this.admit(
       {
         actor: admission.actor,
@@ -2111,16 +2149,18 @@ export class DoxaRuntime {
         `${Constructor.name || 'Anonymous job'} is not declared by a selected Feature.`,
       )
     }
-    const availableAt =
-      options?.delaySeconds === undefined
-        ? undefined
-        : new Date(Date.now() + options.delaySeconds * 1_000)
     if (
       options?.delaySeconds !== undefined &&
       (!Number.isFinite(options.delaySeconds) || options.delaySeconds < 0)
     ) {
       throw new OperationDispatchError('Job delaySeconds must be a non-negative finite number.')
     }
+    const availableAt =
+      options?.delaySeconds === undefined
+        ? undefined
+        : Instant.fromEpochMicroseconds(
+            Instant.now().epochMicroseconds + BigInt(Math.round(options.delaySeconds * 1_000_000)),
+          )
     const envelope = this.createQueueEnvelope(
       {
         kind: 'job',
@@ -2132,7 +2172,7 @@ export class DoxaRuntime {
           backoff: manifest.backoff,
           timeout: manifest.timeout,
         },
-        ...(availableAt ? { availableAt: availableAt.toISOString() } : {}),
+        ...(availableAt ? { availableAt: availableAt.toString() } : {}),
         ...(options?.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
       },
       store,
@@ -2145,13 +2185,13 @@ export class DoxaRuntime {
       roleId: manifest.id,
       attributes: {
         jobId: envelope.id,
-        ...(availableAt ? { availableAt: availableAt.toISOString() } : {}),
+        ...(availableAt ? { availableAt: availableAt.toString() } : {}),
       },
     })
     this.logger.channel('queue').info('Job queued', {
       id: envelope.id,
       job: manifest.id,
-      ...(availableAt ? { availableAt: availableAt.toISOString() } : {}),
+      ...(availableAt ? { availableAt: availableAt.toString() } : {}),
     })
     return envelope.id
   }
@@ -2232,7 +2272,7 @@ export class DoxaRuntime {
   private async enqueueEnvelope(
     envelope: QueueEnvelope,
     store: ExecutionStore,
-    availableAt?: Date,
+    availableAt?: Instant,
   ): Promise<void> {
     if (!this.queues) throw new OperationDispatchError('No queue manager is available.')
     const unitOfWork = store.scope.currentUnitOfWork
@@ -2329,7 +2369,11 @@ export class DoxaRuntime {
                     attributes: { jobId: envelope.id, targetId: envelope.targetId },
                   })
                 }
-                await this.invokeJob(manifest, envelope.payload, store)
+                await this.invokeJob(
+                  manifest,
+                  decodeDateTimeValues(envelope.payload) as import('@doxajs/core').JsonValue,
+                  store,
+                )
                 return
               }
               if (envelope.kind === 'mail' || envelope.kind === 'sms') {
@@ -2449,8 +2493,12 @@ export class DoxaRuntime {
         { messageId: envelope.id },
         () =>
           envelope.kind === 'mail'
-            ? (transport as MailTransport).send(envelope.payload as unknown as MailMessage)
-            : (transport as SmsTransport).send(envelope.payload as unknown as SmsMessage),
+            ? (transport as MailTransport).send(
+                decodeDateTimeValues(envelope.payload) as MailMessage,
+              )
+            : (transport as SmsTransport).send(
+                decodeDateTimeValues(envelope.payload) as SmsMessage,
+              ),
       )
       await this.observeObservation(
         'transaction',
@@ -3923,6 +3971,10 @@ function createExecutionContext(
   seed: ExecutionContextSeed,
   runtimeCancellation: AbortSignal,
   executionSpanId?: string,
+  defaults: { readonly timeZone: string; readonly locale: string } = {
+    timeZone: 'UTC',
+    locale: 'en-US',
+  },
 ): ExecutionContext {
   validateActor(seed.actor, 'actor')
   const initiator = seed.initiator ?? seed.actor
@@ -3932,6 +3984,16 @@ function createExecutionContext(
     ? AbortSignal.any([seed.cancellation, runtimeCancellation])
     : runtimeCancellation
   const trace = seed.trace ?? {}
+  let timeZone: string
+  let locale: string
+  try {
+    timeZone = new Intl.DateTimeFormat('en-US', {
+      timeZone: seed.timeZone ?? defaults.timeZone,
+    }).resolvedOptions().timeZone
+    locale = Intl.getCanonicalLocales(seed.locale ?? defaults.locale)[0]!
+  } catch (cause) {
+    throw new ExecutionAdmissionError('Execution locale or timeZone is invalid.', { cause })
+  }
   const context: ExecutionContext = {
     executionId,
     ...(seed.sourceExecutionId ? { sourceExecutionId: seed.sourceExecutionId } : {}),
@@ -3970,9 +4032,9 @@ function createExecutionContext(
       traceFlags: trace.traceFlags ?? 1,
       ...(trace.links?.length ? { links: freezeSpanLinks(trace.links) } : {}),
     }),
-    ...(seed.locale ? { locale: seed.locale } : {}),
-    ...(seed.timeZone ? { timeZone: seed.timeZone } : {}),
-    ...(seed.deadline ? { deadline: new Date(seed.deadline) } : {}),
+    locale,
+    timeZone,
+    ...(seed.deadline ? { deadline: seed.deadline } : {}),
     cancellation,
   }
   return Object.freeze(context)
@@ -3997,12 +4059,15 @@ function commandFailure(
 
 async function settleAtDeadline<Output>(
   work: Promise<Output>,
-  deadline: Date,
+  deadline: Instant,
   fallback: Output,
 ): Promise<Output> {
   let timer: NodeJS.Timeout | undefined
   const expired = new Promise<Output>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), Math.max(0, deadline.getTime() - Date.now()))
+    timer = setTimeout(
+      () => resolve(fallback),
+      Math.max(0, Number(deadline.epochMicroseconds / 1_000n) - Date.now()),
+    )
     timer.unref()
   })
   try {
@@ -4207,7 +4272,7 @@ function queueContext(context: ExecutionContext): QueueExecutionEnvelope {
       to: { ...hop.to },
       grantId: hop.grantId,
       reason: hop.reason,
-      ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toISOString() } : {}),
+      ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toString() } : {}),
     })),
     ...(context.tenant ? { tenant: { ...context.tenant } } : {}),
     authentication: {
@@ -4218,7 +4283,7 @@ function queueContext(context: ExecutionContext): QueueExecutionEnvelope {
       ...(context.authentication.method ? { method: context.authentication.method } : {}),
       ...(context.authentication.assurance ? { assurance: context.authentication.assurance } : {}),
       ...(context.authentication.authenticatedAt
-        ? { authenticatedAt: context.authentication.authenticatedAt.toISOString() }
+        ? { authenticatedAt: context.authentication.authenticatedAt.toString() }
         : {}),
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
@@ -4258,7 +4323,7 @@ function queueSeed(
       to: { ...hop.to },
       grantId: hop.grantId,
       reason: hop.reason,
-      ...(hop.expiresAt ? { expiresAt: new Date(hop.expiresAt) } : {}),
+      ...(hop.expiresAt ? { expiresAt: Instant.parse(hop.expiresAt) } : {}),
     })),
     ...(context.tenant ? { tenant: { ...context.tenant } } : {}),
     authentication: {
@@ -4269,7 +4334,7 @@ function queueSeed(
       ...(context.authentication.method ? { method: context.authentication.method } : {}),
       ...(context.authentication.assurance ? { assurance: context.authentication.assurance } : {}),
       ...(context.authentication.authenticatedAt
-        ? { authenticatedAt: new Date(context.authentication.authenticatedAt) }
+        ? { authenticatedAt: Instant.parse(context.authentication.authenticatedAt) }
         : {}),
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
@@ -4508,7 +4573,13 @@ function finiteBetween(value: unknown, minimum: number, maximum: number): boolea
 }
 
 function validIsoDate(value: unknown): boolean {
-  return typeof value === 'string' && Number.isFinite(Date.parse(value))
+  if (typeof value !== 'string') return false
+  try {
+    Instant.parse(value)
+    return true
+  } catch {
+    return false
+  }
 }
 
 class PermissionSourceIntegrityError extends RuntimeIntegrityError {}
@@ -4551,9 +4622,7 @@ function queueAttemptSpanId(envelopeId: string, attempt: number): string {
 
 function serializeQueuePayload(value: unknown): import('@doxajs/core').JsonValue {
   try {
-    const serialized = JSON.stringify(value)
-    if (serialized === undefined) throw new Error('value has no JSON representation')
-    return JSON.parse(serialized) as import('@doxajs/core').JsonValue
+    return encodeDateTimeValues(value) as import('@doxajs/core').JsonValue
   } catch (cause) {
     throw new OperationDispatchError('Queued payloads must be JSON serializable.', { cause })
   }
@@ -4584,12 +4653,13 @@ function rehydrateEvent(
   Constructor: new (...dependencies: unknown[]) => object,
   serialized: import('@doxajs/core').JsonValue,
 ): Event<unknown> {
-  if (!manifest.domain) return new Constructor(serialized) as Event<unknown>
-  const record = serialized as Readonly<Record<string, import('@doxajs/core').JsonValue>>
+  const decoded = decodeDateTimeValues(serialized)
+  if (!manifest.domain) return new Constructor(decoded) as Event<unknown>
+  const record = decoded as Readonly<Record<string, import('@doxajs/core').JsonValue>>
   if (
-    typeof serialized !== 'object' ||
-    serialized === null ||
-    Array.isArray(serialized) ||
+    typeof decoded !== 'object' ||
+    decoded === null ||
+    Array.isArray(decoded) ||
     typeof record.entityId !== 'string' ||
     !('payload' in record)
   ) {

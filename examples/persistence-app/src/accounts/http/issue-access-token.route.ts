@@ -1,4 +1,5 @@
 import { Auth, CurrentExecution, Http, type HttpRequest, Route } from '@doxajs/core'
+import { instant } from '@doxajs/core/zod'
 import { z } from 'zod'
 
 import { publicAccessToken, requirePasswordSession } from './token-management.js'
@@ -6,7 +7,7 @@ import { publicAccessToken, requirePasswordSession } from './token-management.js
 const Input = z.object({
   name: z.string(),
   constraints: z.array(z.string()).optional(),
-  expiresAt: z.iso.datetime().optional(),
+  expiresAt: instant().optional(),
 })
 
 export class IssueAccessTokenRoute extends Route {
@@ -24,7 +25,7 @@ export class IssueAccessTokenRoute extends Route {
     const grant = await this.auth.issueAccessToken(identityId, {
       name: input.name,
       ...(input.constraints ? { constraints: input.constraints } : {}),
-      ...(input.expiresAt ? { expiresAt: new Date(input.expiresAt) } : {}),
+      ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
     })
     return Http.created({
       accessToken: publicAccessToken(grant.accessToken),

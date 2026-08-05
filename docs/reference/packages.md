@@ -2,7 +2,8 @@
 
 ## Application-facing
 
-- `@doxajs/core` — stable programming model and framework-owned contracts.
+- `@doxajs/core` — stable programming model and framework-owned contracts; `@doxajs/core/zod`
+  provides strict Graphite datetime codecs for Zod schemas.
 - `@doxajs/testing` — test harnesses, fakes, and assertions.
 - `@doxajs/praxis` — generator and command suite.
 - `@doxajs/keryx` — opt-in, framework-owned WebSocket broadcasting and command core module.

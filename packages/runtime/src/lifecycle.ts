@@ -1,4 +1,4 @@
-import type { LifecycleContext } from '@doxajs/core'
+import { Instant, type LifecycleContext } from '@doxajs/core'
 import type {
   CommandManifestEntry,
   JobManifestEntry,
@@ -73,7 +73,7 @@ export async function invokeLifecycle(
     )
   }
   const controller = new AbortController()
-  const deadline = new Date(Date.now() + timeout)
+  const deadline = Instant.fromEpochMicroseconds(BigInt(Date.now() + timeout) * 1_000n)
   const context: LifecycleContext = { signal: controller.signal, deadline }
   let timer: NodeJS.Timeout | undefined
   const timeoutPromise = new Promise<never>((_resolve, reject) => {

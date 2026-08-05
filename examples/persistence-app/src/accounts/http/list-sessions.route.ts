@@ -12,10 +12,10 @@ export class ListSessionsRoute extends Route {
     return {
       sessions: sessions.map((session) => ({
         id: session.id,
-        createdAt: session.createdAt.toISOString(),
-        lastSeenAt: session.lastSeenAt?.toISOString(),
-        expiresAt: session.expiresAt.toISOString(),
-        revokedAt: session.revokedAt?.toISOString(),
+        createdAt: session.createdAt.toString(),
+        lastSeenAt: session.lastSeenAt?.toString(),
+        expiresAt: session.expiresAt.toString(),
+        revokedAt: session.revokedAt?.toString(),
         current: session.id === this.execution.context.authentication.sessionId,
       })),
     }

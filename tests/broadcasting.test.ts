@@ -7,6 +7,7 @@ import { compileApplication } from '@doxajs/compiler'
 import {
   Channel,
   FakeBroadcastTransport,
+  Instant,
   PrivateChannel,
   type BroadcastGateway,
   type BroadcastMessage,
@@ -43,6 +44,10 @@ const workspace = path.resolve(import.meta.dirname, '..')
 const applicationRoot = path.join(workspace, 'examples/persistence-app')
 let artifacts: string
 let redis: StartedRedisContainer
+
+function deadline(milliseconds: number): Instant {
+  return Instant.fromEpochMicroseconds(BigInt(Date.now() + milliseconds) * 1_000n)
+}
 
 describe('Doxa broadcasting', () => {
   beforeAll(async () => {
@@ -274,7 +279,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     keryx.bind(gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
     await keryx.start(lifecycle)
     const received: unknown[] = []
@@ -373,7 +378,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     keryx.bind(gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
     await keryx.start(lifecycle)
     const socket = new WebSocket(
@@ -428,7 +433,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     keryx.bind(gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
     await keryx.start(lifecycle)
     const grant = keryx.issueConnectionTicket({
@@ -437,7 +442,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         state: 'authenticated',
         identityId: 'ada',
         method: 'password',
-        authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
+        authenticatedAt: Instant.parse('2026-07-25T00:00:00.000000Z'),
         sessionId: 'session-1',
       },
       correlationId: 'http-correlation',
@@ -468,7 +473,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
         authorizationRequests += 1
         return Response.json({
           ok: true,
-          data: { ticket: grant.ticket, expiresAt: grant.expiresAt.toISOString() },
+          data: { ticket: grant.ticket, expiresAt: grant.expiresAt.toString() },
         })
       },
       socketFactory: (url, protocols) => {
@@ -496,7 +501,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
             state: 'authenticated',
             identityId: 'ada',
             sessionId: 'session-1',
-            authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
+            authenticatedAt: Instant.parse('2026-07-25T00:00:00.000000Z'),
           }),
           correlationId: 'http-correlation',
         }),
@@ -554,7 +559,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     web.bind(gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
     await web.start(lifecycle)
     const worker = new Keryx({
@@ -629,7 +634,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     })
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
 
     await expect(keryx.start(lifecycle)).rejects.toThrow(
@@ -660,7 +665,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     keryx.bind(gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 2_000),
+      deadline: deadline(2_000),
     }
     await keryx.start(lifecycle)
     const path = keryx.address.publishPath
@@ -791,7 +796,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     second.bind(secondGateway.gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 5_000),
+      deadline: deadline(5_000),
     }
     await Promise.all([first.start(lifecycle), second.start(lifecycle)])
     const firstEvents: unknown[] = []
@@ -944,7 +949,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     keryx.bind(state.gateway)
     const lifecycle = {
       signal: new AbortController().signal,
-      deadline: new Date(Date.now() + 10_000),
+      deadline: deadline(10_000),
     }
     await keryx.start(lifecycle)
     const connectionStates: RealtimeConnectionState[] = []

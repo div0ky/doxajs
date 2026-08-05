@@ -502,7 +502,7 @@ ${
       origin,
     })
     return Http.json(
-      { ticket: grant.ticket, expiresAt: grant.expiresAt.toISOString() },
+      { ticket: grant.ticket, expiresAt: grant.expiresAt.toString() },
       200,
       { 'Cache-Control': 'no-store' },
     )
@@ -603,7 +603,7 @@ export class ReauthenticateRoute extends Route {
       body.password,
       { userAgent: request.header('user-agent') ?? 'unknown' },
     )
-    return { authenticatedAt: authenticatedAt.toISOString() }
+    return { authenticatedAt: authenticatedAt.toString() }
   }
 }
 
@@ -674,10 +674,10 @@ function publicAccessToken(token: import('@doxajs/core').AuthAccessToken) {
     name: token.name,
     displayPrefix: token.displayPrefix,
     constraints: token.constraints,
-    createdAt: token.createdAt.toISOString(),
-    expiresAt: token.expiresAt.toISOString(),
-    ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt.toISOString() } : {}),
-    ...(token.revokedAt ? { revokedAt: token.revokedAt.toISOString() } : {}),
+    createdAt: token.createdAt.toString(),
+    expiresAt: token.expiresAt.toString(),
+    ...(token.lastUsedAt ? { lastUsedAt: token.lastUsedAt.toString() } : {}),
+    ...(token.revokedAt ? { revokedAt: token.revokedAt.toString() } : {}),
   }
 }
 
@@ -765,10 +765,10 @@ export class ListSessionsRoute extends Route {
     const sessions = await this.auth.listSessions(identityId)
     return { sessions: sessions.map((session) => ({
       id: session.id,
-      createdAt: session.createdAt.toISOString(),
-      lastSeenAt: session.lastSeenAt?.toISOString(),
-      expiresAt: session.expiresAt.toISOString(),
-      revokedAt: session.revokedAt?.toISOString(),
+      createdAt: session.createdAt.toString(),
+      lastSeenAt: session.lastSeenAt?.toString(),
+      expiresAt: session.expiresAt.toString(),
+      revokedAt: session.revokedAt?.toString(),
       current: session.id === this.execution.context.authentication.sessionId,
     })) }
   }

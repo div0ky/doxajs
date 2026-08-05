@@ -12,7 +12,7 @@ supported deployment.
 
 Doxa's current CI-backed support matrix is:
 
-- Node.js 24.7 or newer within the 24.x line;
+- Node.js 26.6 or newer within the 26.x line;
 - pnpm 11;
 - PostgreSQL 16 and 17; and
 - Linux x64 through GitHub-hosted Ubuntu CI and the generated Linux container image.

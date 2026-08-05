@@ -34,6 +34,6 @@ function publicIdentity(identity: import('@doxajs/core').AuthIdentity) {
     identifier: identity.identifier,
     contactEmail: identity.contactEmail,
     verification: identity.verification,
-    createdAt: identity.createdAt.toISOString(),
+    createdAt: identity.createdAt.toString(),
   }
 }

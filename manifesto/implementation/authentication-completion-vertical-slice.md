@@ -15,7 +15,8 @@ returns challenge material. Doxa queues it through the first-party `Mailer` acti
 outbox. The current communication implementation also persists the raw mail payload, including the
 challenge, in the delivery ledger and queue envelope. That violates the framework's
 credential-at-rest invariant and is a critical open finding in the
-[2026-07-16 framework security audit](security-audit-2026-07-16.md).
+[2026-07-16 framework security audit](security-audit-2026-07-16.md). Challenge grants expose expiry
+as a Doxa `Instant`; PostgreSQL stores the corresponding UTC instant.
 
 Recovery requests return the same empty `202` response for known and unknown addresses. Login,
 registration, and recovery use durable hashed abuse buckets with fixed windows, temporary blocks,

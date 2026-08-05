@@ -1,5 +1,15 @@
 export { type EventDispatcher, runWithEventDispatcher } from './event-context.js'
 export {
+  currentDateTimeContext,
+  runWithDateTimeContext,
+  type DateTimeContext,
+} from './datetime-context.js'
+export {
+  decodeDateTimeValues,
+  encodeDateTimeValues,
+  type EncodedDateTimeValue,
+} from './datetime-codec.js'
+export {
   currentModelSessionState,
   type CurrentModelSessionState,
   runWithModelSession,

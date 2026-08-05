@@ -8,7 +8,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-import type { ActorRef, AuthenticationContext, TenantRef } from '@doxajs/core'
+import { Instant, type ActorRef, type AuthenticationContext, type TenantRef } from '@doxajs/core'
 
 const KEY_HEADER = 'x-doxa-key'
 const TIMESTAMP_HEADER = 'x-doxa-timestamp'
@@ -29,7 +29,7 @@ export interface KeryxConnectionTicketInput {
 
 export interface KeryxConnectionTicketGrant {
   readonly ticket: string
-  readonly expiresAt: Date
+  readonly expiresAt: Instant
 }
 
 export interface KeryxConnectionTicketAdmission {
@@ -201,7 +201,7 @@ export class KeryxAdmissionTickets {
         encrypted.toString('base64url'),
         tag.toString('base64url'),
       ].join('.'),
-      expiresAt: new Date(expiresAt),
+      expiresAt: Instant.fromEpochMicroseconds(BigInt(expiresAt) * 1_000n),
     })
   }
 
@@ -327,7 +327,7 @@ function serializeTicketAuthentication(
     ...(authentication.method ? { method: authentication.method } : {}),
     ...(authentication.assurance ? { assurance: authentication.assurance } : {}),
     ...(authentication.authenticatedAt
-      ? { authenticatedAt: authentication.authenticatedAt.toISOString() }
+      ? { authenticatedAt: authentication.authenticatedAt.toString() }
       : {}),
     ...(authentication.sessionId ? { sessionId: authentication.sessionId } : {}),
     ...(authentication.credentialId ? { credentialId: authentication.credentialId } : {}),
@@ -365,13 +365,14 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
         !value.constraints.every((constraint) => typeof constraint === 'string')))
   )
     throw new TypeError('Keryx admission ticket authentication is invalid.')
-  let authenticatedAt: Date | undefined
+  let authenticatedAt: Instant | undefined
   if (value.authenticatedAt !== undefined) {
     if (typeof value.authenticatedAt !== 'string') {
       throw new TypeError('Keryx admission ticket authentication is invalid.')
     }
-    authenticatedAt = new Date(value.authenticatedAt)
-    if (!Number.isFinite(authenticatedAt.getTime())) {
+    try {
+      authenticatedAt = Instant.parse(value.authenticatedAt)
+    } catch {
       throw new TypeError('Keryx admission ticket authentication is invalid.')
     }
   }

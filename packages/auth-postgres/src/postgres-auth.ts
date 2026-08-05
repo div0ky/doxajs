@@ -14,6 +14,7 @@ import {
   AuthenticationRateLimitError,
   type Disposes,
   type LifecycleContext,
+  Instant,
   type IssueAccessTokenInput,
   type LoginInput,
   type RegistrationInput,
@@ -129,8 +130,8 @@ export interface ManagedIdentityRegistrationRequest {
   readonly id: string
   readonly identifier: string
   readonly contactEmail?: string
-  readonly createdAt: Date
-  readonly updatedAt: Date
+  readonly createdAt: Instant
+  readonly updatedAt: Instant
   readonly persistAuthentication: (transaction: unknown, identityId: string) => Promise<void>
 }
 
@@ -280,6 +281,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     const pool = new Pool({
       connectionString: this.options.connectionString,
       application_name: this.options.applicationName ?? 'doxa-auth',
+      options: '-c timezone=UTC',
     })
     try {
       await pool.query('select 1')
@@ -340,8 +342,8 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
             id,
             identifier: email,
             ...(contactEmail ? { contactEmail } : {}),
-            createdAt: now,
-            updatedAt: now,
+            createdAt: instantFromDate(now),
+            updatedAt: instantFromDate(now),
             persistAuthentication: async (participant, identityId) => {
               const queryable = participant as Queryable
               await upsertMappedPassword(queryable, tables.passwords, identityId, password, now)
@@ -503,16 +505,16 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     const token = randomBytes(32).toString('base64url')
     const now = new Date()
     const upgraded = shouldUpgrade ? await createPasswordRecord(input.password) : undefined
-    const session = Object.freeze({
+    const sessionRow = {
       id: randomUUID(),
       identityId: row.identity.id,
       createdAt: now,
       authenticatedAt: now,
       expiresAt: new Date(now.getTime() + this.#absoluteSessionSeconds * 1_000),
-    })
+    }
     const persistSession = async (transaction: Database): Promise<void> => {
       await transaction.insert(authSessions).values({
-        ...session,
+        ...sessionRow,
         tokenDigest: digest(token),
         lastSeenAt: now,
         idleExpiresAt: new Date(now.getTime() + this.#idleSessionSeconds * 1_000),
@@ -523,7 +525,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         id: randomUUID(),
         eventType: 'session.created',
         identityId: row.identity.id,
-        sessionId: session.id,
+        sessionId: sessionRow.id,
         metadata: {},
         occurredAt: now,
       })
@@ -554,7 +556,11 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     }
     return Object.freeze({
       identity: identityFromStored(row.identity, this.#mappedTables?.identities),
-      session,
+      session: authSessionFrom({
+        ...sessionRow,
+        lastSeenAt: now,
+        revokedAt: null,
+      }),
       token: SecretString.from(token),
     })
   }
@@ -807,7 +813,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     sessionId: string,
     password: string,
     metadata: AuthRequestMetadata = {},
-  ): Promise<Date> {
+  ): Promise<Instant> {
     if (!(await this.#ensureEligible(identityId))) {
       throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
     }
@@ -888,7 +894,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       })
     }
     await this.#clearRateLimit('reauthenticate', `${identityId}\0${metadata.ipAddress ?? ''}`)
-    return now
+    return instantFromDate(now)
   }
 
   async revokeSession(sessionId: string): Promise<void> {
@@ -923,17 +929,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       .select()
       .from(authSessions)
       .where(eq(authSessions.identityId, identityId))
-    return rows.map((row) =>
-      Object.freeze({
-        id: row.id,
-        identityId: row.identityId,
-        createdAt: row.createdAt,
-        authenticatedAt: row.authenticatedAt,
-        expiresAt: row.expiresAt,
-        lastSeenAt: row.lastSeenAt,
-        ...(row.revokedAt ? { revokedAt: row.revokedAt } : {}),
-      }),
-    )
+    return rows.map(authSessionFrom)
   }
 
   async revokeAllSessions(identityId: string): Promise<number> {
@@ -1012,7 +1008,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     const material = accessTokenMaterial(identityId, {
       name: existing.name,
       constraints: existing.constraints,
-      expiresAt: existing.expiresAt,
+      expiresAt: instantFromDate(existing.expiresAt),
     })
     await database.transaction(async (transaction) => {
       await transaction
@@ -1169,7 +1165,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         identityId: identity.id,
         method: 'password',
         assurance: 'single-factor' as const,
-        authenticatedAt: session.authenticatedAt,
+        authenticatedAt: instantFromDate(session.authenticatedAt),
         sessionId: session.id,
       }),
       ...(responseHeaders ? { responseHeaders } : {}),
@@ -1210,7 +1206,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         identityId: identity.id,
         method: 'bearer',
         assurance: 'single-factor' as const,
-        authenticatedAt: now,
+        authenticatedAt: instantFromDate(now),
         credentialId: accessToken.id,
         constraints: Object.freeze([...accessToken.constraints]),
       }),
@@ -1269,7 +1265,11 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         occurredAt: now,
       })
     })
-    return Object.freeze({ identityId, token: SecretString.from(token), expiresAt })
+    return Object.freeze({
+      identityId,
+      token: SecretString.from(token),
+      expiresAt: instantFromDate(expiresAt),
+    })
   }
 
   async #assertChallengeRecipient(identityId: string, recipientDigest: string): Promise<void> {
@@ -2107,7 +2107,7 @@ function identityFromStored(row: StoredIdentity, mapping?: AuthIdentityTableMapp
         : verificationMode === 'trusted' || row.emailVerifiedAt !== null
           ? 'verified'
           : 'unverified',
-    createdAt: row.createdAt,
+    createdAt: instantFromDate(row.createdAt),
   })
 }
 
@@ -2165,7 +2165,15 @@ function accessTokenMaterial(
     )
   }
   const createdAt = new Date()
-  const expiresAt = input.expiresAt ?? new Date(createdAt.getTime() + 30 * 24 * 60 * 60 * 1_000)
+  if (input.expiresAt !== undefined && !(input.expiresAt instanceof Instant)) {
+    throw new AuthenticationError(
+      'invalid_registration',
+      'Access token expiration must be an Instant.',
+    )
+  }
+  const expiresAt =
+    (input.expiresAt ? dateFromInstant(input.expiresAt) : undefined) ??
+    new Date(createdAt.getTime() + 30 * 24 * 60 * 60 * 1_000)
   if (expiresAt.getTime() <= createdAt.getTime()) {
     throw new AuthenticationError(
       'invalid_registration',
@@ -2205,11 +2213,36 @@ function accessTokenFrom(row: typeof authAccessTokens.$inferSelect): AuthAccessT
     name: row.name,
     displayPrefix: row.displayPrefix,
     constraints: Object.freeze([...row.constraints]),
-    createdAt: row.createdAt,
-    expiresAt: row.expiresAt,
-    ...(row.lastUsedAt ? { lastUsedAt: row.lastUsedAt } : {}),
-    ...(row.revokedAt ? { revokedAt: row.revokedAt } : {}),
+    createdAt: instantFromDate(row.createdAt),
+    expiresAt: instantFromDate(row.expiresAt),
+    ...(row.lastUsedAt ? { lastUsedAt: instantFromDate(row.lastUsedAt) } : {}),
+    ...(row.revokedAt ? { revokedAt: instantFromDate(row.revokedAt) } : {}),
   })
+}
+
+function authSessionFrom(
+  row: Pick<
+    typeof authSessions.$inferSelect,
+    'id' | 'identityId' | 'createdAt' | 'authenticatedAt' | 'expiresAt' | 'lastSeenAt' | 'revokedAt'
+  >,
+): AuthSession {
+  return Object.freeze({
+    id: row.id,
+    identityId: row.identityId,
+    createdAt: instantFromDate(row.createdAt),
+    authenticatedAt: instantFromDate(row.authenticatedAt),
+    expiresAt: instantFromDate(row.expiresAt),
+    lastSeenAt: instantFromDate(row.lastSeenAt),
+    ...(row.revokedAt ? { revokedAt: instantFromDate(row.revokedAt) } : {}),
+  })
+}
+
+function instantFromDate(value: Date): Instant {
+  return Instant.fromEpochMicroseconds(BigInt(value.getTime()) * 1_000n)
+}
+
+function dateFromInstant(value: Instant): Date {
+  return new Date(Number(value.epochMicroseconds / 1_000n))
 }
 
 function isUniqueViolation(error: unknown): boolean {

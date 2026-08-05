@@ -82,6 +82,38 @@ declared dirty attributes plus required timestamp/version infrastructure.
 
 See the [Doxa repository](https://github.com/div0ky/doxajs) for documentation and support.
 
+## Datetimes
+
+Doxa application code uses immutable `Graphite`, `Instant`, `LocalDate`, and `Duration` values over
+Node.js 26's native Temporal runtime:
+
+```ts
+import { Duration, Graphite, Instant, LocalDate } from '@doxajs/core'
+
+const startsAt = Graphite.parse('2026-08-05T09:00:00-05:00[America/Chicago]')
+const storedInstant = startsAt.toInstant()
+const shownForBranch = storedInstant.inTimeZone('America/Chicago')
+const serviceDate = LocalDate.parse('2026-08-05')
+const reminderLead = Duration.parse('PT30M')
+```
+
+`Graphite` couples an exact instant with an IANA time zone for calendar arithmetic and display.
+Database persistence always writes its UTC instant and hydrates Graphite in UTC; preserving a user
+or branch zone remains an explicit domain field. `Instant` is the UTC timeline value, `LocalDate`
+has no time or zone, and `Duration` has no anchor. JavaScript `Date` is unsupported in application
+models and framework contracts. Database adapters bridge legacy driver values privately.
+
+Clock-relative calls such as `Graphite.now()` require an admitted Doxa execution. Every execution
+uses the configured application time zone and locale, defaulting to `UTC` and `en-US`. Strict input
+codecs compose with Zod through the dedicated subpath:
+
+```ts
+import { graphite, localDate } from '@doxajs/core/zod'
+import { z } from 'zod'
+
+const AppointmentInput = z.object({ startsAt: graphite(), serviceDate: localDate() })
+```
+
 ## Broadcasting
 
 ```ts

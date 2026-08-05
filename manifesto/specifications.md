@@ -59,6 +59,7 @@ Status describes confidence in the contract, not the amount of code written.
 | Lifecycle and failure semantics | Implemented | [Deterministic runtime lifecycle](decisions/0017-deterministic-runtime-lifecycle.md)               |
 | Container and execution scopes  | Implemented | [Role injection with plain services](decisions/0024-role-injection-with-plain-services.md)         |
 | Package boundaries              | Implemented | [Public package surface](decisions/0018-public-package-surface.md)                                 |
+| Datetimes and execution clock   | Implemented | [Graphite datetime contract](specifications/graphite-datetime.md)                                  |
 
 These specifications come first because every other subsystem participates in the application graph,
 lifecycle, and execution scope.
