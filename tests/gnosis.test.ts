@@ -206,6 +206,7 @@ describe('Gnosis read-only local engineering server', () => {
     expect(renderGnosisGuidelines()).toContain(
       'stop Doxa-specific structural and architectural changes',
     )
+    expect(renderGnosisGuidelines()).toContain('Start every capability at no')
     const entries = handbookIndex(manifest.frameworkVersion)
     const roles = entries.filter((entry) => entry.kind === 'role')
     expect(roles.map((entry) => entry.role)).toEqual([
@@ -800,6 +801,7 @@ describe('Gnosis read-only local engineering server', () => {
       expect(client.getInstructions()).toContain(
         'Gnosis is the version-matched architectural authority',
       )
+      expect(client.getInstructions()).toContain('New capabilities start at no')
 
       const programmingModelResult = await client.callTool({
         name: 'get_programming_model',
@@ -810,6 +812,7 @@ describe('Gnosis read-only local engineering server', () => {
           title: 'Doxa Programming Model',
           rules: expect.arrayContaining([
             expect.stringContaining('Job attempts are top-level asynchronous writable boundaries'),
+            expect.stringContaining('Start every capability at no'),
           ]),
         }),
       )

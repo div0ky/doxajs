@@ -37,3 +37,8 @@ consistency requirement. It explains transaction ownership, shared-service colla
 provider-versus-service semantics, rejected alternatives, and handbook-linked diagnostics. If
 matching Gnosis guidance is unavailable, managed guidance requires agents to stop Doxa-specific
 structural and architectural changes.
+
+The automatically disclosed model includes Doxa's product discipline: opinionated defaults, no
+preference without consequential variation, demonstrated need, complete narrow capabilities, full
+lifetime cost, less software, human application solutions, context-aware surfaces, and one product
+interface.

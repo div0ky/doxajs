@@ -148,6 +148,43 @@ possible, forcing repetitive configuration onto developers is a framework failur
 cannot be inferred, Doxa must require an intention-revealing declaration and provide a precise
 diagnostic rather than silently guessing.
 
+## Less, on purpose
+
+Doxa takes a side. It is not a neutral toolkit and it does not transfer routine framework choices to
+every application through preferences. Doxa uses its expertise to choose a strong default, teach one
+ordinary path, and revise that choice when evidence proves it wrong. Configuration belongs where
+applications express consequential differences, not where the framework avoided making a decision.
+
+Every proposed capability starts at no. It must solve a demonstrated application problem, matter to
+the ordinary programming model, and justify its full cost across design, security, documentation,
+testing, diagnostics, support, compatibility, and future removal. A small capability finished across
+the whole Doxa lifecycle is better than a broad capability that is only partly integrated. Good
+ideas that are not essential can remain unbuilt.
+
+Doxa prefers less software. Before adding machinery, restate the problem, remove the part that does
+not matter, reuse an existing Doxa concept, or leave the unusual case to clear application code. The
+framework solves the general root problem and lets developers express local conventions rather than
+encoding every possible workflow. This restraint is product work, not missing product work.
+
+Consistency serves comprehension; it is not an end in itself. Doxa keeps vocabulary and lifecycle
+semantics consistent, but an API, diagnostic, or tool should fit its immediate job instead of
+copying a shape that makes that job worse. Likewise, administration should live in the same product
+and programming surface as ordinary work when authority permits it. Parallel interfaces duplicate
+cost, drift, and concepts.
+
+These convictions adapt ten chapters of Basecamp's _Getting Real_ to framework design:
+
+- [Make Opinionated Software](https://basecamp.com/gettingreal/04.6-make-opinionated-software)
+- [Avoid Preferences](https://basecamp.com/gettingreal/06.4-avoid-preferences)
+- [Half, Not Half-Assed](https://basecamp.com/gettingreal/05.1-half-not-half-assed)
+- [It Just Doesn't Matter](https://basecamp.com/gettingreal/05.2-it-just-doesnt-matter)
+- [Start With No](https://basecamp.com/gettingreal/05.3-start-with-no)
+- [Hidden Costs](https://basecamp.com/gettingreal/05.4-hidden-costs)
+- [Human Solutions](https://basecamp.com/gettingreal/05.6-human-solutions)
+- [Context Over Consistency](https://basecamp.com/gettingreal/09.6-context-over-consistency)
+- [One Interface](https://basecamp.com/gettingreal/09.8-one-interface)
+- [Less Software](https://basecamp.com/gettingreal/10.1-less-software)
+
 ## Object-oriented by conviction
 
 Doxa believes application behavior belongs in objects with identity, state, invariants, and explicit

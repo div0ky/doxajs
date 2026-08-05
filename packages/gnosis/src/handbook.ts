@@ -590,7 +590,15 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     '@doxajs/core',
     'programming-model.md',
     'Doxa Programming Model',
-    ['architecture', 'ideology', 'how doxa works', 'folders runtime meaning'],
+    [
+      'architecture',
+      'ideology',
+      'how doxa works',
+      'folders runtime meaning',
+      'opinionated software',
+      'less software',
+      'start with no',
+    ],
     'Choose one admitted boundary, preserve one execution scope, and make consistency guarantees explicit.',
     'Doxa is opinionated so the shortest valid path also preserves determinism, inspection, authorization, and failure behavior.',
     [
@@ -602,6 +610,11 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       'Local work may share the current unit of work. After-commit and queued work cannot preserve same-transaction atomicity; queued mutation requires a later Action or Job transaction.',
       'Feature.provides exports ordinary services. Feature.providers selects singleton infrastructure.',
       'Folders express canonical organization but never activate runtime behavior.',
+      'Doxa decides routine choices instead of exposing preferences; configuration exists only for consequential application differences.',
+      'Every capability starts at no, must solve a demonstrated problem, and ships as the smallest complete whole rather than a broad partial feature.',
+      'Count design, security, documentation, testing, diagnostics, support, compatibility, and removal before accepting a capability; prefer less software and existing concepts.',
+      'Solve general root problems in Doxa and leave uncommon local conventions to ordinary application code.',
+      'Context outranks surface consistency, and ordinary and administrative work share one product interface unless a security or operational boundary requires separation.',
     ].join('\n'),
   ),
   concept(
@@ -978,6 +991,10 @@ export function programmingModel(version: string): ProgrammingModel {
       'Use after-commit or queued delivery only when later failure may not roll back the original mutation.',
       'Use Feature.provides for shared services and Feature.providers for singleton infrastructure.',
       'Use canonical folders for clarity, but never infer runtime registration from a path.',
+      'Let Doxa decide routine choices; add configuration only for consequential application differences.',
+      'Start every capability at no and accept only demonstrated need as the smallest complete whole.',
+      'Count the full lifetime cost, prefer less software and existing concepts, and leave uncommon conventions to application code.',
+      'Let context outrank surface consistency and keep ordinary and administrative work in one interface unless a real boundary requires separation.',
     ]),
     decisionGuide: Object.freeze({
       atomic:
@@ -988,6 +1005,7 @@ export function programmingModel(version: string): ProgrammingModel {
         'Use a queued Listener that dispatches a later top-level Action, or use a Job whose attempt owns the transaction, when the consequence is independently retryable and may complete later.',
     }),
     guideIds: Object.freeze([
+      'programming-model.core',
       'concept.orchestration-consistency',
       'concept.execution-transactions',
       'concept.providers-provides',

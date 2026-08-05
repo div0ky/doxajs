@@ -110,6 +110,10 @@ Doxa should decide every routine choice it can decide safely. It should infer be
 compiler can prove the result, generate repetitive declarations when explicit artifacts are still
 valuable, and fail before boot when an application is ambiguous or unsafe.
 
+Do not turn an ordinary design decision into application configuration. A preference is justified
+only when applications have a consequential reason to differ and Doxa cannot choose safely on their
+behalf. Strong defaults are framework expertise made useful.
+
 The ordinary path must be difficult to misuse and have one consistent shape that is equally clear to
 developers, the compiler, and Gnosis. If Gnosis must guess which of several equivalent patterns an
 application intended, Doxa has failed to be opinionated enough.
@@ -117,6 +121,53 @@ application intended, Doxa has failed to be opinionated enough.
 Magic is good when it removes incidental decisions while remaining deterministic, inspectable, and
 explainable. Ceremony is justified only when it communicates consequential intent that Doxa cannot
 safely infer.
+
+## 15. Build the essential whole
+
+A narrow capability completed across compilation, runtime, security, testing, diagnostics,
+documentation, and failure behavior is better than a broad capability completed halfway. Scope may
+shrink; integrity may not.
+
+Every new capability starts at no. It must prove that it solves a demonstrated application problem
+and changes an important outcome. Merely useful, familiar, flexible, or easy to imagine is not
+enough.
+
+## 16. Count the whole cost and prefer less software
+
+The cost of a capability includes its code, permutations, dependencies, security surface,
+documentation, diagnostics, tests, compatibility, support, upgrades, and eventual removal. Evaluate
+that whole chain before accepting the first line of implementation.
+
+Restate hard problems until the smallest coherent solution appears. Reuse an existing concept, solve
+today's demonstrated case, and omit speculative flexibility. Less framework produces fewer ways to
+fail and leaves Doxa cheaper to understand and change.
+
+## 17. Solve roots and leave human room
+
+Doxa should solve general application problems deeply, then let developers express uncommon local
+conventions in ordinary domain code. Do not grow a specialized subsystem for every workflow people
+can state clearly with existing primitives.
+
+An application-owned solution is not a framework failure. Forcing every possible human convention
+into framework configuration often is.
+
+## 18. Context outranks consistency
+
+Consistent vocabulary, guarantees, and lifecycle semantics matter. Repeated surface shapes do not
+outrank the job being done. APIs, diagnostics, generators, and tools may differ when their contexts
+require different information or interaction.
+
+Choose the clearest design for the immediate task. Never preserve symmetry at the cost of
+comprehension, safety, or progress.
+
+## 19. One product gets one interface
+
+Ordinary and administrative work should share the same Doxa concepts, application graph,
+authorization model, diagnostics, and tooling surface wherever their authority permits. Do not
+create a second framework inside the framework for operators or maintainers.
+
+Separate interfaces require a demonstrated security or operational boundary. Convenience alone does
+not justify duplicated concepts, screens, commands, or lifecycle behavior.
 
 ## A decision test
 
@@ -133,6 +184,11 @@ Before adopting a framework design, ask:
 9. Is the capability worth increasing the kernel's conceptual size?
 10. Is the ordinary API obvious, safely magical, hard to misuse, and deterministic enough for Gnosis
     to understand without guessing?
+11. Does this need to be configurable, or should Doxa decide it?
+12. Is the smallest complete capability narrower than the proposal?
+13. Does the outcome matter enough to own its full lifetime cost?
+14. Can existing concepts and application code solve the root problem?
+15. Does context justify any inconsistency or separate interface?
 
 A proposal that repeatedly fails these questions is not yet a Doxa design, even if its local API
 looks convenient.

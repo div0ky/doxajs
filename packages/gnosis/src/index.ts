@@ -808,6 +808,9 @@ export function renderGnosisGuidelines(): string {
 - A queued Listener receives a fresh execution but no automatic writable transaction. It may dispatch a later top-level Action; alternatively, queue a Job whose attempt owns its writable transaction.
 - Use \`Feature.provides\` to export ordinary services across Feature boundaries. Use \`Feature.providers\` only for singleton infrastructure with durable identity and lifecycle.
 - Canonical folders communicate intent but never activate runtime behavior. Prefer Praxis generators.
+- Let Doxa decide routine choices. Add configuration only for consequential application differences.
+- Start every capability at no. Require demonstrated need, ship the smallest complete whole, count its full lifetime cost, and prefer less software and existing concepts.
+- Solve general root problems in Doxa and leave uncommon conventions to ordinary application code. Let context outrank surface consistency and keep one product interface unless a security or operational boundary requires separation.
 - Use \`query_models\` instead of raw SQL when application data is needed. Call \`describe_model\` first, request only necessary logical fields, and keep the result limit small.
 - Treat model records as sensitive. Never expose credentials, tokens, password hashes, or unnecessary personal data.
 - Do not edit \`.doxa\`, \`dist\`, coverage output, local environment files, or package archives.
@@ -824,6 +827,9 @@ Nested Action dispatch from Actions, Queries, or Jobs is prohibited. Share reusa
 Queued Listeners have a fresh execution but no automatic writable transaction; eventual mutation belongs in their later top-level Action or in a Job attempt.
 Feature.provides exports ordinary services; Feature.providers selects singleton infrastructure.
 Folders communicate canonical organization but have no runtime meaning.
+Doxa decides routine choices; configuration requires a consequential application difference.
+New capabilities start at no, require demonstrated need, ship as the smallest complete whole, and justify their full lifetime cost. Prefer less software and existing concepts.
+Solve general root problems, leave uncommon conventions to application code, let context outrank surface consistency, and keep one product interface unless a real boundary requires separation.
 If matching Gnosis guidance is unavailable, stop Doxa-specific structural and architectural changes and report the startup or version failure.`
 }
 
