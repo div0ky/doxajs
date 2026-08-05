@@ -14,10 +14,7 @@ export class ConcurrentCounterReads extends Query<void, ConcurrentCounterReadsRe
   async handle(): Promise<ConcurrentCounterReadsResult> {
     const [counts, identities] = await Promise.all([
       Promise.all(Array.from({ length: 9 }, () => Counter.query().count())),
-      Promise.all([
-        Counter.query().find('concurrent-read'),
-        Counter.query().find('concurrent-read'),
-      ]),
+      Promise.all([Counter.find('concurrent-read'), Counter.find('concurrent-read')]),
     ])
     return { counts, sameIdentity: identities[0] === identities[1] }
   }
