@@ -27,7 +27,7 @@ import {
   SecretString,
   type Starts,
 } from '@doxajs/core'
-import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, getTableColumns, gt, isNull, or, sql } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
 
@@ -964,7 +964,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
             gt(authSessions.idleExpiresAt, now),
           ),
         )
-        .returning()
+        .returning(sessionProjection())
       if (!session) return undefined
       await transaction.insert(authAuditEvents).values({
         id: randomUUID(),
@@ -975,7 +975,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           targetIdentityId,
           grantId,
           reason: normalizedReason,
-          expiresAt: session.impersonationExpiresAt!.toISOString(),
+          expiresAt: instantFromDatabase(session.impersonationExpiresAt!).toString(),
         },
         occurredAt: now,
       })
@@ -1040,7 +1040,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
             gt(authSessions.impersonationExpiresAt, now),
           ),
         )
-        .returning()
+        .returning(sessionProjection())
       if (!session) return undefined
       await transaction.insert(authAuditEvents).values({
         id: randomUUID(),
@@ -1162,7 +1162,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
     }
     const rows = await this.#requireDatabase()
-      .select()
+      .select(sessionProjection())
       .from(authSessions)
       .where(eq(authSessions.identityId, identityId))
     return rows.map(sessionFrom)
@@ -1336,7 +1336,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     const webSocketUpgrade = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
     const now = new Date()
     const [session] = await this.#requireDatabase()
-      .select()
+      .select(sessionResolutionProjection())
       .from(authSessions)
       .where(
         and(
@@ -1358,7 +1358,12 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     if (!identity || !(await this.#ensureEligible(session.identityId))) {
       return anonymousAuthentication()
     }
-    let impersonation = sessionFrom(session).impersonation
+    let impersonation = sessionFrom({
+      ...session,
+      authenticatedAt: session.exactAuthenticatedAt,
+      impersonationStartedAt: session.exactImpersonationStartedAt,
+      impersonationExpiresAt: session.exactImpersonationExpiresAt,
+    }).impersonation
     let target = impersonation ? await this.findIdentity(impersonation.targetIdentityId) : undefined
     const nowInstant = Instant.fromLegacyDate(now)
     if (
@@ -1476,7 +1481,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         identityId: identity.id,
         method: 'password',
         assurance: 'single-factor' as const,
-        authenticatedAt: instantFromDate(session.authenticatedAt),
+        authenticatedAt: instantFromDatabase(session.exactAuthenticatedAt),
         sessionId: session.id,
         ...(impersonation ? { impersonationGrantId: impersonation.grantId } : {}),
       }),
@@ -2399,7 +2404,55 @@ function identityFrom(row: typeof authIdentities.$inferSelect): AuthIdentity {
   return identityFromStored(row)
 }
 
-function sessionFrom(row: typeof authSessions.$inferSelect): AuthSession {
+type SessionTimestamp = Date | string | Instant
+type SessionHydrationRow = Omit<
+  typeof authSessions.$inferSelect,
+  | 'previousTokenExpiresAt'
+  | 'createdAt'
+  | 'authenticatedAt'
+  | 'lastSeenAt'
+  | 'idleExpiresAt'
+  | 'expiresAt'
+  | 'revokedAt'
+  | 'impersonationStartedAt'
+  | 'impersonationExpiresAt'
+> & {
+  readonly previousTokenExpiresAt: SessionTimestamp | null
+  readonly createdAt: SessionTimestamp
+  readonly authenticatedAt: SessionTimestamp
+  readonly lastSeenAt: SessionTimestamp
+  readonly idleExpiresAt: SessionTimestamp
+  readonly expiresAt: SessionTimestamp
+  readonly revokedAt: SessionTimestamp | null
+  readonly impersonationStartedAt: SessionTimestamp | null
+  readonly impersonationExpiresAt: SessionTimestamp | null
+}
+
+function sessionProjection() {
+  return {
+    ...getTableColumns(authSessions),
+    previousTokenExpiresAt: sql<string | null>`${authSessions.previousTokenExpiresAt}::text`,
+    createdAt: sql<string>`${authSessions.createdAt}::text`,
+    authenticatedAt: sql<string>`${authSessions.authenticatedAt}::text`,
+    lastSeenAt: sql<string>`${authSessions.lastSeenAt}::text`,
+    idleExpiresAt: sql<string>`${authSessions.idleExpiresAt}::text`,
+    expiresAt: sql<string>`${authSessions.expiresAt}::text`,
+    revokedAt: sql<string | null>`${authSessions.revokedAt}::text`,
+    impersonationStartedAt: sql<string | null>`${authSessions.impersonationStartedAt}::text`,
+    impersonationExpiresAt: sql<string | null>`${authSessions.impersonationExpiresAt}::text`,
+  }
+}
+
+function sessionResolutionProjection() {
+  return {
+    ...getTableColumns(authSessions),
+    exactAuthenticatedAt: sql<string>`${authSessions.authenticatedAt}::text`,
+    exactImpersonationStartedAt: sql<string | null>`${authSessions.impersonationStartedAt}::text`,
+    exactImpersonationExpiresAt: sql<string | null>`${authSessions.impersonationExpiresAt}::text`,
+  }
+}
+
+function sessionFrom(row: SessionHydrationRow): AuthSession {
   const completeImpersonation =
     row.impersonatedIdentityId &&
     row.impersonationGrantId &&
@@ -2409,19 +2462,19 @@ function sessionFrom(row: typeof authSessions.$inferSelect): AuthSession {
   return Object.freeze({
     id: row.id,
     identityId: row.identityId,
-    createdAt: instantFromDate(row.createdAt),
-    authenticatedAt: instantFromDate(row.authenticatedAt),
-    expiresAt: instantFromDate(row.expiresAt),
-    lastSeenAt: instantFromDate(row.lastSeenAt),
-    ...(row.revokedAt ? { revokedAt: instantFromDate(row.revokedAt) } : {}),
+    createdAt: instantFromDatabase(row.createdAt),
+    authenticatedAt: instantFromDatabase(row.authenticatedAt),
+    expiresAt: instantFromDatabase(row.expiresAt),
+    lastSeenAt: instantFromDatabase(row.lastSeenAt),
+    ...(row.revokedAt ? { revokedAt: instantFromDatabase(row.revokedAt) } : {}),
     ...(completeImpersonation
       ? {
           impersonation: Object.freeze({
             grantId: row.impersonationGrantId!,
             targetIdentityId: row.impersonatedIdentityId!,
             reason: row.impersonationReason!,
-            startedAt: instantFromDate(row.impersonationStartedAt!),
-            expiresAt: instantFromDate(row.impersonationExpiresAt!),
+            startedAt: instantFromDatabase(row.impersonationStartedAt!),
+            expiresAt: instantFromDatabase(row.impersonationExpiresAt!),
           }),
         }
       : {}),

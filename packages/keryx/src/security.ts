@@ -48,7 +48,7 @@ export interface KeryxConnectionTicketAdmission {
   readonly authentication: AuthenticationContext
   readonly tenant?: TenantRef
   readonly correlationId: string
-  readonly expiresAt: number
+  readonly expiresAt: Instant
 }
 
 interface AdmissionTicketPayload {
@@ -56,7 +56,7 @@ interface AdmissionTicketPayload {
   readonly applicationId: string
   readonly ticketId: string
   readonly issuedAt: number
-  readonly expiresAt: number
+  readonly expiresAt: string
   readonly origin: string
   readonly actor: ActorRef
   readonly initiator?: ActorRef
@@ -187,21 +187,21 @@ export class KeryxAdmissionTickets {
 
   issue(input: KeryxConnectionTicketInput): KeryxConnectionTicketGrant {
     const issuedAt = this.now()
-    const delegationExpiry = input.delegation
-      ?.flatMap((hop) => (hop.expiresAt ? [Number(hop.expiresAt.epochMicroseconds / 1_000n)] : []))
-      .sort((left, right) => left - right)[0]
-    const expiresAt = Math.min(
-      issuedAt + this.lifetimeMilliseconds,
-      delegationExpiry ?? Number.POSITIVE_INFINITY,
-    )
-    if (expiresAt <= issuedAt)
+    let expiresAt = BigInt(issuedAt + this.lifetimeMilliseconds) * 1_000n
+    for (const hop of input.delegation ?? []) {
+      if (hop.expiresAt && hop.expiresAt.epochMicroseconds < expiresAt) {
+        expiresAt = hop.expiresAt.epochMicroseconds
+      }
+    }
+    if (expiresAt <= BigInt(issuedAt) * 1_000n)
       throw new TypeError('Keryx cannot issue a ticket for expired delegation.')
+    const expiresAtInstant = Instant.fromEpochMicroseconds(expiresAt)
     const payload: AdmissionTicketPayload = {
       version: ADMISSION_TICKET_VERSION,
       applicationId: this.applicationId,
       ticketId: randomUUID(),
       issuedAt,
-      expiresAt,
+      expiresAt: expiresAtInstant.toString(),
       origin: normalizeBrowserOrigin(input.origin),
       actor: parseTicketActor(input.actor),
       ...(input.initiator ? { initiator: parseTicketActor(input.initiator) } : {}),
@@ -225,7 +225,7 @@ export class KeryxAdmissionTickets {
         encrypted.toString('base64url'),
         tag.toString('base64url'),
       ].join('.'),
-      expiresAt: Instant.fromEpochMicroseconds(BigInt(expiresAt) * 1_000n),
+      expiresAt: expiresAtInstant,
     })
   }
 
@@ -275,13 +275,18 @@ export class KeryxAdmissionTickets {
       value.applicationId !== this.applicationId ||
       typeof value.issuedAt !== 'number' ||
       !Number.isSafeInteger(value.issuedAt) ||
-      typeof value.expiresAt !== 'number' ||
-      !Number.isSafeInteger(value.expiresAt) ||
+      typeof value.expiresAt !== 'string' ||
       value.issuedAt > now + 5_000 ||
-      value.expiresAt <= now ||
-      value.expiresAt <= value.issuedAt ||
-      value.expiresAt - value.issuedAt > this.lifetimeMilliseconds ||
       value.origin !== normalizeBrowserOrigin(origin)
+    )
+      throw this.#invalidTicket()
+    const expiresAt = Instant.parse(value.expiresAt)
+    const expiresAtMicroseconds = expiresAt.epochMicroseconds
+    const issuedAtMicroseconds = BigInt(value.issuedAt) * 1_000n
+    if (
+      expiresAtMicroseconds <= BigInt(now) * 1_000n ||
+      expiresAtMicroseconds <= issuedAtMicroseconds ||
+      expiresAtMicroseconds - issuedAtMicroseconds > BigInt(this.lifetimeMilliseconds) * 1_000n
     )
       throw this.#invalidTicket()
     return Object.freeze({
@@ -294,7 +299,7 @@ export class KeryxAdmissionTickets {
       authentication: parseTicketAuthentication(value.authentication),
       ...(value.tenant === undefined ? {} : { tenant: parseTicketTenant(value.tenant) }),
       correlationId: nonEmptyString(value.correlationId, 'correlation id'),
-      expiresAt: value.expiresAt,
+      expiresAt,
     })
   }
 

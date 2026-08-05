@@ -2128,6 +2128,86 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     expect(audit.rows.every((row) => row.metadata.targetIdentityId === targetId)).toBe(true)
   })
 
+  it('preserves session and impersonation PostgreSQL microseconds as Instants', async () => {
+    const auth = new PostgresAuth({
+      connectionString,
+      secureCookies: false,
+      trustedOrigins: ['http://doxa.test'],
+      impersonationSessionSeconds: 20 * 365 * 24 * 60 * 60,
+    })
+    await auth.start(lifecycleContext())
+    try {
+      const identity = await auth.register({
+        identifier: `precision-admin-${Date.now()}@example.com`,
+        password: 'session precision password',
+      })
+      const target = await auth.register({
+        identifier: `precision-target-${Date.now()}@example.com`,
+        password: 'session precision password',
+      })
+      const login = await auth.login({
+        identifier: identity.identifier,
+        password: 'session precision password',
+      })
+      await pool.query(
+        `UPDATE doxa_auth_sessions
+         SET created_at = '2026-08-05 12:34:56.111111+00',
+             expires_at = '2036-08-05 12:34:56.654321+00',
+             idle_expires_at = '2036-08-05 12:34:56.654321+00'
+         WHERE id = $1`,
+        [login.session.id],
+      )
+
+      const started = await auth.startImpersonation(
+        identity.id,
+        login.session.id,
+        target.id,
+        'Precision proof',
+      )
+      expect(started.session.createdAt.toString()).toBe('2026-08-05T12:34:56.111111Z')
+      expect(started.session.expiresAt.toString()).toBe('2036-08-05T12:34:56.654321Z')
+      expect(started.session.impersonation?.expiresAt.toString()).toBe(
+        '2036-08-05T12:34:56.654321Z',
+      )
+
+      await pool.query(
+        `UPDATE doxa_auth_sessions
+         SET authenticated_at = '2030-08-05 12:34:56.222222+00',
+             last_seen_at = '2030-08-05 12:34:56.333333+00',
+             impersonation_started_at = '2030-08-05 12:34:56.444444+00',
+             impersonation_expires_at = '2035-08-05 12:34:56.555555+00'
+         WHERE id = $1`,
+        [login.session.id],
+      )
+      const listed = (await auth.listSessions(identity.id)).find(
+        (session) => session.id === login.session.id,
+      )!
+      expect(listed.authenticatedAt.toString()).toBe('2030-08-05T12:34:56.222222Z')
+      expect(listed.lastSeenAt?.toString()).toBe('2030-08-05T12:34:56.333333Z')
+      expect(listed.impersonation?.startedAt.toString()).toBe('2030-08-05T12:34:56.444444Z')
+      expect(listed.impersonation?.expiresAt.toString()).toBe('2035-08-05T12:34:56.555555Z')
+      const resolved = await auth.resolveHttp(
+        new Request('http://doxa.test/auth/me', {
+          headers: { cookie: `doxa_session=${started.token.reveal()}` },
+        }),
+      )
+      expect(resolved.authentication.authenticatedAt?.toString()).toBe(
+        '2030-08-05T12:34:56.222222Z',
+      )
+      expect(resolved.delegation?.[0]?.expiresAt?.toString()).toBe('2035-08-05T12:34:56.555555Z')
+
+      const stopped = await auth.stopImpersonation(
+        identity.id,
+        login.session.id,
+        started.session.impersonation!.grantId,
+      )
+      expect(stopped.session.authenticatedAt.toString()).toBe('2030-08-05T12:34:56.222222Z')
+      expect(stopped.session.impersonation).toBeUndefined()
+    } finally {
+      await auth.dispose(lifecycleContext())
+    }
+  })
+
   it('verifies email, resets and changes passwords, revokes sessions, and rate limits abuse', async () => {
     const runtime = await bootPersistenceRuntime()
     const http = new HonoHttpEngine(runtime)

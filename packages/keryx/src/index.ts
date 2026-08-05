@@ -526,7 +526,8 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   }
 
   async #consumeAdmissionTicket(admission: KeryxConnectionTicketAdmission): Promise<boolean> {
-    const retentionMilliseconds = Math.max(1, admission.expiresAt - Date.now())
+    const expiresAtMilliseconds = Number((admission.expiresAt.epochMicroseconds + 999n) / 1_000n)
+    const retentionMilliseconds = Math.max(1, expiresAtMilliseconds - Date.now())
     if (this.#options.topology === 'redis') {
       if (!this.#backplane) throw new Error('Keryx Redis backplane is unavailable.')
       return await this.#backplane.consumeAdmissionTicketOnce(
@@ -540,7 +541,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     if ((this.#consumedAdmissionTickets.get(admission.ticketId) ?? 0) > now) return false
     if (this.#consumedAdmissionTickets.size >= this.#options.maxConsumedAdmissionTickets)
       return false
-    this.#consumedAdmissionTickets.set(admission.ticketId, admission.expiresAt)
+    this.#consumedAdmissionTickets.set(admission.ticketId, expiresAtMilliseconds)
     return true
   }
 
