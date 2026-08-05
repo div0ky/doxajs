@@ -50,7 +50,7 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
     const requests: string[] = []
     let codeElements: Element[] = []
     let delayedTimelineA: PromiseWithResolvers<unknown[]> | undefined
-    let failExecutionA = false
+    const failedExecutions = new Set<string>()
     let entries = [entry('execution-a', 'observation-a')]
     const timelines = new Map([
       [
@@ -82,7 +82,10 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
         requests.push(url)
         return {
           json: async () => {
-            if (url === '/api/timeline/execution-a' && failExecutionA) {
+            if (
+              url.startsWith('/api/timeline/') &&
+              failedExecutions.has(url.slice('/api/timeline/'.length))
+            ) {
               throw new Error('detail failed')
             }
             return {
@@ -188,13 +191,42 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
     delete delayed.entries
     expect(vm.runInContext('state.execution', context)).toBe('execution-b')
 
-    failExecutionA = true
+    delayed.entries = Promise.withResolvers<unknown[]>()
+    const staleListFailure = vm.runInContext('loadExecutions(true)', context) as Promise<void>
+    await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
+    delayed.entries.reject(new Error('stale list failed'))
+    await staleListFailure
+    delete delayed.entries
+    expect(element('error').style.display).toBe('none')
+
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
+    const pendingExecutionA = vm.runInContext(
+      "state.reset=false;chooseExecution('execution-a')",
+      context,
+    ) as Promise<void>
+    failedExecutions.add('execution-b')
+    await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
+    failedExecutions.delete('execution-b')
+    expect(vm.runInContext('state.execution', context)).toBe('execution-b')
+    expect(vm.runInContext('state.observation.id', context)).toBe('observation-b')
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
+    await pendingExecutionA
+    delayedTimelineA = undefined
+    expect(vm.runInContext('state.execution', context)).toBe('execution-b')
+
+    failedExecutions.add('execution-a')
     await vm.runInContext("chooseExecution('execution-a')", context)
+    failedExecutions.delete('execution-a')
     expect(vm.runInContext('state.execution', context)).toBe('execution-b')
     expect(element('error')).toMatchObject({ style: { display: 'block' } })
 
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
+    const staleDetail = vm.runInContext("chooseExecution('execution-a')", context) as Promise<void>
     entries = []
     await vm.runInContext('loadExecutions(true)', context)
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
+    await staleDetail
+    delayedTimelineA = undefined
     expect(vm.runInContext('state.execution', context)).toBe(null)
     expect(vm.runInContext('state.timeline', context)).toEqual([])
     expect(element('timeline').innerHTML).toContain('No evidence recorded')

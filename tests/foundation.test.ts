@@ -740,10 +740,14 @@ describe('foundational compile-to-boot slice', () => {
   it('waits for one retrieved observer across concurrent model hydration', async () => {
     class HydrationProofModel extends Model<{ id: string; value: number }> {}
     class HydrationReader extends ModelReader {
+      findCount = 0
+      deleteCount = 0
+
       async findEntity<State extends JsonValue>(
         type: string,
         id: string,
       ): Promise<PersistedEntity<State>> {
+        this.findCount++
         return { type, id, version: 1, state: { id, value: 1 } as unknown as State }
       }
       async queryEntities<State extends JsonValue>(): Promise<readonly PersistedEntity<State>[]> {
@@ -751,6 +755,9 @@ describe('foundational compile-to-boot slice', () => {
       }
       async aggregateEntities(): Promise<number> {
         return 0
+      }
+      async deleteEntity(): Promise<void> {
+        this.deleteCount++
       }
     }
     const definitions = new Map<
@@ -772,16 +779,21 @@ describe('foundational compile-to-boot slice', () => {
     ])
     const retrieved = Promise.withResolvers<void>()
     let retrievedCount = 0
+    let reentrantModel: Model | undefined
     const reader = new HydrationReader()
     const session = new ModelSession(reader, definitions, {
-      dispatch: async (phase) => {
+      dispatch: async (phase, model) => {
         if (phase !== 'retrieved') return
         retrievedCount++
+        reentrantModel = await session.find(HydrationProofModel, model.id)
         await retrieved.promise
       },
     })
     const first = session.find(HydrationProofModel, 'shared')
     while (retrievedCount === 0) await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(() => session.make(HydrationProofModel, { id: 'shared', value: 2 })).toThrow(
+      'already attached',
+    )
     const second = session.find(HydrationProofModel, 'shared')
     let secondSettled = false
     void second.finally(() => {
@@ -792,7 +804,9 @@ describe('foundational compile-to-boot slice', () => {
     retrieved.resolve()
     const [firstModel, secondModel] = await Promise.all([first, second])
     expect(secondModel).toBe(firstModel)
+    expect(reentrantModel).toBe(firstModel)
     expect(retrievedCount).toBe(1)
+    expect(reader.findCount).toBe(1)
     session.close()
 
     let failedRetrievedCount = 0
@@ -810,6 +824,21 @@ describe('foundational compile-to-boot slice', () => {
     expect(failures.map((result) => result.status)).toEqual(['rejected', 'rejected'])
     expect(failedRetrievedCount).toBe(1)
     failing.close()
+
+    const deleting = new ModelSession(reader, definitions, {
+      dispatch: async (phase, model) => {
+        if (phase === 'retrieved') await model.delete()
+      },
+    })
+    const readsBeforeDeletion = reader.findCount
+    const [deletedFirst, deletedSecond] = await runWithModelSession(deleting, async () => [
+      await deleting.find(HydrationProofModel, 'deleted'),
+      await deleting.find(HydrationProofModel, 'deleted'),
+    ])
+    expect(deletedSecond).not.toBe(deletedFirst)
+    expect(reader.findCount - readsBeforeDeletion).toBe(2)
+    expect(reader.deleteCount).toBe(2)
+    deleting.close()
   })
 
   it('rejects model queries and cursors after their execution session ends', async () => {
