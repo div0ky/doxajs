@@ -17,11 +17,21 @@ export class AccountPolicy extends Policy {
     'accounts.sessions.manage',
     'accounts.tokens.manage',
     'accounts.view-self',
+    'accounts.impersonation.stop',
   ]
 
   decide(request: PolicyRequest): PolicyDecision {
     if (request.actor.kind !== 'user' || request.context.authentication.state !== 'authenticated') {
       return deny('account', 'authentication_required')
+    }
+    if (
+      request.ability === 'accounts.impersonation.stop' &&
+      (!request.context.authentication.sessionId ||
+        !request.context.delegation.some(
+          (hop) => hop.grantId === request.context.authentication.sessionId,
+        ))
+    ) {
+      return deny('account', 'impersonation_required')
     }
     if (
       ['accounts.tokens.manage', 'accounts.sessions.manage', 'accounts.password.change'].includes(

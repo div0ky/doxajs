@@ -23,6 +23,8 @@ import { ListSessionsRoute } from './http/list-sessions.route.js'
 import { RevokeSessionRoute } from './http/revoke-session.route.js'
 import { ResendVerificationRoute } from './http/resend-verification.route.js'
 import { ReauthenticateRoute } from './http/reauthenticate.route.js'
+import { StartImpersonationRoute } from './http/start-impersonation.route.js'
+import { StopImpersonationRoute } from './http/stop-impersonation.route.js'
 
 export class AccountsFeature extends Feature {
   id = 'accounts'
@@ -31,6 +33,8 @@ export class AccountsFeature extends Feature {
     RegisterRoute,
     LoginRoute,
     ReauthenticateRoute,
+    StartImpersonationRoute,
+    StopImpersonationRoute,
     LogoutRoute,
     MeRoute,
     IssueAccessTokenRoute,

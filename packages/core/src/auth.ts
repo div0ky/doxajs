@@ -23,12 +23,24 @@ export interface AuthSession {
   readonly expiresAt: Date
   readonly lastSeenAt?: Date
   readonly revokedAt?: Date
+  readonly impersonation?: AuthImpersonation
+}
+
+export interface AuthImpersonation {
+  readonly targetIdentityId: string
+  readonly reason: string
+  readonly startedAt: Date
+  readonly expiresAt: Date
 }
 
 export interface AuthSessionGrant {
   readonly identity: AuthIdentity
   readonly session: AuthSession
   readonly token: SecretString
+}
+
+export interface AuthImpersonationGrant extends AuthSessionGrant {
+  readonly target: AuthIdentity
 }
 
 export interface AuthAccessToken {
@@ -90,6 +102,8 @@ export interface AuthRequestMetadata {
 
 export interface ResolvedHttpAuthentication {
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: ExecutionContext['delegation']
   readonly authentication: AuthenticationContext
   readonly responseHeaders?: Readonly<Record<string, string>>
 }
@@ -149,7 +163,9 @@ export class AuthenticationError extends Error {
       | 'email_taken'
       | 'invalid_registration'
       | 'invalid_token'
-      | 'compromised_password',
+      | 'compromised_password'
+      | 'impersonation_not_allowed'
+      | 'impersonation_not_active',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -190,6 +206,17 @@ export abstract class Auth {
     password: string,
     metadata?: AuthRequestMetadata,
   ): Promise<Date>
+  abstract startImpersonation(
+    identityId: string,
+    sessionId: string,
+    targetIdentityId: string,
+    reason: string,
+  ): Promise<AuthImpersonationGrant>
+  abstract stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant>
+  abstract validateAuthentication(
+    actor: ActorRef,
+    authentication: AuthenticationContext,
+  ): Promise<boolean>
   abstract revokeSession(sessionId: string): Promise<void>
   abstract listSessions(identityId: string): Promise<readonly AuthSession[]>
   abstract revokeAllSessions(identityId: string): Promise<number>

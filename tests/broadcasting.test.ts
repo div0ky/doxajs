@@ -431,11 +431,22 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       deadline: new Date(Date.now() + 2_000),
     }
     await keryx.start(lifecycle)
+    const impersonationExpiresAt = new Date(Date.now() + 10_000)
     const grant = keryx.issueConnectionTicket({
       actor: { kind: 'user', id: 'ada' },
+      initiator: { kind: 'user', id: 'admin' },
+      delegation: [
+        {
+          from: { kind: 'user', id: 'admin' },
+          to: { kind: 'user', id: 'ada' },
+          grantId: 'session-1',
+          reason: 'Support ticket 42',
+          expiresAt: impersonationExpiresAt,
+        },
+      ],
       authentication: {
         state: 'authenticated',
-        identityId: 'ada',
+        identityId: 'admin',
         method: 'password',
         authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
         sessionId: 'session-1',
@@ -443,6 +454,7 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       correlationId: 'http-correlation',
       origin,
     })
+    expect(grant.expiresAt.getTime()).toBe(impersonationExpiresAt.getTime())
     const wrongOriginSocket = new WebSocket(
       `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
       ['doxa.realtime.v3', `doxa.ticket.${grant.ticket}`],
@@ -492,9 +504,19 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       expect(admitted).toEqual(
         expect.objectContaining({
           actor: { kind: 'user', id: 'ada' },
+          initiator: { kind: 'user', id: 'admin' },
+          delegation: [
+            expect.objectContaining({
+              from: { kind: 'user', id: 'admin' },
+              to: { kind: 'user', id: 'ada' },
+              grantId: 'session-1',
+              reason: 'Support ticket 42',
+              expiresAt: impersonationExpiresAt,
+            }),
+          ],
           authentication: expect.objectContaining({
             state: 'authenticated',
-            identityId: 'ada',
+            identityId: 'admin',
             sessionId: 'session-1',
             authenticatedAt: new Date('2026-07-25T00:00:00.000Z'),
           }),
@@ -521,6 +543,65 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       ])
     } finally {
       realtime.disconnect()
+      await keryx.drain(lifecycle)
+      await keryx.stop(lifecycle)
+      keryx.dispose(lifecycle)
+    }
+  })
+
+  it('closes a revoked authenticated socket before accepting its next frame', async () => {
+    let valid = true
+    const gateway: BroadcastGateway = {
+      connect: async (connectionId) => ({
+        connectionId,
+        actor: { kind: 'user', id: 'target' },
+        initiator: { kind: 'user', id: 'admin' },
+        delegation: [
+          {
+            from: { kind: 'user', id: 'admin' },
+            to: { kind: 'user', id: 'target' },
+            grantId: 'session-1',
+            reason: 'Support ticket 42',
+            expiresAt: new Date(Date.now() + 60_000),
+          },
+        ],
+        authentication: {
+          state: 'authenticated',
+          identityId: 'admin',
+          method: 'password',
+          sessionId: 'session-1',
+        },
+        correlationId: 'revocation-test',
+      }),
+      validate: async () => valid,
+      subscribe: async () => ({}),
+      unsubscribe: async () => undefined,
+      command: async (_admission, request) => ({ id: request.id, ok: true as const }),
+    }
+    const keryx = new Keryx({ port: 0 })
+    keryx.bind(gateway)
+    const lifecycle = {
+      signal: new AbortController().signal,
+      deadline: new Date(Date.now() + 2_000),
+    }
+    await keryx.start(lifecycle)
+    const socket = new WebSocket(
+      `ws://${keryx.address.host}:${keryx.address.port}${keryx.address.path}`,
+      ['doxa.realtime.v3'],
+    )
+    const frames: Record<string, unknown>[] = []
+    socket.on('message', (data) => frames.push(JSON.parse(data.toString())))
+    try {
+      await new Promise<void>((resolve) => socket.once('open', () => resolve()))
+      await waitFor(() => frames.some((frame) => frame.type === 'connected'))
+      valid = false
+      const closed = new Promise<{ code: number; reason: string }>((resolve) =>
+        socket.once('close', (code, reason) => resolve({ code, reason: reason.toString() })),
+      )
+      socket.send(JSON.stringify({ protocol: 3, type: 'ping', id: 'revoked-ping' }))
+      await expect(closed).resolves.toEqual({ code: 4401, reason: 'Authentication revoked' })
+    } finally {
+      socket.terminate()
       await keryx.drain(lifecycle)
       await keryx.stop(lifecycle)
       keryx.dispose(lifecycle)

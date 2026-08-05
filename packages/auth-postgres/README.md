@@ -6,7 +6,7 @@
 
 Framework-owned PostgreSQL authentication for Doxa: existing identity models, Argon2id credentials,
 opaque browser sessions, opaque bearer tokens, verification and recovery challenges, durable abuse
-controls, audit evidence, and existing-table mapping.
+controls, opt-in native impersonation, audit evidence, and existing-table mapping.
 
 ```sh
 pnpm add @doxajs/auth-postgres
@@ -28,3 +28,8 @@ import only `Auth` from `@doxajs/core`. The concrete adapter is intentionally av
 `@doxajs/auth-postgres/framework` for generated framework code and migration from older alpha
 applications. Direct `PostgresAuth` imports from the package root must move to that framework
 subpath; direct table mappings should move into the compiled application configuration.
+
+Native impersonation uses `framework.auth.impersonation`. It rotates the owning opaque session on
+start and stop, records target/reason/expiry, preserves original identity as initiator and
+authentication evidence, and reuses compiled target-eligibility predicates. Applications must
+declare and grant `accounts.impersonate`; Doxa provides no default administrator grant.

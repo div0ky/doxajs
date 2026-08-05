@@ -42,6 +42,11 @@ origin-bound, single-use admission ticket. The realtime client presents that tic
 subprotocol offer, so production does not widen the Doxa session cookie to sibling subdomains or put
 credentials in a URL. In Redis topology, ticket consumption is atomic across web replicas.
 
+Impersonated admissions preserve target actor, original initiator, and delegation audit context.
+Tickets never outlive delegation. Keryx closes expired admissions and revalidates sessions before
+inbound frames and during heartbeats, so stop or revocation cannot authorize later subscriptions or
+commands.
+
 Keryx protocol v3 waits for Doxa authentication before emitting `connected`. It accepts only
 manifest-registered `RealtimeCommand` names, uses the admitted actor, and delegates throttling,
 schema validation, declared-ability authorization, deadlines, and safe acknowledgements to Doxa.

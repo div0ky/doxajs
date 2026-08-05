@@ -60,6 +60,16 @@ export const authSessions = pgTable(
     idleExpiresAt: timestamp('idle_expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    impersonatedIdentityId: text('impersonated_identity_id'),
+    impersonationReason: text('impersonation_reason'),
+    impersonationStartedAt: timestamp('impersonation_started_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    impersonationExpiresAt: timestamp('impersonation_expires_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
   },
