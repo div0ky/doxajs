@@ -549,22 +549,12 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
     }
   })
 
-  it('closes a revoked authenticated socket before accepting its next frame', async () => {
+  it('revalidates every authenticated socket before accepting its next frame', async () => {
     let valid = true
     const gateway: BroadcastGateway = {
       connect: async (connectionId) => ({
         connectionId,
-        actor: { kind: 'user', id: 'target' },
-        initiator: { kind: 'user', id: 'admin' },
-        delegation: [
-          {
-            from: { kind: 'user', id: 'admin' },
-            to: { kind: 'user', id: 'target' },
-            grantId: 'session-1',
-            reason: 'Support ticket 42',
-            expiresAt: new Date(Date.now() + 60_000),
-          },
-        ],
+        actor: { kind: 'user', id: 'admin' },
         authentication: {
           state: 'authenticated',
           identityId: 'admin',
@@ -606,6 +596,12 @@ export class Application extends DoxaApplication { id = 'broadcast-fixture'; fea
       await keryx.stop(lifecycle)
       keryx.dispose(lifecycle)
     }
+  })
+
+  it('rejects invalid heartbeat intervals', () => {
+    expect(() => new Keryx({ heartbeatMilliseconds: 0 })).toThrow(
+      'Keryx heartbeatMilliseconds must be a positive integer.',
+    )
   })
 
   it('publishes from a worker through signed HTTP without starting a worker listener', async () => {

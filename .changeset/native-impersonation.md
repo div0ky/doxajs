@@ -12,4 +12,4 @@
 
 Add opt-in, policy-authorized native browser-session impersonation with target eligibility, opaque
 credential rotation, actor/initiator/delegation audit context, restoration, expiry, revocation, and
-HTTP/Keryx parity.
+HTTP, Keryx, and queued-delivery parity.

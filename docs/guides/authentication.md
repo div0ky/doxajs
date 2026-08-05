@@ -129,7 +129,8 @@ user, and `delegation` records original user, target, session grant, reason, and
 context drives HTTP and Keryx cookie or admission-ticket authentication. Expiry, target
 ineligibility, stop, logout, and session revocation remove target authority; live Keryx connections
 revalidate before frames and on heartbeat. Generated impersonation-enabled applications default the
-configurable Keryx heartbeat to 10 seconds.
+configurable Keryx heartbeat to 10 seconds. Queued work retains impersonation attribution and
+revalidates the owning session at delivery.
 
 See [native impersonation contract](../../manifesto/specifications/native-impersonation.md).
 

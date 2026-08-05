@@ -173,6 +173,11 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     )
       throw new TypeError('Keryx maxConsumedAdmissionTickets must be a positive integer.')
     if (
+      options.heartbeatMilliseconds !== undefined &&
+      (!Number.isSafeInteger(options.heartbeatMilliseconds) || options.heartbeatMilliseconds <= 0)
+    )
+      throw new TypeError('Keryx heartbeatMilliseconds must be a positive integer.')
+    if (
       options.maxCommandThrottleBuckets !== undefined &&
       (!Number.isSafeInteger(options.maxCommandThrottleBuckets) ||
         options.maxCommandThrottleBuckets <= 0)
@@ -989,8 +994,12 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     this.#pulseRunning = true
     try {
       const renewals: Promise<void>[] = []
-      for (const connection of this.#connections) {
-        if (!(await this.#validateConnection(connection))) continue
+      const connections = [...this.#connections]
+      const valid = await Promise.all(
+        connections.map((connection) => this.#validateConnection(connection)),
+      )
+      for (const [index, connection] of connections.entries()) {
+        if (!valid[index]) continue
         if (!connection.alive) {
           connection.socket.terminate()
           continue
@@ -1040,7 +1049,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     }
     try {
       if (
-        connection.admission.delegation?.length &&
+        connection.admission.authentication.state === 'authenticated' &&
         (await this.#gateway?.validate?.(connection.admission)) === false
       ) {
         connection.socket.close(4401, 'Authentication revoked')

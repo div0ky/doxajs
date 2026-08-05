@@ -206,17 +206,37 @@ export abstract class Auth {
     password: string,
     metadata?: AuthRequestMetadata,
   ): Promise<Date>
-  abstract startImpersonation(
+  async startImpersonation(
     identityId: string,
     sessionId: string,
     targetIdentityId: string,
     reason: string,
-  ): Promise<AuthImpersonationGrant>
-  abstract stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant>
-  abstract validateAuthentication(
+  ): Promise<AuthImpersonationGrant> {
+    void identityId
+    void sessionId
+    void targetIdentityId
+    void reason
+    throw new AuthenticationError(
+      'impersonation_not_allowed',
+      'This authentication provider does not support impersonation.',
+    )
+  }
+  async stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant> {
+    void identityId
+    void sessionId
+    throw new AuthenticationError(
+      'impersonation_not_active',
+      'This authentication provider does not support impersonation.',
+    )
+  }
+  async validateAuthentication(
     actor: ActorRef,
     authentication: AuthenticationContext,
-  ): Promise<boolean>
+  ): Promise<boolean> {
+    return authentication.state === 'anonymous'
+      ? actor.kind === 'anonymous'
+      : actor.kind === 'user' && actor.id === authentication.identityId
+  }
   abstract revokeSession(sessionId: string): Promise<void>
   abstract listSessions(identityId: string): Promise<readonly AuthSession[]>
   abstract revokeAllSessions(identityId: string): Promise<number>
