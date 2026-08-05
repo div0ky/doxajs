@@ -11,12 +11,17 @@ export class StopImpersonationRoute extends Route {
 
   async handle(_request: HttpRequest): Promise<Response> {
     const authentication = this.execution.context.authentication
-    if (!authentication.identityId || !authentication.sessionId) {
+    if (
+      !authentication.identityId ||
+      !authentication.sessionId ||
+      !authentication.impersonationGrantId
+    ) {
       throw new HttpError(401, 'authentication_required', 'Authentication is required.')
     }
     const grant = await this.auth.stopImpersonation(
       authentication.identityId,
       authentication.sessionId,
+      authentication.impersonationGrantId,
     )
     return Http.noContent({ 'set-cookie': this.auth.sessionCookie(grant) })
   }

@@ -462,10 +462,19 @@ export class TestAuth extends Auth {
       token: SecretString.from(`test-impersonation-${sessionId}`),
     }
   }
-  async stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant> {
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
     const identity = this.#identities.get(identityId)
     const session = this.#sessions.get(sessionId)
-    if (!identity || !session?.impersonation) throw new Error('Test impersonation is not active.')
+    if (
+      !identity ||
+      session?.identityId !== identityId ||
+      session.impersonation?.grantId !== impersonationGrantId
+    )
+      throw new Error('Test impersonation is not active.')
     const { impersonation: _impersonation, ...restored } = session
     this.#sessions.set(sessionId, restored)
     return {

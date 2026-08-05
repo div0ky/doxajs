@@ -222,9 +222,14 @@ export abstract class Auth {
       'This authentication provider does not support impersonation.',
     )
   }
-  async stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant> {
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
     void identityId
     void sessionId
+    void impersonationGrantId
     throw new AuthenticationError(
       'impersonation_not_active',
       'This authentication provider does not support impersonation.',

@@ -22,8 +22,8 @@ original actor when impersonation stops or expires.
   Start and stop rotate the opaque cookie immediately without target credentials.
 - Execution uses target as `actor`, original user as `initiator`, original identity as
   authentication evidence, and one auditable delegation hop between them.
-- Start, stop, automatic expiry, target-ineligibility termination, authorization decisions, and
-  session revocation remain durable audit evidence.
+- Start, stop, activation expiry before owning-session expiry, target-ineligibility termination,
+  authorization decisions, and session revocation remain durable audit evidence.
 - HTTP and Keryx use the same resolved context. Keryx tickets preserve delegation, never outlive it,
   and live sockets revalidate before frames and during bounded heartbeats.
 - Queued delegated work revalidates the exact activation grant before delivery.

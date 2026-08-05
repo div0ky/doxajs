@@ -17,7 +17,9 @@ grant, preventing stopped authority from reviving after another impersonation st
 Focused tests cover explicit compiler opt-in, duration validation, permission denial, missing-target
 eligibility denial, start and stop rotation, stale-cookie rejection, actor/initiator/delegation
 resolution, Keryx admission, live-session revalidation, automatic expiry, restoration, and durable
-start/stop/expiry audit rows. Ticket tests cover encrypted delegation round-trip, delegation-bounded
-expiry, exact-grant revocation, and rejection of already expired delegation.
+start/stop/activation-expiry audit rows. Owning-session expiry or revocation invalidates the entire
+session and may retain activation fields as historical metadata. Ticket tests cover encrypted
+delegation round-trip, delegation-bounded expiry, exact-grant revocation, and rejection of already
+expired delegation.
 
 Complete repository gate: `pnpm verify`.

@@ -989,7 +989,11 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     })
   }
 
-  async stopImpersonation(identityId: string, sessionId: string): Promise<AuthSessionGrant> {
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
     const token = randomBytes(32).toString('base64url')
     const now = new Date()
     const result = await this.#requireDatabase().transaction(async (transaction) => {
@@ -1000,6 +1004,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           and(
             eq(authSessions.id, sessionId),
             eq(authSessions.identityId, identityId),
+            eq(authSessions.impersonationGrantId, impersonationGrantId),
             isNull(authSessions.revokedAt),
             gt(authSessions.impersonationExpiresAt, now),
           ),
@@ -1024,6 +1029,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           and(
             eq(authSessions.id, sessionId),
             eq(authSessions.identityId, identityId),
+            eq(authSessions.impersonationGrantId, impersonationGrantId),
             isNull(authSessions.revokedAt),
             gt(authSessions.impersonationExpiresAt, now),
           ),
@@ -1365,6 +1371,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           .where(
             and(
               eq(authSessions.id, session.id),
+              eq(authSessions.impersonationGrantId, impersonation!.grantId),
               eq(authSessions.impersonatedIdentityId, impersonation!.targetIdentityId),
               isNull(authSessions.revokedAt),
             ),

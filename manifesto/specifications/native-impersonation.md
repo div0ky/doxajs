@@ -48,11 +48,13 @@ Stop atomically clears impersonation state and rotates cookie without grace. Nex
 original user. Absolute, idle, password-change, logout, individual, and all-session revocation rules
 continue to apply to owning session.
 
-At HTTP resolution Doxa rechecks original and target eligibility. Expired or newly ineligible target
-state is cleared and audited before admitting original actor. Existing impersonated WebSockets close
-when delegation expires, when session revalidation fails before an inbound frame, or during next
-Keryx heartbeat. Generated impersonation-enabled applications default that configurable heartbeat to
-10 seconds; other generated applications retain Keryx's 30-second default. Closure occurs after the
+At HTTP resolution Doxa rechecks original and target eligibility. An activation that expires before
+its owning session, or whose target becomes ineligible, is cleared and audited before admitting the
+original actor. Owning-session expiry or revocation invalidates the whole session; its activation
+fields may remain as historical session metadata. Existing impersonated WebSockets close when
+delegation expires, when session revalidation fails before an inbound frame, or during next Keryx
+heartbeat. Generated impersonation-enabled applications default that configurable heartbeat to 10
+seconds; other generated applications retain Keryx's 30-second default. Closure occurs after the
 heartbeat begins and the authentication provider completes revalidation. A stopped or revoked
 admission cannot authorize another subscription or realtime command.
 

@@ -984,8 +984,28 @@ describe('@doxajs/testing', () => {
           authentication: expect.objectContaining({ identityId: admin.id, method: 'password' }),
         }),
       )
-      await auth.stopImpersonation(admin.id, grant.session.id)
-      await auth.startImpersonation(admin.id, grant.session.id, target.id, 'Support ticket 43')
+      await auth.stopImpersonation(admin.id, grant.session.id, grant.session.impersonation!.grantId)
+      const restarted = await auth.startImpersonation(
+        admin.id,
+        grant.session.id,
+        target.id,
+        'Support ticket 43',
+      )
+      await expect(
+        auth.stopImpersonation(admin.id, grant.session.id, grant.session.impersonation!.grantId),
+      ).rejects.toThrow('not active')
+      await expect(
+        auth.validateAuthentication(
+          { kind: 'user', id: target.id },
+          {
+            state: 'authenticated',
+            identityId: admin.id,
+            method: 'password',
+            sessionId: restarted.session.id,
+            impersonationGrantId: restarted.session.impersonation!.grantId,
+          },
+        ),
+      ).resolves.toBe(true)
 
       await expect(queue.runNext()).rejects.toThrow('Queued impersonation is expired or revoked')
       expect(recordedJobAttempts).toEqual([])
