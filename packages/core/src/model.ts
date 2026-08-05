@@ -563,6 +563,7 @@ export abstract class Model<
 
 export class ModelSession {
   #active = true
+  readonly #hydrations = new Map<string, Promise<Model>>()
   readonly #identityMap = new Map<string, Model>()
 
   constructor(
@@ -611,17 +612,7 @@ export class ModelSession {
       this.reader.findEntity(type, id, definition.storage),
     )
     if (!persisted) return undefined
-    const concurrent = this.#identityMap.get(identity)
-    if (concurrent) return concurrent as Instance
-    const attributes = this.validatedAttributes<Attributes>(
-      definition,
-      hydratedState(definition.storage, persisted.state),
-    )
-    const model = new Constructor(attributes)
-    model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
-    this.#identityMap.set(identity, model)
-    await this.observers?.dispatch('retrieved', model)
-    return model
+    return await this.hydrate(Constructor, type, persisted)
   }
 
   async findOrFail<Attributes extends ModelAttributes, Instance extends Model<Attributes>>(
@@ -978,6 +969,7 @@ export class ModelSession {
 
   close(): void {
     this.#active = false
+    this.#hydrations.clear()
     this.#identityMap.clear()
   }
 
@@ -1007,18 +999,29 @@ export class ModelSession {
     persisted: PersistedEntity,
   ): Promise<Instance> {
     const identity = `${type}/${persisted.id}`
+    const pending = this.#hydrations.get(identity)
+    if (pending) return (await pending) as Instance
     const existing = this.#identityMap.get(identity)
     if (existing) return existing as Instance
-    const definition = this.definitionFor(Constructor)
-    const attributes = this.validatedAttributes<Attributes>(
-      definition,
-      hydratedState(definition.storage, persisted.state),
-    )
-    const model = new Constructor(attributes)
-    model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
-    this.#identityMap.set(identity, model)
-    await this.observers?.dispatch('retrieved', model)
-    return model
+    const hydration = (async () => {
+      const definition = this.definitionFor(Constructor)
+      const attributes = this.validatedAttributes<Attributes>(
+        definition,
+        hydratedState(definition.storage, persisted.state),
+      )
+      const model = new Constructor(attributes)
+      model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
+      await this.observers?.dispatch('retrieved', model)
+      this.assertActive()
+      this.#identityMap.set(identity, model)
+      return model
+    })()
+    this.#hydrations.set(identity, hydration)
+    try {
+      return await hydration
+    } finally {
+      if (this.#hydrations.get(identity) === hydration) this.#hydrations.delete(identity)
+    }
   }
 
   private validatedAttributes<Attributes extends ModelAttributes>(
