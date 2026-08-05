@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Accepted:** 2026-07-13
 - **Amended:** 2026-07-23 by [Decision 0035](0035-read-only-model-sessions-during-authorization.md)
+- **Amended:** 2026-08-05 to define concurrent terminal serialization
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -88,6 +89,19 @@ writable execution.
   complete physical table row. Direct, eager, paginated, and cursor reads never select or hydrate
   undeclared physical columns.
 
+## Concurrent terminal execution
+
+One model session owns one persistence transaction and snapshot. If application code starts multiple
+model operations concurrently, including through `Promise.all`, the PostgreSQL adapter executes them
+serially on that transaction's one client. Concurrent promises are supported, but they do not create
+database parallelism. Doxa reports the overlap once per session so application code can use explicit
+sequential awaits or reduce round trips.
+
+The transaction waits for queued work before commit or rollback. A failed operation rejects queued
+work and the complete transaction fails. Applications that need one coherent business result keep
+its reads in one Query; independent admitted Queries are appropriate only when separate snapshots
+are acceptable.
+
 ## Required proof
 
 1. The accepted query operators compile from logical attributes to both entity-state and mapped
@@ -107,6 +121,8 @@ writable execution.
 12. Representative relationship, relationship-existence, aggregate, pagination, and reporting
     queries are benchmarked with realistic cardinalities and indexes before reconsidering a public
     join projection API.
+13. Concurrent model operations serialize inside one transaction without driver warnings, preserve
+    one snapshot and model identity, and cannot outlive transaction cleanup.
 
 ## Consequences
 

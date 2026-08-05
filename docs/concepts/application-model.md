@@ -96,6 +96,19 @@ ordinary service instead: the Action or Job owns the transaction and the service
 multiple mutations form one invariant, call that service directly in the owning boundary so all
 writes and staged facts commit or roll back together.
 
+### Query consistency and performance
+
+A Query's model reads share one read-only repeatable-read transaction so authorization, pagination,
+relationships, aggregates, and handler results describe one database snapshot. Concurrent model
+promises are safe with the first-party PostgreSQL adapter, but it serializes them on that
+transaction's one client and Doxa warns once outside production; `Promise.all` does not make them
+faster. Always await every started model operation.
+
+Start with clear sequential reads and measure. Reduce round trips with indexed constraints, eager
+loading, aggregates, and bounded pagination. Use a dedicated read projection when a report needs a
+shape the model API cannot produce efficiently. Split work into independent admitted Queries only
+when separate snapshots are acceptable, and do not hold a Query transaction open across remote I/O.
+
 Use `Feature.provides` when another Feature must inject that ordinary service. Do not register it in
 `Feature.providers`; providers are singleton infrastructure and may not hold execution-specific
 transaction or model-session state.

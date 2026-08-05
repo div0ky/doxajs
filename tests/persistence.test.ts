@@ -45,6 +45,8 @@ import {
   type TelemetrySpanStart,
   type UnitOfWork,
   Model,
+  MemoryLogSink,
+  MemoryObservationRecorder,
   type ModelAttributes,
 } from '@doxajs/core'
 import { ModelSession, runWithModelSession } from '@doxajs/core/runtime'
@@ -72,6 +74,7 @@ import {
   resetCapturedCounter,
 } from '../examples/persistence-app/dist/counters/actions/capture-counter.js'
 import { Counter } from '../examples/persistence-app/dist/counters/models/counter.js'
+import { ConcurrentCounterReads } from '../examples/persistence-app/dist/counters/queries/concurrent-counter-reads.js'
 import { HttpPinged } from '../examples/persistence-app/dist/system/events/http-pinged.js'
 import { CreateCounter } from '../examples/persistence-app/dist/counters/actions/create-counter.js'
 import { CreateCounterNote } from '../examples/persistence-app/dist/counters/actions/create-counter-note.js'
@@ -1323,6 +1326,9 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     )
     expect(queued.jobId).toBeDefined()
     expect(queued.executionId).toBeDefined()
+    await waitFor(
+      async () => (await inspectQueueJob(connectionString, queued.jobId!))?.state === 'completed',
+    )
     expect(await inspectQueueJob(connectionString, queued.jobId!)).toEqual(
       expect.objectContaining({
         state: 'completed',
@@ -3430,6 +3436,212 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     expect(await durableRowCounts()).toEqual({ entities: 0, journal: 0, outbox: 0 })
   })
 
+  it('serializes concurrent model reads and reports the Promise.all performance trap once', async () => {
+    const developmentLogs = new MemoryLogSink()
+    const developmentObservations = new MemoryObservationRecorder()
+    const development = await bootPersistenceRuntime({
+      logs: developmentLogs,
+      observations: developmentObservations,
+    })
+    await runAction(development, SaveCounter, { id: 'concurrent-read', amount: 1 })
+    resetTelemetryRecords()
+
+    const counts = await development.admit(
+      {
+        actor: { kind: 'system', id: 'concurrent-query-development' },
+        transport: { kind: 'test' },
+      },
+      () => development.queries.execute(ConcurrentCounterReads, undefined),
+    )
+
+    expect(counts).toEqual({
+      counts: Array.from({ length: 9 }, () => 1),
+      sameIdentity: true,
+    })
+    expect(
+      developmentLogs.records.filter(
+        (record) =>
+          record.level === 'warn' &&
+          record.message.includes('Promise.all does not add database parallelism'),
+      ),
+    ).toHaveLength(1)
+    const developmentMetrics = telemetryRecords.filter(
+      (record) =>
+        record.kind === 'metric' &&
+        record.name === 'doxa.persistence.transaction.serialization.total',
+    )
+    const developmentSerialization = developmentObservations.observations.filter(
+      (observation) =>
+        observation.kind === 'model' && observation.name === 'transaction serialization',
+    )
+    expect(developmentMetrics).toHaveLength(1)
+    expect(developmentSerialization).toHaveLength(1)
+    const safeAttributes = developmentMetrics[0]?.attributes
+    expect(Object.keys(safeAttributes ?? {}).sort()).toEqual([
+      'activeEntityType',
+      'activeOperation',
+      'queuedEntityType',
+      'queuedOperation',
+    ])
+    expect(safeAttributes).toMatchObject({
+      activeEntityType: 'model:counters/counter',
+      queuedEntityType: 'model:counters/counter',
+    })
+    expect(['aggregate', 'find']).toContain(safeAttributes?.activeOperation)
+    expect(['aggregate', 'find']).toContain(safeAttributes?.queuedOperation)
+    expect(developmentSerialization[0]?.attributes).toEqual(safeAttributes)
+
+    const productionLogs = new MemoryLogSink()
+    const productionObservations = new MemoryObservationRecorder()
+    const production = await bootPersistenceRuntime({
+      logs: productionLogs,
+      nodeEnvironment: 'production',
+      observations: productionObservations,
+    })
+    resetTelemetryRecords()
+    await production.admit(
+      {
+        actor: { kind: 'system', id: 'concurrent-query-production' },
+        transport: { kind: 'test' },
+      },
+      () => production.queries.execute(ConcurrentCounterReads, undefined),
+    )
+
+    expect(
+      productionLogs.records.some((record) =>
+        record.message.includes('Promise.all does not add database parallelism'),
+      ),
+    ).toBe(false)
+    expect(
+      telemetryRecords.filter(
+        (record) =>
+          record.kind === 'metric' &&
+          record.name === 'doxa.persistence.transaction.serialization.total',
+      ),
+    ).toHaveLength(1)
+    expect(
+      productionObservations.observations.filter(
+        (observation) =>
+          observation.kind === 'model' && observation.name === 'transaction serialization',
+      ),
+    ).toHaveLength(1)
+  })
+
+  it('serializes every operation sharing one PostgreSQL transaction and rolls back queue failures', async () => {
+    const manager = new PostgresTransactionManager({ connectionString })
+    const lifecycle = lifecycleContext()
+    const warnings: string[] = []
+    const warningListener = (warning: Error) => warnings.push(warning.message)
+    process.on('warning', warningListener)
+    await manager.start(lifecycle)
+    try {
+      const completionOrder: string[] = []
+      await manager.frameworkTransaction(
+        executionContext('serialized-framework-transaction'),
+        async (unitOfWork, transaction) => {
+          await Promise.all([
+            transaction
+              .query('SELECT pg_sleep(0.02)')
+              .then(() => completionOrder.push('participant')),
+            unitOfWork
+              .findEntity('serialized-operation', 'missing')
+              .then(() => completionOrder.push('model')),
+          ])
+        },
+      )
+      expect(completionOrder).toEqual(['participant', 'model'])
+
+      let queued: PromiseSettledResult<unknown>[] | undefined
+      await expect(
+        manager.transaction(
+          executionContext('failed-serialized-framework-transaction'),
+          async (unitOfWork) => {
+            queued = await Promise.allSettled([
+              unitOfWork.saveEntity({
+                type: 'serialized-operation',
+                id: 'missing-stale-entity',
+                state: { id: 'missing-stale-entity' },
+                expectedVersion: 1,
+              }),
+              unitOfWork.saveEntity({
+                type: 'serialized-operation',
+                id: 'must-not-run',
+                state: { id: 'must-not-run' },
+              }),
+            ])
+          },
+        ),
+      ).rejects.toBeInstanceOf(PersistenceError)
+      expect(queued).toHaveLength(2)
+      expect(queued?.every((result) => result.status === 'rejected')).toBe(true)
+      expect(
+        queued?.every(
+          (result) => result.status === 'rejected' && result.reason instanceof PersistenceError,
+        ),
+      ).toBe(true)
+      expect(
+        (
+          await pool.query(
+            `SELECT 1 FROM doxa_entity_states
+             WHERE entity_type = 'serialized-operation' AND entity_id = 'must-not-run'`,
+          )
+        ).rowCount,
+      ).toBe(0)
+
+      const unhandled: unknown[] = []
+      const rejectionListener = (reason: unknown) => unhandled.push(reason)
+      process.on('unhandledRejection', rejectionListener)
+      try {
+        await expect(
+          manager.transaction(executionContext('ignored-failed-operation'), async (unitOfWork) => {
+            void unitOfWork.saveEntity({
+              type: 'serialized-operation',
+              id: 'ignored-missing-stale-entity',
+              state: { id: 'ignored-missing-stale-entity' },
+              expectedVersion: 1,
+            })
+          }),
+        ).rejects.toBeInstanceOf(OptimisticConcurrencyError)
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(unhandled).toEqual([])
+      } finally {
+        process.off('unhandledRejection', rejectionListener)
+      }
+
+      await pool.query(
+        `INSERT INTO doxa_entity_states (entity_type, entity_id, version, state, updated_at)
+         VALUES ('serialized-snapshot', 'snapshot', 1, '{"value": 1}', NOW())`,
+      )
+      const snapshotValues = await manager.read(
+        executionContext('preserved-repeatable-read-snapshot'),
+        async (reader) => {
+          const first = await reader.findEntity<{ id?: string; value: number }>(
+            'serialized-snapshot',
+            'snapshot',
+          )
+          await pool.query(
+            `UPDATE doxa_entity_states
+             SET state = '{"value": 2}', version = 2
+             WHERE entity_type = 'serialized-snapshot' AND entity_id = 'snapshot'`,
+          )
+          const second = await reader.findEntity<{ id?: string; value: number }>(
+            'serialized-snapshot',
+            'snapshot',
+          )
+          return [first?.state.value, second?.state.value]
+        },
+      )
+      expect(snapshotValues).toEqual([1, 1])
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(
+        warnings.filter((warning) => warning.includes('client is already executing a query')),
+      ).toEqual([])
+    } finally {
+      process.off('warning', warningListener)
+      await manager.dispose(lifecycle)
+    }
+  })
+
   it('preserves application errors across every PostgreSQL transaction boundary', async () => {
     const manager = new PostgresTransactionManager({ connectionString })
     const lifecycle = lifecycleContext()
@@ -4975,6 +5187,9 @@ async function bootPersistenceRuntime(
     readonly profile?: 'application' | 'model-reader'
     readonly minimalEnvironment?: boolean
     readonly telemetry?: Telemetry
+    readonly logs?: MemoryLogSink
+    readonly observations?: ObservationRecorder
+    readonly nodeEnvironment?: 'development' | 'production'
   } = {},
 ): Promise<DoxaRuntime> {
   const artifactsDirectory = await temporaryDirectory()
@@ -4985,6 +5200,7 @@ async function bootPersistenceRuntime(
     dotenvPath: false,
     environment: {
       DATABASE_CONNECTION_STRING: connectionString,
+      ...(options.nodeEnvironment ? { NODE_ENV: options.nodeEnvironment } : {}),
       ...(options.minimalEnvironment
         ? {}
         : {
@@ -4992,13 +5208,19 @@ async function bootPersistenceRuntime(
             COMMUNICATIONS_TWILIO_AUTH_TOKEN: twilioAuthToken,
           }),
     },
-    ...(options.telemetry
+    ...(options.telemetry || options.observations
       ? {
           providerOverrides: {
-            'provider:infrastructure/telemetry': options.telemetry,
+            ...(options.telemetry
+              ? { 'provider:infrastructure/telemetry': options.telemetry }
+              : {}),
+            ...(options.observations
+              ? { 'provider:infrastructure/theoria': options.observations }
+              : {}),
           },
         }
       : {}),
+    ...(options.logs ? { logging: { sink: options.logs } } : {}),
   })
   runtimes.push(runtime)
   return runtime

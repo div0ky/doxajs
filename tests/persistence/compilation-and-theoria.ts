@@ -997,7 +997,6 @@ export function registerCompilationAndTheoriaTests(
       expect(html).toContain('Everything beneath the surface')
       expect(html).toContain('.filters{flex:0 0 auto')
       expect(html).toContain('.scroll{flex:1 1 auto}')
-      expect(html).toContain('if(selected)await chooseExecution')
       expect(await (await fetch(new URL('/api/health', host.url))).json()).toEqual({
         ok: true,
         data: { service: 'theoria' },

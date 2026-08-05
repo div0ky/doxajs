@@ -7,6 +7,7 @@
 Theoria is Doxa's optional first-party execution debugger. It records redacted correlated
 observations in PostgreSQL and exposes a read-only causal timeline plus hierarchical waterfall for
 requests, operations, models, reactions, events, jobs, schedules, AI work, logs, and exceptions.
+Automatic refresh preserves the current navigation and pane scroll positions.
 
 ```sh
 doxa add theoria

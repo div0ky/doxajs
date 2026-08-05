@@ -63,6 +63,8 @@ type Database = NodePgDatabase<typeof persistenceSchema>
 type DatabaseSession = Pick<Database, 'select' | 'insert' | 'update' | 'delete' | 'execute'>
 
 export class PostgresTransactionManager extends TransactionManager implements Starts, Disposes {
+  override readonly serializesConcurrentOperations = true
+
   #pool: Pool | undefined
   #database: Database | undefined
   #connectionString: string
@@ -121,14 +123,13 @@ export class PostgresTransactionManager extends TransactionManager implements St
     try {
       result = await database.transaction(async (transaction) => {
         unitOfWork = new PostgresUnitOfWork(transaction, context)
-        try {
-          return await work(unitOfWork)
-        } catch (error) {
-          workFailure = { error }
-          throw error
-        } finally {
-          unitOfWork.close()
-        }
+        return await runTransactionWork(
+          unitOfWork,
+          () => work(unitOfWork!),
+          (error) => {
+            workFailure = { error }
+          },
+        )
       })
     } catch (error) {
       throw transactionFailure(error, workFailure)
@@ -156,26 +157,28 @@ export class PostgresTransactionManager extends TransactionManager implements St
         if (!client?.query) {
           throw new PersistenceError('PostgreSQL transaction participant is unavailable.')
         }
-        try {
-          return await work(unitOfWork, {
-            query: async <Row extends Record<string, unknown> = Record<string, unknown>>(
-              text: string,
-              values?: readonly unknown[],
-            ) => {
-              try {
-                const result = await client.query<Row>(text, values as unknown[] | undefined)
+        return await runTransactionWork(
+          unitOfWork,
+          () =>
+            work(unitOfWork!, {
+              query: async <Row extends Record<string, unknown> = Record<string, unknown>>(
+                text: string,
+                values?: readonly unknown[],
+              ) => {
+                const result = await unitOfWork!.runOperation(async () => {
+                  try {
+                    return await client.query<Row>(text, values as unknown[] | undefined)
+                  } catch (error) {
+                    throw translatePostgresOperationError(error)
+                  }
+                })
                 return { rows: result.rows, rowCount: result.rowCount }
-              } catch (error) {
-                throw translatePostgresOperationError(error)
-              }
-            },
-          })
-        } catch (error) {
-          workFailure = { error }
-          throw error
-        } finally {
-          unitOfWork.close()
-        }
+              },
+            }),
+          (error) => {
+            workFailure = { error }
+          },
+        )
       })
     } catch (error) {
       throw transactionFailure(error, workFailure)
@@ -195,14 +198,13 @@ export class PostgresTransactionManager extends TransactionManager implements St
       return await database.transaction(
         async (transaction) => {
           const reader = new PostgresUnitOfWork(transaction, context)
-          try {
-            return await work(reader)
-          } catch (error) {
-            workFailure = { error }
-            throw error
-          } finally {
-            reader.close()
-          }
+          return await runTransactionWork(
+            reader,
+            () => work(reader),
+            (error) => {
+              workFailure = { error }
+            },
+          )
         },
         { accessMode: 'read only', isolationLevel: 'repeatable read' },
       )
@@ -219,8 +221,65 @@ export class PostgresTransactionManager extends TransactionManager implements St
   }
 }
 
+class PostgresOperationQueue {
+  #tail: Promise<void> = Promise.resolve()
+  #failure: { readonly error: unknown } | undefined
+
+  run<Output>(work: () => Promise<Output>): Promise<Output> {
+    const result = this.#tail.then(async () => {
+      if (this.#failure) throw this.#failure.error
+      try {
+        return await work()
+      } catch (error) {
+        this.#failure = { error }
+        throw error
+      }
+    })
+    this.#tail = result.then(
+      () => undefined,
+      () => undefined,
+    )
+    return result
+  }
+
+  async drain(): Promise<void> {
+    let drained: Promise<void>
+    do {
+      drained = this.#tail
+      await drained
+    } while (drained !== this.#tail)
+    if (this.#failure) throw this.#failure.error
+  }
+}
+
+async function runTransactionWork<Output>(
+  unitOfWork: PostgresUnitOfWork,
+  work: () => Promise<Output>,
+  failed: (error: unknown) => void,
+): Promise<Output> {
+  let result: Output | undefined
+  let workFailure: { readonly error: unknown } | undefined
+  let drainFailure: { readonly error: unknown } | undefined
+  try {
+    result = await work()
+  } catch (error) {
+    workFailure = { error }
+    failed(error)
+  }
+  try {
+    await unitOfWork.drain()
+  } catch (error) {
+    drainFailure = { error }
+  }
+  unitOfWork.close()
+  if (workFailure) throw workFailure.error
+  if (drainFailure) throw drainFailure.error
+  return result as Output
+}
+
 class PostgresUnitOfWork extends UnitOfWork {
   readonly #afterCommit: Array<() => void | Promise<void>> = []
+  readonly #operations = new PostgresOperationQueue()
   #active = true
 
   constructor(
@@ -230,12 +289,32 @@ class PostgresUnitOfWork extends UnitOfWork {
     super()
   }
 
-  async findEntity<State extends JsonValue>(
+  runOperation<Output>(work: () => Promise<Output>): Promise<Output> {
+    try {
+      this.assertActive()
+    } catch (error) {
+      return Promise.reject(error)
+    }
+    return this.#operations.run(work)
+  }
+
+  async drain(): Promise<void> {
+    await this.#operations.drain()
+  }
+
+  findEntity<State extends JsonValue>(
     type: string,
     id: string,
     storage: ModelStorage = { kind: 'entity-state' },
   ): Promise<PersistedEntity<State> | undefined> {
-    this.assertActive()
+    return this.runOperation(() => this.findEntityNow<State>(type, id, storage))
+  }
+
+  private async findEntityNow<State extends JsonValue>(
+    type: string,
+    id: string,
+    storage: ModelStorage,
+  ): Promise<PersistedEntity<State> | undefined> {
     if (storage.kind === 'table') return await this.findMappedEntity(type, id, storage)
     const [row] = await this.session
       .select()
@@ -251,12 +330,19 @@ class PostgresUnitOfWork extends UnitOfWork {
     }
   }
 
-  async queryEntities<State extends JsonValue>(
+  queryEntities<State extends JsonValue>(
     type: string,
     storage: ModelStorage,
     plan: ModelQueryPlan,
   ): Promise<readonly PersistedEntity<State>[]> {
-    this.assertActive()
+    return this.runOperation(() => this.queryEntitiesNow<State>(type, storage, plan))
+  }
+
+  private async queryEntitiesNow<State extends JsonValue>(
+    type: string,
+    storage: ModelStorage,
+    plan: ModelQueryPlan,
+  ): Promise<readonly PersistedEntity<State>[]> {
     const where = queryWhere(type, storage, plan.constraints)
     const order = queryOrder(storage, plan.orders)
     const bounds = queryBounds(plan)
@@ -300,14 +386,25 @@ class PostgresUnitOfWork extends UnitOfWork {
     })
   }
 
-  async aggregateEntities(
+  aggregateEntities(
     type: string,
     storage: ModelStorage,
     plan: ModelQueryPlan,
     operation: 'count' | 'min' | 'max' | 'sum' | 'average',
     attribute?: string,
   ): Promise<number | ModelQueryValue | undefined> {
-    this.assertActive()
+    return this.runOperation(() =>
+      this.aggregateEntitiesNow(type, storage, plan, operation, attribute),
+    )
+  }
+
+  private async aggregateEntitiesNow(
+    type: string,
+    storage: ModelStorage,
+    plan: ModelQueryPlan,
+    operation: 'count' | 'min' | 'max' | 'sum' | 'average',
+    attribute?: string,
+  ): Promise<number | ModelQueryValue | undefined> {
     if (operation !== 'count' && !attribute) {
       throw new PersistenceError(`${operation} model aggregate requires an attribute.`)
     }
@@ -327,10 +424,13 @@ class PostgresUnitOfWork extends UnitOfWork {
       : (databaseModelValue(value, modelAttributeKind(storage, attribute!)) as ModelQueryValue)
   }
 
-  async saveEntity<State extends JsonValue>(
+  saveEntity<State extends JsonValue>(entity: SaveEntity<State>): Promise<number | SavedEntity> {
+    return this.runOperation(() => this.saveEntityNow(entity))
+  }
+
+  private async saveEntityNow<State extends JsonValue>(
     entity: SaveEntity<State>,
   ): Promise<number | SavedEntity> {
-    this.assertActive()
     if (entity.storage?.kind === 'table') return await this.saveMappedEntity(entity, entity.storage)
     const now = new Date()
     if (entity.expectedVersion === undefined) {
@@ -377,13 +477,21 @@ class PostgresUnitOfWork extends UnitOfWork {
     return updated.version
   }
 
-  async deleteEntity(
+  deleteEntity(
     type: string,
     id: string,
     expectedVersion: number,
     storage: ModelStorage = { kind: 'entity-state' },
   ): Promise<void> {
-    this.assertActive()
+    return this.runOperation(() => this.deleteEntityNow(type, id, expectedVersion, storage))
+  }
+
+  private async deleteEntityNow(
+    type: string,
+    id: string,
+    expectedVersion: number,
+    storage: ModelStorage,
+  ): Promise<void> {
     if (storage.kind === 'table') {
       await this.deleteMappedEntity(type, id, expectedVersion, storage)
       return
@@ -515,8 +623,11 @@ class PostgresUnitOfWork extends UnitOfWork {
     if (result.rows.length === 0) throw new OptimisticConcurrencyError(type, id, expectedVersion)
   }
 
-  async record<Payload extends JsonValue>(fact: JournalFact<Payload>): Promise<string> {
-    this.assertActive()
+  record<Payload extends JsonValue>(fact: JournalFact<Payload>): Promise<string> {
+    return this.runOperation(() => this.recordNow(fact))
+  }
+
+  private async recordNow<Payload extends JsonValue>(fact: JournalFact<Payload>): Promise<string> {
     const id = randomUUID()
     await this.session.insert(journalEntries).values({
       id,
@@ -531,8 +642,13 @@ class PostgresUnitOfWork extends UnitOfWork {
     return id
   }
 
-  async enqueue<Payload extends JsonValue>(message: OutboxMessage<Payload>): Promise<string> {
-    this.assertActive()
+  enqueue<Payload extends JsonValue>(message: OutboxMessage<Payload>): Promise<string> {
+    return this.runOperation(() => this.enqueueNow(message))
+  }
+
+  private async enqueueNow<Payload extends JsonValue>(
+    message: OutboxMessage<Payload>,
+  ): Promise<string> {
     const id = randomUUID()
     const now = new Date()
     await this.session.insert(outboxMessages).values({
@@ -549,8 +665,11 @@ class PostgresUnitOfWork extends UnitOfWork {
     return id
   }
 
-  async stageDelivery(delivery: StagedDelivery): Promise<void> {
-    this.assertActive()
+  stageDelivery(delivery: StagedDelivery): Promise<void> {
+    return this.runOperation(() => this.stageDeliveryNow(delivery))
+  }
+
+  private async stageDeliveryNow(delivery: StagedDelivery): Promise<void> {
     const now = new Date()
     await this.session.insert(deliveryMessages).values({
       id: delivery.id,
@@ -564,8 +683,11 @@ class PostgresUnitOfWork extends UnitOfWork {
     })
   }
 
-  async transitionDelivery(transition: DeliveryTransition): Promise<void> {
-    this.assertActive()
+  transitionDelivery(transition: DeliveryTransition): Promise<void> {
+    return this.runOperation(() => this.transitionDeliveryNow(transition))
+  }
+
+  private async transitionDeliveryNow(transition: DeliveryTransition): Promise<void> {
     if (transition.eventId) {
       const inserted = await this.session
         .insert(deliveryEvents)

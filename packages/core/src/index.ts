@@ -794,6 +794,9 @@ export class AfterCommitError extends PersistenceError {
 
 /** Infrastructure boundary used by the runtime for every action transaction. */
 export abstract class TransactionManager {
+  /** Whether one transaction serializes overlapping model operations on shared transport. */
+  readonly serializesConcurrentOperations: boolean = false
+
   bindCompiledModels(_models: readonly CompiledModelStorage[]): void {}
 
   abstract read<Output>(

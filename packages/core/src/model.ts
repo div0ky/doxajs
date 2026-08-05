@@ -610,6 +610,8 @@ export class ModelSession {
       this.reader.findEntity(type, id, definition.storage),
     )
     if (!persisted) return undefined
+    const concurrent = this.#identityMap.get(identity)
+    if (concurrent) return concurrent as Instance
     const attributes = this.validatedAttributes<Attributes>(
       definition,
       hydratedState(definition.storage, persisted.state),

@@ -48,6 +48,9 @@ The dedicated host defaults to `127.0.0.1:4400`. It provides:
 - Sanitized JSON detail for each entry.
 - Stable role IDs and source provenance when the application manifest provides them.
 
+Automatic refresh preserves the selected execution and observation plus each pane's scroll position.
+Only explicit filter, search, or navigation changes replace the operator's current context.
+
 The browser UI is read-only in the initial implementation. Queue retries, token revocation, and
 other mutations remain explicit Praxis operator commands.
 
