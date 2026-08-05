@@ -33,6 +33,11 @@ so actions and jobs query through their existing transaction and identity map. Q
 a read-only transaction and read-only `ModelSession`; hydrated models remain attached and observable
 but `create`, `save`, and `delete` fail with `ReadOnlyExecutionError` before persistence.
 
+Concurrent model operations share that transaction's one PostgreSQL client and execute through one
+FIFO queue. `Promise.all` remains valid JavaScript but provides no database parallelism; Doxa emits
+one safe session diagnostic, drains queued work before cleanup, and fails the transaction when any
+queued operation fails.
+
 Overlapping queries reuse one model identity. `retrieved` fires once when that identity is first
 hydrated in the execution. Lifecycle reactions remain observer-owned; the slice adds no competing
 model-local hook vocabulary.
@@ -85,7 +90,10 @@ query handler proves:
 7. action-mode query-then-save through the writable transaction; and
 8. builder `find` and `findOrFail` found, missing, constrained, eager-loaded, stale-session, and
    diagnostic behavior; and
-9. matching behavior in PostgreSQL and the first-party memory adapter.
+9. matching behavior in PostgreSQL and the first-party memory adapter; and
+10. concurrent reads, writes, and framework participants serialize without PostgreSQL driver
+    warnings, retain transaction cleanup, and report one development warning plus production-safe
+    telemetry.
 
 Repository-wide verification covers formatting, lint, types, sites, boundaries, documentation,
 packages, changesets, security audits, and the shared PostgreSQL/memory query conformance suite.

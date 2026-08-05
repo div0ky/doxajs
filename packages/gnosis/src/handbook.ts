@@ -635,6 +635,7 @@ const conceptDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
       'Inline services, local listeners, observers, and signals share the current execution.',
       'Actions and Jobs receive writable model sessions. Queries receive read-only model sessions.',
       'Services resolve in the caller’s scope and therefore see the caller’s active model session and unit of work.',
+      'With a shared-client adapter such as PostgreSQL, concurrent model operations in one session serialize on its transaction. Promise.all preserves the snapshot but adds no database parallelism; await every started operation and reduce round trips with eager loading, aggregates, pagination, or a dedicated read projection.',
     ].join('\n'),
   ),
   concept(

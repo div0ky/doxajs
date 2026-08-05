@@ -7,6 +7,10 @@
 Doxa's first-party PostgreSQL transaction, durability, Eloquent-style model persistence, journal,
 outbox, communications ledger, and cache adapter implemented with Drizzle.
 
+Every transaction serializes model and framework-participant operations through its one PostgreSQL
+client, drains queued work before cleanup, and rejects the complete queue after an operation fails.
+This preserves one snapshot and avoids relying on node-postgres's deprecated implicit query queue.
+
 ```sh
 pnpm add @doxajs/postgres-drizzle
 ```

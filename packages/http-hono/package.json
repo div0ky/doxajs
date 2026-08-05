@@ -45,6 +45,6 @@
     "@doxajs/core": "workspace:*",
     "@doxajs/runtime": "workspace:*",
     "@hono/node-server": "2.0.11",
-    "hono": "4.12.29"
+    "hono": "4.12.34"
   }
 }
