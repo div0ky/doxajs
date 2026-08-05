@@ -105,5 +105,8 @@ describe('release packaging', () => {
     expect(handbook.renderHandbookMarkdown(packageMetadata.version)).toContain(
       'CreateNotification Action and DeliverDueReminders Job both call NotificationCreator.',
     )
+    expect(handbook.renderHandbookMarkdown(packageMetadata.version)).toContain(
+      'Every capability starts at no',
+    )
   })
 })

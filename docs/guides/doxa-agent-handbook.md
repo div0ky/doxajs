@@ -18,6 +18,11 @@ Queries are read-only. Actions and Job attempts are writable.
 Local work may share the current unit of work. After-commit and queued work cannot preserve same-transaction atomicity; queued mutation requires a later Action or Job transaction.
 Feature.provides exports ordinary services. Feature.providers selects singleton infrastructure.
 Folders express canonical organization but never activate runtime behavior.
+Doxa decides routine choices instead of exposing preferences; configuration exists only for consequential application differences.
+Every capability starts at no, must solve a demonstrated problem, and ships as the smallest complete whole rather than a broad partial feature.
+Count design, security, documentation, testing, diagnostics, support, compatibility, and removal before accepting a capability; prefer less software and existing concepts.
+Solve general root problems in Doxa and leave uncommon local conventions to ordinary application code.
+Context outranks surface consistency, and ordinary and administrative work share one product interface unless a security or operational boundary requires separation.
 
 ## Framework roles
 

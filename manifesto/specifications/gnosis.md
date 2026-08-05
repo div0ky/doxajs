@@ -184,6 +184,12 @@ fresh execution but no automatic writable transaction: eventual mutation uses a 
 Action or a Job attempt. Installed module entries are selected only from compiled plugin package
 names and provider capabilities.
 
+Core guidance also carries Doxa's product discipline: decide routine choices instead of exporting
+preferences, start capabilities at no, ship the smallest complete whole, count the full lifetime
+cost, prefer less software and existing concepts, leave uncommon conventions to application code,
+let context outrank surface consistency, and keep ordinary and administrative work in one interface
+unless a real security or operational boundary requires separation.
+
 Search results may only come from the installed Gnosis documentation bundle and must report the
 exact version. Plugins may contribute documentation only through a later package-verifiable metadata
 contract.
@@ -231,8 +237,8 @@ Protocol changes remain isolated inside `@doxajs/gnosis`.
     reopen and a new agent task before newly registered tools become available.
 13. Codex, Claude Code, Cursor, and VS Code registrations use a portable repository-relative Node
     launcher for both root applications and applications nested in monorepos.
-14. MCP initialization and managed guidance disclose the core programming model without an agent
-    reading source or the manifesto.
+14. MCP initialization and managed guidance disclose the core programming model and product
+    discipline without an agent reading source or the manifesto.
 15. Every framework role has a complete structured guide, and installed-module filtering is
     deterministic from compiled metadata.
 16. `explain_component` reports provider/service identity, dependencies, consumers, effective

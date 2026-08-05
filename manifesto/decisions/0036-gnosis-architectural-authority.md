@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-30
+- **Amended:** 2026-08-05 to include Doxa's accepted product discipline
 - **Amends:** [0013: first-party AI engineering MCP](0013-first-party-ai-engineering-mcp.md)
 - **Specification:** [Gnosis](../specifications/gnosis.md)
 
@@ -31,6 +32,12 @@ The automatically disclosed model includes these rules:
   infrastructure.
 - Local, after-commit, and queued reactions have materially different guarantees.
 - Canonical folders communicate intent but never carry runtime meaning.
+- Doxa decides routine choices rather than exporting preferences.
+- New capabilities start at no, require demonstrated need, and ship as the smallest complete whole.
+- Full lifetime cost and less-software alternatives are evaluated before acceptance.
+- General root problems belong in Doxa; uncommon conventions may remain application code.
+- Context outranks surface consistency, and separate administrative interfaces require a real
+  security or operational boundary.
 
 Architecture review requires explicit business invariants and an atomic, after-commit, or eventual
 consistency requirement. Gnosis does not infer business intent from the manifest. Atomic invariants
