@@ -106,6 +106,38 @@ refreshed.
 Opaque bearer credentials accept at most 100 unique authority constraints. Larger grants are
 rejected before persistence so credential evaluation remains bounded.
 
+## Native impersonation
+
+Enable framework-owned impersonation explicitly:
+
+```ts
+framework = {
+  auth: {
+    impersonation: { enabled: true, sessionSeconds: 3600 },
+  },
+} as const
+```
+
+Application authorization must declare and grant `accounts.impersonate`; Doxa grants nobody by
+default. `POST /auth/impersonation` accepts `targetIdentityId` and a 1-500 character audit `reason`.
+It requires a recent password session, reuses configured target-eligibility predicates, rotates the
+opaque cookie, and never asks for target password. `DELETE /auth/impersonation` rotates again and
+restores original user.
+
+During impersonation, `actor` is target, `initiator` and `authentication.identityId` remain original
+user, and `delegation` records original user, target, unique activation grant, reason, and expiry.
+Same context drives HTTP and Keryx cookie or admission-ticket authentication. Expiry, target
+ineligibility, stop, logout, and session revocation remove target authority; live Keryx connections
+revalidate before frames and on heartbeat. Generated impersonation-enabled applications default the
+configurable Keryx heartbeat to 10 seconds. Queued work retains impersonation attribution and runs
+with the target authority accepted at dispatch, even if impersonation later stops or expires.
+
+Custom Auth providers must override `validateAuthentication` to support live session or bearer
+credentials. The base implementation rejects credential-bearing validation rather than assuming a
+credential remains active.
+
+See [native impersonation contract](../../manifesto/specifications/native-impersonation.md).
+
 Password changes and resets revoke sessions according to the first-party Auth contract. Applications
 should use generated routes and policies as the ordinary path and expose raw Auth methods only when
 a transport-specific ceremony has equivalent validation, rate limiting, audit, and origin controls.

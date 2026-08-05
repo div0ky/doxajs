@@ -6,6 +6,7 @@ export interface RecordedJobAttempt {
   readonly correlationId: string
   readonly causationId: string | undefined
   readonly actor: string
+  readonly actorId: string | undefined
 }
 
 export const recordedJobAttempts: RecordedJobAttempt[] = []

@@ -173,6 +173,11 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     )
       throw new TypeError('Keryx maxConsumedAdmissionTickets must be a positive integer.')
     if (
+      options.heartbeatMilliseconds !== undefined &&
+      (!Number.isSafeInteger(options.heartbeatMilliseconds) || options.heartbeatMilliseconds <= 0)
+    )
+      throw new TypeError('Keryx heartbeatMilliseconds must be a positive integer.')
+    if (
       options.maxCommandThrottleBuckets !== undefined &&
       (!Number.isSafeInteger(options.maxCommandThrottleBuckets) ||
         options.maxCommandThrottleBuckets <= 0)
@@ -512,6 +517,8 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     return Object.freeze({
       connectionId,
       actor: admission.actor,
+      ...(admission.initiator ? { initiator: admission.initiator } : {}),
+      ...(admission.delegation ? { delegation: admission.delegation } : {}),
       authentication: admission.authentication,
       ...(admission.tenant ? { tenant: admission.tenant } : {}),
       correlationId: admission.correlationId,
@@ -572,6 +579,7 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   }
 
   async #receive(connection: Connection, data: WebSocket.RawData, binary: boolean): Promise<void> {
+    if (!(await this.#validateConnection(connection))) return
     if (binary) {
       this.#reject(
         connection,
@@ -776,6 +784,10 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
   #publishLocal(message: BroadcastMessage): void {
     const serializedByChannel = new Map<string, string>()
     for (const connection of this.#connections) {
+      if (this.#impersonationExpired(connection)) {
+        connection.socket.close(4401, 'Authentication expired')
+        continue
+      }
       for (const channel of message.channels) {
         const key = destinationKey(channel)
         if (!connection.subscriptions.has(key)) continue
@@ -982,7 +994,12 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     this.#pulseRunning = true
     try {
       const renewals: Promise<void>[] = []
-      for (const connection of this.#connections) {
+      const connections = [...this.#connections]
+      const valid = await Promise.all(
+        connections.map((connection) => this.#validateConnection(connection)),
+      )
+      for (const [index, connection] of connections.entries()) {
+        if (!valid[index]) continue
         if (!connection.alive) {
           connection.socket.terminate()
           continue
@@ -1023,6 +1040,34 @@ export class Keryx extends BroadcastTransport implements Starts, Drains, Stops, 
     } finally {
       this.#pulseRunning = false
     }
+  }
+
+  async #validateConnection(connection: Connection): Promise<boolean> {
+    if (this.#impersonationExpired(connection)) {
+      connection.socket.close(4401, 'Authentication expired')
+      return false
+    }
+    try {
+      if (
+        connection.admission.authentication.state === 'authenticated' &&
+        (await this.#gateway?.validate?.(connection.admission)) === false
+      ) {
+        connection.socket.close(4401, 'Authentication revoked')
+        return false
+      }
+      return true
+    } catch {
+      connection.socket.close(1012, 'Authentication validation unavailable')
+      return false
+    }
+  }
+
+  #impersonationExpired(connection: Connection): boolean {
+    return (connection.admission.delegation ?? []).some(
+      (hop) =>
+        hop.expiresAt !== undefined &&
+        hop.expiresAt.epochMicroseconds <= BigInt(Date.now()) * 1_000n,
+    )
   }
 
   #backplaneUnavailable(): void {

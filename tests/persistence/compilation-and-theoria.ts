@@ -468,6 +468,7 @@ export function registerCompilationAndTheoriaTests(
         id: 'policy:accounts/account',
         abilities: [
           'accounts.email.verify',
+          'accounts.impersonation.stop',
           'accounts.logout',
           'accounts.password.change',
           'accounts.reauthenticate',
@@ -548,6 +549,7 @@ export function registerCompilationAndTheoriaTests(
       expect.objectContaining({
         id: 'permission-source:authorization/application-permissions',
         abilities: [
+          'accounts.impersonate',
           'authorization.branch.override',
           'authorization.contact.read',
           'authorization.user.update',

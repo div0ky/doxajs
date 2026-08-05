@@ -7,6 +7,7 @@ import {
   type AuthStorageDescription,
   type AuthChallengeGrant,
   type AuthIdentity,
+  type AuthImpersonationGrant,
   type AuthRequestMetadata,
   type AuthSessionGrant,
   type AuthSession,
@@ -20,6 +21,8 @@ import {
   type RegistrationInput,
   type ResolvedHttpAuthentication,
   type ExecutionContext,
+  type ActorRef,
+  type AuthenticationContext,
   type PolicyDecision,
   SecretString,
   type Starts,
@@ -87,6 +90,7 @@ export interface PostgresAuthOptions {
   readonly challengeSeconds?: number
   readonly sessionRenewalSeconds?: number
   readonly sessionRotationGraceSeconds?: number
+  readonly impersonationSessionSeconds?: number
   readonly identityId?: () => string
   readonly tables?: {
     readonly identities: AuthIdentityTableMapping
@@ -157,6 +161,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
   readonly #trustedOrigins: ReadonlySet<string>
   readonly #sessionRenewalSeconds: number
   readonly #sessionRotationGraceSeconds: number
+  readonly #impersonationSessionSeconds: number
 
   constructor(private readonly options: PostgresAuthOptions) {
     super()
@@ -168,6 +173,13 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     this.#trustedOrigins = new Set(options.trustedOrigins.map(normalizeOrigin))
     this.#sessionRenewalSeconds = options.sessionRenewalSeconds ?? 15 * 60
     this.#sessionRotationGraceSeconds = options.sessionRotationGraceSeconds ?? 30
+    this.#impersonationSessionSeconds = options.impersonationSessionSeconds ?? 60 * 60
+    if (
+      !Number.isSafeInteger(this.#impersonationSessionSeconds) ||
+      this.#impersonationSessionSeconds < 1
+    ) {
+      throw new TypeError('PostgresAuth impersonationSessionSeconds must be a positive integer.')
+    }
     if (options.tables) validateAuthMappings(options.tables)
     this.#mappedTables = options.tables
   }
@@ -897,6 +909,230 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     return instantFromDate(now)
   }
 
+  async startImpersonation(
+    identityId: string,
+    sessionId: string,
+    targetIdentityId: string,
+    reason: string,
+  ): Promise<AuthImpersonationGrant> {
+    const normalizedReason = reason.trim()
+    const [identity, target] = await Promise.all([
+      this.findIdentity(identityId),
+      this.findIdentity(targetIdentityId),
+    ])
+    if (
+      identityId === targetIdentityId ||
+      normalizedReason.length < 1 ||
+      normalizedReason.length > 500 ||
+      !identity ||
+      !target ||
+      !(await this.#ensureEligible(identityId)) ||
+      !(await this.#ensureEligible(targetIdentityId))
+    ) {
+      throw new AuthenticationError(
+        'impersonation_not_allowed',
+        'The requested impersonation is not allowed.',
+      )
+    }
+    const token = randomBytes(32).toString('base64url')
+    const grantId = randomUUID()
+    const now = new Date()
+    const requestedExpiry = new Date(now.getTime() + this.#impersonationSessionSeconds * 1_000)
+    const recentAfter = new Date(now.getTime() - 15 * 60 * 1_000)
+    const result = await this.#requireDatabase().transaction(async (transaction) => {
+      const [session] = await transaction
+        .update(authSessions)
+        .set({
+          tokenDigest: digest(token),
+          previousTokenDigest: null,
+          previousTokenExpiresAt: null,
+          lastSeenAt: now,
+          impersonationGrantId: grantId,
+          impersonatedIdentityId: targetIdentityId,
+          impersonationReason: normalizedReason,
+          impersonationStartedAt: now,
+          impersonationExpiresAt: sql`least(${authSessions.expiresAt}, ${requestedExpiry})`,
+        })
+        .where(
+          and(
+            eq(authSessions.id, sessionId),
+            eq(authSessions.identityId, identityId),
+            isNull(authSessions.revokedAt),
+            isNull(authSessions.impersonatedIdentityId),
+            gt(authSessions.authenticatedAt, recentAfter),
+            gt(authSessions.expiresAt, now),
+            gt(authSessions.idleExpiresAt, now),
+          ),
+        )
+        .returning()
+      if (!session) return undefined
+      await transaction.insert(authAuditEvents).values({
+        id: randomUUID(),
+        eventType: 'impersonation.started',
+        identityId,
+        sessionId,
+        metadata: {
+          targetIdentityId,
+          grantId,
+          reason: normalizedReason,
+          expiresAt: session.impersonationExpiresAt!.toISOString(),
+        },
+        occurredAt: now,
+      })
+      return session
+    })
+    if (!result) {
+      throw new AuthenticationError(
+        'impersonation_not_allowed',
+        'The requested impersonation is not allowed.',
+      )
+    }
+    return Object.freeze({
+      identity,
+      target,
+      session: sessionFrom(result),
+      token: SecretString.from(token),
+    })
+  }
+
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
+    const token = randomBytes(32).toString('base64url')
+    const now = new Date()
+    const result = await this.#requireDatabase().transaction(async (transaction) => {
+      const [current] = await transaction
+        .select()
+        .from(authSessions)
+        .where(
+          and(
+            eq(authSessions.id, sessionId),
+            eq(authSessions.identityId, identityId),
+            eq(authSessions.impersonationGrantId, impersonationGrantId),
+            isNull(authSessions.revokedAt),
+            gt(authSessions.impersonationExpiresAt, now),
+          ),
+        )
+        .limit(1)
+        .for('update')
+      if (!current) return undefined
+      const [session] = await transaction
+        .update(authSessions)
+        .set({
+          tokenDigest: digest(token),
+          previousTokenDigest: null,
+          previousTokenExpiresAt: null,
+          lastSeenAt: now,
+          impersonationGrantId: null,
+          impersonatedIdentityId: null,
+          impersonationReason: null,
+          impersonationStartedAt: null,
+          impersonationExpiresAt: null,
+        })
+        .where(
+          and(
+            eq(authSessions.id, sessionId),
+            eq(authSessions.identityId, identityId),
+            eq(authSessions.impersonationGrantId, impersonationGrantId),
+            isNull(authSessions.revokedAt),
+            gt(authSessions.impersonationExpiresAt, now),
+          ),
+        )
+        .returning()
+      if (!session) return undefined
+      await transaction.insert(authAuditEvents).values({
+        id: randomUUID(),
+        eventType: 'impersonation.stopped',
+        identityId,
+        sessionId,
+        metadata: {
+          targetIdentityId: current.impersonatedIdentityId!,
+          grantId: current.impersonationGrantId!,
+        },
+        occurredAt: now,
+      })
+      return session
+    })
+    if (!result) {
+      throw new AuthenticationError(
+        'impersonation_not_active',
+        'The session is not actively impersonating.',
+      )
+    }
+    const identity = await this.findIdentity(identityId)
+    if (!identity) {
+      await this.revokeSession(sessionId)
+      throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
+    }
+    return Object.freeze({
+      identity,
+      session: sessionFrom(result),
+      token: SecretString.from(token),
+    })
+  }
+
+  async validateAuthentication(
+    actor: ActorRef,
+    authentication: AuthenticationContext,
+  ): Promise<boolean> {
+    if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
+    if (actor.kind !== 'user' || !actor.id || !authentication.identityId) return false
+    const now = new Date()
+    if (
+      authentication.method === 'password' &&
+      (authentication.sessionId || authentication.impersonationGrantId)
+    ) {
+      const [session] = await this.#requireDatabase()
+        .select()
+        .from(authSessions)
+        .where(
+          and(
+            authentication.sessionId
+              ? eq(authSessions.id, authentication.sessionId)
+              : eq(authSessions.impersonationGrantId, authentication.impersonationGrantId!),
+            eq(authSessions.identityId, authentication.identityId),
+            isNull(authSessions.revokedAt),
+            gt(authSessions.expiresAt, now),
+            gt(authSessions.idleExpiresAt, now),
+          ),
+        )
+        .limit(1)
+      if (
+        !session ||
+        !(await this.findIdentity(session.identityId)) ||
+        (authentication.impersonationGrantId !== undefined &&
+          session.impersonationGrantId !== authentication.impersonationGrantId)
+      )
+        return false
+      const target =
+        session.impersonatedIdentityId &&
+        session.impersonationExpiresAt &&
+        session.impersonationExpiresAt > now &&
+        (await this.findIdentity(session.impersonatedIdentityId))
+          ? session.impersonatedIdentityId
+          : session.identityId
+      return actor.id === target
+    }
+    if (authentication.method === 'bearer' && authentication.credentialId) {
+      const [token] = await this.#requireDatabase()
+        .select({ identityId: authAccessTokens.identityId })
+        .from(authAccessTokens)
+        .where(
+          and(
+            eq(authAccessTokens.id, authentication.credentialId),
+            eq(authAccessTokens.identityId, authentication.identityId),
+            isNull(authAccessTokens.revokedAt),
+            gt(authAccessTokens.expiresAt, now),
+          ),
+        )
+        .limit(1)
+      return Boolean(token && actor.id === token.identityId && (await this.findIdentity(actor.id)))
+    }
+    return false
+  }
+
   async revokeSession(sessionId: string): Promise<void> {
     const now = new Date()
     await this.#requireDatabase().transaction(async (transaction) => {
@@ -929,7 +1165,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       .select()
       .from(authSessions)
       .where(eq(authSessions.identityId, identityId))
-    return rows.map(authSessionFrom)
+    return rows.map(sessionFrom)
   }
 
   async revokeAllSessions(identityId: string): Promise<number> {
@@ -1075,6 +1311,10 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         code: decision.code,
         actorKind: context.actor.kind,
         ...(context.actor.id ? { actorId: context.actor.id } : {}),
+        ...(context.initiator.id ? { initiatorId: context.initiator.id } : {}),
+        ...(context.delegation.length
+          ? { delegationGrantIds: context.delegation.map((hop) => hop.grantId).join(',') }
+          : {}),
         executionId: context.executionId,
         correlationId: context.correlationId,
       },
@@ -1115,7 +1355,60 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       .limit(1)
     if (!session) return anonymousAuthentication()
     const identity = await this.findIdentity(session.identityId)
-    if (!identity) return anonymousAuthentication()
+    if (!identity || !(await this.#ensureEligible(session.identityId))) {
+      return anonymousAuthentication()
+    }
+    let impersonation = sessionFrom(session).impersonation
+    let target = impersonation ? await this.findIdentity(impersonation.targetIdentityId) : undefined
+    const nowInstant = Instant.fromLegacyDate(now)
+    if (
+      impersonation &&
+      (!impersonation.expiresAt.isAfter(nowInstant) ||
+        !target ||
+        !(await this.#ensureEligible(impersonation.targetIdentityId)))
+    ) {
+      const eventType = !impersonation.expiresAt.isAfter(nowInstant)
+        ? 'impersonation.expired'
+        : 'impersonation.ended'
+      const cleared = await this.#requireDatabase().transaction(async (transaction) => {
+        const [ended] = await transaction
+          .update(authSessions)
+          .set({
+            impersonationGrantId: null,
+            impersonatedIdentityId: null,
+            impersonationReason: null,
+            impersonationStartedAt: null,
+            impersonationExpiresAt: null,
+          })
+          .where(
+            and(
+              eq(authSessions.id, session.id),
+              eq(authSessions.impersonationGrantId, impersonation!.grantId),
+              eq(authSessions.impersonatedIdentityId, impersonation!.targetIdentityId),
+              isNull(authSessions.revokedAt),
+            ),
+          )
+          .returning({ id: authSessions.id })
+        if (ended)
+          await transaction.insert(authAuditEvents).values({
+            id: randomUUID(),
+            eventType,
+            identityId: session.identityId,
+            sessionId: session.id,
+            metadata: {
+              targetIdentityId: impersonation!.targetIdentityId,
+              grantId: impersonation!.grantId,
+              reason:
+                eventType === 'impersonation.expired' ? 'duration_expired' : 'target_ineligible',
+            },
+            occurredAt: now,
+          })
+        return Boolean(ended)
+      })
+      if (!cleared) return await this.resolveHttp(request)
+      impersonation = undefined
+      target = undefined
+    }
     // A WebSocket handshake is a GET, but it establishes long-lived cookie authority and must
     // receive the same trusted-origin protection as an unsafe HTTP request.
     assertTrustedOrigin(request, this.#trustedOrigins, webSocketUpgrade)
@@ -1163,7 +1456,21 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         .where(eq(authSessions.id, session.id))
     }
     return Object.freeze({
-      actor: Object.freeze({ kind: 'user' as const, id: identity.id }),
+      actor: Object.freeze({ kind: 'user' as const, id: target?.id ?? identity.id }),
+      initiator: Object.freeze({ kind: 'user' as const, id: identity.id }),
+      delegation: Object.freeze(
+        impersonation
+          ? [
+              Object.freeze({
+                from: Object.freeze({ kind: 'user' as const, id: identity.id }),
+                to: Object.freeze({ kind: 'user' as const, id: impersonation.targetIdentityId }),
+                grantId: impersonation.grantId,
+                reason: impersonation.reason,
+                expiresAt: impersonation.expiresAt,
+              }),
+            ]
+          : [],
+      ),
       authentication: Object.freeze({
         state: 'authenticated' as const,
         identityId: identity.id,
@@ -1171,6 +1478,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         assurance: 'single-factor' as const,
         authenticatedAt: instantFromDate(session.authenticatedAt),
         sessionId: session.id,
+        ...(impersonation ? { impersonationGrantId: impersonation.grantId } : {}),
       }),
       ...(responseHeaders ? { responseHeaders } : {}),
     })
@@ -1197,7 +1505,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     if (!accessToken)
       throw new AuthenticationError('invalid_credentials', 'The bearer credential is invalid.')
     const identity = await this.findIdentity(accessToken.identityId)
-    if (!identity)
+    if (!identity || !(await this.#ensureEligible(accessToken.identityId)))
       throw new AuthenticationError('invalid_credentials', 'The bearer credential is invalid.')
     await this.#requireDatabase()
       .update(authAccessTokens)
@@ -2089,6 +2397,35 @@ async function updateMappedIdentityVerification(
 
 function identityFrom(row: typeof authIdentities.$inferSelect): AuthIdentity {
   return identityFromStored(row)
+}
+
+function sessionFrom(row: typeof authSessions.$inferSelect): AuthSession {
+  const completeImpersonation =
+    row.impersonatedIdentityId &&
+    row.impersonationGrantId &&
+    row.impersonationReason &&
+    row.impersonationStartedAt &&
+    row.impersonationExpiresAt
+  return Object.freeze({
+    id: row.id,
+    identityId: row.identityId,
+    createdAt: instantFromDate(row.createdAt),
+    authenticatedAt: instantFromDate(row.authenticatedAt),
+    expiresAt: instantFromDate(row.expiresAt),
+    lastSeenAt: instantFromDate(row.lastSeenAt),
+    ...(row.revokedAt ? { revokedAt: instantFromDate(row.revokedAt) } : {}),
+    ...(completeImpersonation
+      ? {
+          impersonation: Object.freeze({
+            grantId: row.impersonationGrantId!,
+            targetIdentityId: row.impersonatedIdentityId!,
+            reason: row.impersonationReason!,
+            startedAt: instantFromDate(row.impersonationStartedAt!),
+            expiresAt: instantFromDate(row.impersonationExpiresAt!),
+          }),
+        }
+      : {}),
+  })
 }
 
 function identityFromStored(row: StoredIdentity, mapping?: AuthIdentityTableMapping): AuthIdentity {

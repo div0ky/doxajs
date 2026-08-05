@@ -22,6 +22,7 @@ import {
   AuthorizationError,
   type ActionClass,
   type ExecutionContext,
+  FakeBroadcastTransport,
   DetachedModelError,
   EventDispatchError,
   Graphite,
@@ -839,6 +840,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       'Migrated framework/postgres-drizzle/0001_doxa_durability.sql',
       'Migrated framework/auth-postgres/0001_doxa_auth.sql',
       'Migrated framework/auth-postgres/0003_challenge_recipient_binding.sql',
+      'Migrated framework/auth-postgres/0004_native_impersonation.sql',
       'Migrated framework/queue-pg-boss/0001_doxa_schedule_controls.sql',
       'Migrated framework/queue-pg-boss/0002_doxa_queue_attempt_traces.sql',
     ])
@@ -915,6 +917,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     ).toBe(0)
     const migrations = output.filter((line) => line.includes('framework/auth-postgres/'))
     expect(migrations.some((line) => line.includes('0000_auth_infrastructure.sql'))).toBe(true)
+    expect(migrations.some((line) => line.includes('0004_native_impersonation.sql'))).toBe(true)
     expect(migrations.some((line) => line.includes('sidecar'))).toBe(false)
   })
 
@@ -1968,6 +1971,161 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         'session.revoked',
       ]),
     )
+  })
+
+  it('authorizes, audits, restores, expires, and revalidates native impersonation', async () => {
+    const broadcasts = new FakeBroadcastTransport()
+    const runtime = await bootPersistenceRuntime({ broadcasts })
+    const http = new HonoHttpEngine(runtime)
+    const register = async (identifier: string) => {
+      const response = await http.fetch(
+        jsonRequest('http://doxa.test/auth/register', {
+          identifier,
+          password: 'impersonation test password',
+        }),
+      )
+      return (await responseData<{ identity: { id: string } }>(response)).identity.id
+    }
+    const login = async (identifier: string) => {
+      const response = await http.fetch(
+        jsonRequest('http://doxa.test/auth/login', {
+          identifier,
+          password: 'impersonation test password',
+        }),
+      )
+      return response.headers.get('set-cookie')!.split(';', 1)[0]!
+    }
+    const adminId = await register('impersonator@example.com')
+    const targetId = await register('target@example.com')
+    const adminCookie = await login('impersonator@example.com')
+    const targetCookie = await login('target@example.com')
+    await runAction(runtime, SeedLegacyAccess, {
+      userId: adminId,
+      branchTag: 'admin',
+      includeImpersonation: true,
+    })
+    const requestImpersonation = (cookie: string, requestedTarget = targetId) =>
+      http.fetch(
+        new Request('http://doxa.test/auth/impersonation', {
+          method: 'POST',
+          headers: { cookie, origin: 'http://doxa.test', 'content-type': 'application/json' },
+          body: JSON.stringify({
+            targetIdentityId: requestedTarget,
+            reason: 'Support ticket 42',
+          }),
+        }),
+      )
+
+    expect((await requestImpersonation(targetCookie, adminId)).status).toBe(403)
+    expect((await requestImpersonation(adminCookie, 'missing-target')).status).toBe(422)
+
+    const started = await requestImpersonation(adminCookie)
+    expect(started.status).toBe(200)
+    const impersonatedCookie = started.headers.get('set-cookie')!.split(';', 1)[0]!
+    expect(impersonatedCookie).not.toBe(adminCookie)
+    expect(
+      (
+        await http.fetch(
+          new Request('http://doxa.test/auth/me', { headers: { cookie: adminCookie } }),
+        )
+      ).status,
+    ).toBe(401)
+
+    const me = await http.fetch(
+      new Request('http://doxa.test/auth/me', { headers: { cookie: impersonatedCookie } }),
+    )
+    expect(await responseData(me)).toEqual(
+      expect.objectContaining({
+        actor: { kind: 'user', id: targetId },
+        initiator: { kind: 'user', id: adminId },
+        delegation: [
+          expect.objectContaining({
+            from: { kind: 'user', id: adminId },
+            to: { kind: 'user', id: targetId },
+            reason: 'Support ticket 42',
+          }),
+        ],
+      }),
+    )
+
+    const socketAdmission = await broadcasts.connect(
+      'impersonated-socket',
+      new Request('http://doxa.test/app', {
+        headers: {
+          cookie: impersonatedCookie,
+          origin: 'http://doxa.test',
+          upgrade: 'websocket',
+        },
+      }),
+    )
+    expect(socketAdmission).toEqual(
+      expect.objectContaining({
+        actor: { kind: 'user', id: targetId },
+        initiator: { kind: 'user', id: adminId },
+      }),
+    )
+    expect(await broadcasts.validate(socketAdmission)).toBe(true)
+    await pool.query(
+      `UPDATE doxa_auth_sessions SET impersonated_identity_id = 'missing-target'
+       WHERE identity_id = $1 AND revoked_at IS NULL`,
+      [adminId],
+    )
+    expect(await broadcasts.validate(socketAdmission)).toBe(false)
+    await pool.query(
+      `UPDATE doxa_auth_sessions SET impersonated_identity_id = $2
+       WHERE identity_id = $1 AND revoked_at IS NULL`,
+      [adminId, targetId],
+    )
+
+    const stopped = await http.fetch(
+      new Request('http://doxa.test/auth/impersonation', {
+        method: 'DELETE',
+        headers: { cookie: impersonatedCookie, origin: 'http://doxa.test' },
+      }),
+    )
+    expect(stopped.status).toBe(204)
+    const restoredCookie = stopped.headers.get('set-cookie')!.split(';', 1)[0]!
+    expect(await broadcasts.validate(socketAdmission)).toBe(false)
+    const restored = await http.fetch(
+      new Request('http://doxa.test/auth/me', { headers: { cookie: restoredCookie } }),
+    )
+    expect(await responseData(restored)).toEqual(
+      expect.objectContaining({
+        actor: { kind: 'user', id: adminId },
+        initiator: { kind: 'user', id: adminId },
+        delegation: [],
+      }),
+    )
+
+    const restarted = await requestImpersonation(restoredCookie)
+    const expiringCookie = restarted.headers.get('set-cookie')!.split(';', 1)[0]!
+    expect(await broadcasts.validate(socketAdmission)).toBe(false)
+    await pool.query(
+      `UPDATE doxa_auth_sessions
+       SET impersonation_started_at = now() - interval '2 seconds',
+           impersonation_expires_at = now() - interval '1 second'
+       WHERE identity_id = $1 AND revoked_at IS NULL`,
+      [adminId],
+    )
+    const expired = await http.fetch(
+      new Request('http://doxa.test/auth/me', { headers: { cookie: expiringCookie } }),
+    )
+    expect(await responseData(expired)).toEqual(
+      expect.objectContaining({ actor: { kind: 'user', id: adminId }, delegation: [] }),
+    )
+
+    const audit = await pool.query<{ event_type: string; metadata: Record<string, string> }>(
+      `SELECT event_type, metadata FROM doxa_auth_audit_events
+       WHERE identity_id = $1 AND event_type LIKE 'impersonation.%' ORDER BY occurred_at`,
+      [adminId],
+    )
+    expect(audit.rows.map((row) => row.event_type)).toEqual([
+      'impersonation.started',
+      'impersonation.stopped',
+      'impersonation.started',
+      'impersonation.expired',
+    ])
+    expect(audit.rows.every((row) => row.metadata.targetIdentityId === targetId)).toBe(true)
   })
 
   it('verifies email, resets and changes passwords, revokes sessions, and rate limits abuse', async () => {
@@ -5232,6 +5390,7 @@ async function bootPersistenceRuntime(
     readonly logs?: MemoryLogSink
     readonly observations?: ObservationRecorder
     readonly nodeEnvironment?: 'development' | 'production'
+    readonly broadcasts?: FakeBroadcastTransport
   } = {},
 ): Promise<DoxaRuntime> {
   const artifactsDirectory = await temporaryDirectory()
@@ -5250,7 +5409,7 @@ async function bootPersistenceRuntime(
             COMMUNICATIONS_TWILIO_AUTH_TOKEN: twilioAuthToken,
           }),
     },
-    ...(options.telemetry || options.observations
+    ...(options.telemetry || options.observations || options.broadcasts
       ? {
           providerOverrides: {
             ...(options.telemetry
@@ -5258,6 +5417,9 @@ async function bootPersistenceRuntime(
               : {}),
             ...(options.observations
               ? { 'provider:infrastructure/theoria': options.observations }
+              : {}),
+            ...(options.broadcasts
+              ? { 'provider:infrastructure/broadcasting': options.broadcasts }
               : {}),
           },
         }

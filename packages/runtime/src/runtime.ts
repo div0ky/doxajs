@@ -478,6 +478,7 @@ export class DoxaRuntime {
       this.#realtimeCommandsByName.set(command.command, command)
     broadcastTransport?.bind({
       connect: (connectionId, request) => this.connectBroadcast(connectionId, request),
+      validate: (admission) => this.validateBroadcast(admission),
       subscribe: (admission, destination) => this.subscribeBroadcast(admission, destination),
       unsubscribe: (admission, destination) => this.unsubscribeBroadcast(admission, destination),
       command: (admission, request) => this.dispatchRealtimeCommand(admission, request),
@@ -1675,7 +1676,7 @@ export class DoxaRuntime {
           `${manifest.id} is a DomainEvent and requires an active writable Unit of Work.`,
         )
       }
-      const domainEvent = event as DomainEvent<import('@doxajs/core').JsonValue>
+      const domainEvent = event as DomainEvent<import('@doxajs/core').DoxaValue>
       await unitOfWork.record({
         type: manifest.id,
         version: manifest.payloadVersion,
@@ -1937,7 +1938,7 @@ export class DoxaRuntime {
     const candidate = event as Event<unknown> & {
       broadcastOn(): BroadcastDestination | readonly BroadcastDestination[]
       broadcastAs?(): string
-      broadcastWith?(): import('@doxajs/core').JsonValue
+      broadcastWith?(): import('@doxajs/core').DoxaValue
     }
     if (typeof candidate.broadcastOn !== 'function') {
       throw new OperationDispatchError(`${manifest.id} must define broadcastOn().`)
@@ -1986,9 +1987,19 @@ export class DoxaRuntime {
     return Object.freeze({
       connectionId,
       actor: Object.freeze({ ...resolved.actor }),
+      initiator: Object.freeze({ ...(resolved.initiator ?? resolved.actor) }),
+      delegation: Object.freeze([...(resolved.delegation ?? [])]),
       authentication: Object.freeze({ ...resolved.authentication }),
       correlationId: randomUUID(),
     })
+  }
+
+  private async validateBroadcast(admission: BroadcastConnectionAdmission): Promise<boolean> {
+    if (!this.authentication) return admission.actor.kind === 'anonymous'
+    return await this.authentication.validateAuthentication(
+      admission.actor,
+      admission.authentication,
+    )
   }
 
   private subscribeBroadcast(
@@ -1999,6 +2010,8 @@ export class DoxaRuntime {
     return this.admit(
       {
         actor: admission.actor,
+        ...(admission.initiator ? { initiator: admission.initiator } : {}),
+        ...(admission.delegation ? { delegation: admission.delegation } : {}),
         authentication: admission.authentication,
         ...(admission.tenant ? { tenant: admission.tenant } : {}),
         correlationId: admission.correlationId,
@@ -2034,6 +2047,8 @@ export class DoxaRuntime {
     return this.admit(
       {
         actor: admission.actor,
+        ...(admission.initiator ? { initiator: admission.initiator } : {}),
+        ...(admission.delegation ? { delegation: admission.delegation } : {}),
         authentication: admission.authentication,
         ...(admission.tenant ? { tenant: admission.tenant } : {}),
         correlationId: admission.correlationId,
@@ -2086,6 +2101,8 @@ export class DoxaRuntime {
     const execution = this.admit(
       {
         actor: admission.actor,
+        ...(admission.initiator ? { initiator: admission.initiator } : {}),
+        ...(admission.delegation ? { delegation: admission.delegation } : {}),
         authentication: admission.authentication,
         ...(admission.tenant ? { tenant: admission.tenant } : {}),
         correlationId: admission.correlationId,

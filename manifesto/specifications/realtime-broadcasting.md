@@ -82,10 +82,13 @@ must declare a policy for `broadcast.subscribe`, even when its current events on
 channels. This keeps later private-channel edits fail-closed at compilation rather than silently
 creating an unprotected subscription path.
 
-Connection admission resolves Doxa authentication once from the WebSocket upgrade request. Every
+Connection admission resolves Doxa authentication from the WebSocket upgrade request. Every
 subscribe and unsubscribe command is then admitted as a fresh Doxa execution using that actor,
-authentication, tenant, and connection correlation context. Connection identity is never treated as
-an execution scope.
+initiator, delegation, authentication, tenant, and connection correlation context. Keryx revalidates
+admitted session or bearer authority before inbound frames and during bounded heartbeats; expired
+impersonation also closes before local event delivery. Heartbeat intervals are bounded;
+authentication provider latency is additional. Connection identity is never treated as an execution
+scope.
 
 Cookie-authenticated upgrade requests require the same trusted `Origin` validation as unsafe HTTP
 requests even though the WebSocket handshake uses `GET`. Upgrade admission must not rotate a browser
@@ -96,12 +99,12 @@ Bearer-authenticated upgrades do not acquire cookie authority from the browser.
 A browser-facing Keryx hostname cannot receive a host-only session cookie issued through another
 hostname. For that topology, the generated web application exposes `POST /broadcasting/authorize`.
 The route uses the already admitted HTTP execution to mint an encrypted admission ticket containing
-only the connection admission context. Tickets expire after a short bounded interval, are bound to
-the exact browser `Origin` and application ID, and are single-use. They must not appear in a URL.
-`@doxajs/realtime` requests the ticket with same-origin credentials and carries it in a
-`doxa.ticket.*` WebSocket subprotocol offer alongside the stable `doxa.realtime.v3` protocol. Keryx
-echoes only the stable protocol. Single topology records ticket consumption in its web process;
-Redis topology consumes the ticket atomically across replicas.
+only the connection admission context. Tickets expire after a short bounded interval, never outlive
+delegation, are bound to the exact browser `Origin` and application ID, and are single-use. They
+must not appear in a URL. `@doxajs/realtime` requests the ticket with same-origin credentials and
+carries it in a `doxa.ticket.*` WebSocket subprotocol offer alongside the stable `doxa.realtime.v3`
+protocol. Keryx echoes only the stable protocol. Single topology records ticket consumption in its
+web process; Redis topology consumes the ticket atomically across replicas.
 
 Presence membership exposes only the admitted `ActorRef`. Applications that need public profile data
 broadcast a separate, explicitly shaped event; Keryx does not serialize identities, sessions,

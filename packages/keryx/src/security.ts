@@ -8,7 +8,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-import { Instant, type ActorRef, type AuthenticationContext, type TenantRef } from '@doxajs/core'
+import {
+  Instant,
+  type ActorRef,
+  type AuthenticationContext,
+  type DelegationHop,
+  type TenantRef,
+} from '@doxajs/core'
 
 const KEY_HEADER = 'x-doxa-key'
 const TIMESTAMP_HEADER = 'x-doxa-timestamp'
@@ -21,6 +27,8 @@ const ADMISSION_TICKET_TAG_BYTES = 16
 
 export interface KeryxConnectionTicketInput {
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: readonly DelegationHop[]
   readonly authentication: AuthenticationContext
   readonly tenant?: TenantRef
   readonly correlationId: string
@@ -35,6 +43,8 @@ export interface KeryxConnectionTicketGrant {
 export interface KeryxConnectionTicketAdmission {
   readonly ticketId: string
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: readonly DelegationHop[]
   readonly authentication: AuthenticationContext
   readonly tenant?: TenantRef
   readonly correlationId: string
@@ -49,6 +59,10 @@ interface AdmissionTicketPayload {
   readonly expiresAt: number
   readonly origin: string
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: readonly Readonly<
+    Omit<DelegationHop, 'expiresAt'> & { readonly expiresAt?: string }
+  >[]
   readonly authentication: Readonly<
     Omit<AuthenticationContext, 'authenticatedAt'> & { readonly authenticatedAt?: string }
   >
@@ -173,7 +187,15 @@ export class KeryxAdmissionTickets {
 
   issue(input: KeryxConnectionTicketInput): KeryxConnectionTicketGrant {
     const issuedAt = this.now()
-    const expiresAt = issuedAt + this.lifetimeMilliseconds
+    const delegationExpiry = input.delegation
+      ?.flatMap((hop) => (hop.expiresAt ? [Number(hop.expiresAt.epochMicroseconds / 1_000n)] : []))
+      .sort((left, right) => left - right)[0]
+    const expiresAt = Math.min(
+      issuedAt + this.lifetimeMilliseconds,
+      delegationExpiry ?? Number.POSITIVE_INFINITY,
+    )
+    if (expiresAt <= issuedAt)
+      throw new TypeError('Keryx cannot issue a ticket for expired delegation.')
     const payload: AdmissionTicketPayload = {
       version: ADMISSION_TICKET_VERSION,
       applicationId: this.applicationId,
@@ -182,6 +204,8 @@ export class KeryxAdmissionTickets {
       expiresAt,
       origin: normalizeBrowserOrigin(input.origin),
       actor: parseTicketActor(input.actor),
+      ...(input.initiator ? { initiator: parseTicketActor(input.initiator) } : {}),
+      ...(input.delegation ? { delegation: serializeTicketDelegation(input.delegation) } : {}),
       authentication: serializeTicketAuthentication(input.authentication),
       ...(input.tenant ? { tenant: parseTicketTenant(input.tenant) } : {}),
       correlationId: nonEmptyString(input.correlationId, 'correlation id'),
@@ -255,13 +279,18 @@ export class KeryxAdmissionTickets {
       !Number.isSafeInteger(value.expiresAt) ||
       value.issuedAt > now + 5_000 ||
       value.expiresAt <= now ||
-      value.expiresAt - value.issuedAt !== this.lifetimeMilliseconds ||
+      value.expiresAt <= value.issuedAt ||
+      value.expiresAt - value.issuedAt > this.lifetimeMilliseconds ||
       value.origin !== normalizeBrowserOrigin(origin)
     )
       throw this.#invalidTicket()
     return Object.freeze({
       ticketId: nonEmptyString(value.ticketId, 'ticket id'),
       actor: parseTicketActor(value.actor),
+      ...(value.initiator === undefined ? {} : { initiator: parseTicketActor(value.initiator) }),
+      ...(value.delegation === undefined
+        ? {}
+        : { delegation: parseTicketDelegation(value.delegation) }),
       authentication: parseTicketAuthentication(value.authentication),
       ...(value.tenant === undefined ? {} : { tenant: parseTicketTenant(value.tenant) }),
       correlationId: nonEmptyString(value.correlationId, 'correlation id'),
@@ -330,11 +359,58 @@ function serializeTicketAuthentication(
       ? { authenticatedAt: authentication.authenticatedAt.toString() }
       : {}),
     ...(authentication.sessionId ? { sessionId: authentication.sessionId } : {}),
+    ...(authentication.impersonationGrantId
+      ? { impersonationGrantId: authentication.impersonationGrantId }
+      : {}),
     ...(authentication.credentialId ? { credentialId: authentication.credentialId } : {}),
     ...(authentication.constraints
       ? { constraints: Object.freeze([...authentication.constraints]) }
       : {}),
   })
+}
+
+function serializeTicketDelegation(
+  delegation: readonly DelegationHop[],
+): NonNullable<AdmissionTicketPayload['delegation']> {
+  if (delegation.length > 16) throw new TypeError('Keryx admission ticket delegation is invalid.')
+  return Object.freeze(
+    delegation.map((hop) =>
+      Object.freeze({
+        from: parseTicketActor(hop.from),
+        to: parseTicketActor(hop.to),
+        grantId: nonEmptyString(hop.grantId, 'delegation grant id'),
+        reason: nonEmptyString(hop.reason, 'delegation reason'),
+        ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toString() } : {}),
+      }),
+    ),
+  )
+}
+
+function parseTicketDelegation(value: unknown): readonly DelegationHop[] {
+  if (!Array.isArray(value) || value.length > 16)
+    throw new TypeError('Keryx admission ticket delegation is invalid.')
+  return Object.freeze(
+    value.map((entry) => {
+      if (!isRecord(entry)) throw new TypeError('Keryx admission ticket delegation is invalid.')
+      let expiresAt: Instant | undefined
+      if (entry.expiresAt !== undefined) {
+        if (typeof entry.expiresAt !== 'string')
+          throw new TypeError('Keryx admission ticket delegation is invalid.')
+        try {
+          expiresAt = Instant.parse(entry.expiresAt)
+        } catch {
+          throw new TypeError('Keryx admission ticket delegation is invalid.')
+        }
+      }
+      return Object.freeze({
+        from: parseTicketActor(entry.from),
+        to: parseTicketActor(entry.to),
+        grantId: nonEmptyString(entry.grantId, 'delegation grant id'),
+        reason: nonEmptyString(entry.reason, 'delegation reason'),
+        ...(expiresAt ? { expiresAt } : {}),
+      })
+    }),
+  )
 }
 
 function parseTicketActor(value: unknown): ActorRef {
@@ -357,6 +433,7 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
     !optionalString(value.identityId) ||
     !optionalString(value.method) ||
     !optionalString(value.sessionId) ||
+    !optionalString(value.impersonationGrantId) ||
     !optionalString(value.credentialId) ||
     (value.assurance !== undefined &&
       !['single-factor', 'multi-factor', 'phishing-resistant'].includes(String(value.assurance))) ||
@@ -385,6 +462,9 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
       : {}),
     ...(authenticatedAt ? { authenticatedAt } : {}),
     ...(typeof value.sessionId === 'string' ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.impersonationGrantId === 'string'
+      ? { impersonationGrantId: value.impersonationGrantId }
+      : {}),
     ...(typeof value.credentialId === 'string' ? { credentialId: value.credentialId } : {}),
     ...(Array.isArray(value.constraints)
       ? { constraints: Object.freeze([...value.constraints] as string[]) }

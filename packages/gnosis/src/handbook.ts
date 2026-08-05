@@ -885,7 +885,7 @@ const moduleDefinitions: readonly Omit<HandbookEntry, 'version'>[] = [
     undefined,
     undefined,
     'Authentication',
-    'Authentication is framework-owned and separate from application permission facts.',
+    'Authentication is framework-owned and separate from application permission facts. Native impersonation is opt-in, requires an application accounts.impersonate grant, and preserves target actor plus original initiator and delegation audit context.',
   ),
   moduleGuide(
     'module.keryx',

@@ -1,4 +1,4 @@
-# 0037: Provide First-Party Graphite Datetimes
+# 0038: Provide First-Party Graphite Datetimes
 
 - **Status:** Accepted
 - **Accepted:** 2026-08-05

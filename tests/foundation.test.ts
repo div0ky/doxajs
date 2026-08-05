@@ -209,6 +209,45 @@ describe('foundational compile-to-boot slice', () => {
     expect(featureRoutes).not.toContain('ResetPasswordRoute')
   })
 
+  it('generates native impersonation only after explicit opt-in', () => {
+    const disabled = prepareFrameworkSource(
+      'app.config.ts',
+      `export class Application { id = 'disabled'; features = [] }`,
+    )
+    expect(disabled.source).not.toContain('StartImpersonationRoute')
+
+    const enabled = prepareFrameworkSource(
+      'app.config.ts',
+      `export class Application {
+        id = 'enabled'
+        features = []
+        framework = {
+          auth: { impersonation: { enabled: true, sessionSeconds: 900 } },
+          broadcasting: { enabled: true },
+        }
+      }`,
+    )
+    expect(enabled.source).toContain('impersonationSessionSeconds = 900')
+    expect(enabled.source).toContain('heartbeatMilliseconds = 10_000')
+    expect(enabled.source).toContain('heartbeatMilliseconds: config.heartbeatMilliseconds')
+    expect(enabled.source).toContain('export class StartImpersonationRoute extends Route')
+    expect(enabled.source).toContain("static override readonly access = 'accounts.impersonate'")
+    expect(enabled.source).toContain('export class StopImpersonationRoute extends Route')
+    expect(enabled.source).toContain("readonly path = '/auth/impersonation'")
+    expect(enabled.source).toContain('StartImpersonationRoute, StopImpersonationRoute')
+
+    expect(() =>
+      prepareFrameworkSource(
+        'app.config.ts',
+        `export class Application {
+          id = 'invalid'
+          features = []
+          framework = { auth: { impersonation: { sessionSeconds: 0 } } }
+        }`,
+      ),
+    ).toThrow('sessionSeconds must be a positive number literal')
+  })
+
   it('omits verification routes when a managed external identity leaves verification unmapped', () => {
     const prepared = prepareFrameworkSource(
       'app.config.ts',
@@ -587,12 +626,19 @@ describe('foundational compile-to-boot slice', () => {
   it('preserves datetime model values and compares Graphite by persisted instant', async () => {
     class Appointment extends Model<{ id: string; startsAt: Graphite }> {
       static override readonly id = 'appointment'
+
+      recordSchedule(): void {
+        const payload = { startsAt: this.attributes.startsAt }
+        this.journal('appointment.scheduled', payload)
+        this.outbox('appointment.scheduled', payload)
+      }
     }
     const instant = Instant.parse('2026-08-05T14:00:00.000000Z')
     const chicago = Graphite.fromInstant(instant, 'America/Chicago')
     const utc = Graphite.fromInstant(instant, 'UTC')
     const later = Graphite.fromInstant(instant.add({ hours: 1 }), 'UTC')
     const queryPlans: ModelQueryPlan[] = []
+    const durablePayloads: unknown[] = []
     let queryCount = 0
     const session = new ModelSession(
       {
@@ -618,6 +664,15 @@ describe('foundational compile-to-boot slice', () => {
             state: encodeDateTimeValues(value),
           }))
         },
+        record: async (fact: { payload: unknown }) => {
+          durablePayloads.push(fact.payload)
+          return 'journal-1'
+        },
+        enqueue: async (message: { payload: unknown }) => {
+          durablePayloads.push(message.payload)
+          return 'outbox-1'
+        },
+        afterCommit: () => undefined,
       } as never,
       new Map([
         [
@@ -641,6 +696,8 @@ describe('foundational compile-to-boot slice', () => {
       expect(appointment.getAttribute('startsAt')).toBeInstanceOf(Graphite)
       appointment.setAttribute('startsAt', utc)
       expect(appointment.isDirty('startsAt')).toBe(false)
+      appointment.recordSchedule()
+      await appointment.save()
 
       const firstPage = await Appointment.query().orderBy('startsAt').cursorPaginate({ first: 1 })
       expect(firstPage.nextCursor).toEqual(expect.any(String))
@@ -651,6 +708,10 @@ describe('foundational compile-to-boot slice', () => {
       expect(JSON.stringify(cursorValue)).toContain('2026-08-05T14:00:00.000000+00:00[UTC]')
     })
     session.close()
+    expect(durablePayloads).toEqual([
+      encodeDateTimeValues({ startsAt: utc }),
+      encodeDateTimeValues({ startsAt: utc }),
+    ])
 
     expect(
       applyModelQueryPlan(

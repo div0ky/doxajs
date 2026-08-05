@@ -10,6 +10,7 @@ import { Duration, Graphite, Instant, LocalDate } from './graphite.js'
 import {
   PersistenceError,
   ReadOnlyExecutionError,
+  type DoxaValue,
   type JsonValue,
   type ModelReader,
   type ModelStorage,
@@ -97,12 +98,12 @@ export type ModelAttributePatch<Attributes extends ModelAttributes> = {
   [Key in OptionalModelAttributeKey<Attributes>]?: Attributes[Key] | undefined
 }
 
-export interface ModelJournalFact<Payload extends JsonValue = JsonValue> {
+export interface ModelJournalFact<Payload extends DoxaValue = DoxaValue> {
   readonly type: string
   readonly payload: Payload
 }
 
-export interface ModelOutboxMessage<Payload extends JsonValue = JsonValue> {
+export interface ModelOutboxMessage<Payload extends DoxaValue = DoxaValue> {
   readonly type: string
   readonly payload: Payload
   readonly availableAt?: Instant
@@ -460,18 +461,18 @@ export abstract class Model<
     return this.#relations.get(String(key)) as Relations[Key]
   }
 
-  protected journal<Payload extends JsonValue>(type: string, payload: Payload): void {
-    this.#pendingJournal.push({ type, payload: clone(payload) })
+  protected journal<Payload extends DoxaValue>(type: string, payload: Payload): void {
+    this.#pendingJournal.push({ type, payload: encodeDateTimeValues(payload) as JsonValue })
   }
 
-  protected outbox<Payload extends JsonValue>(
+  protected outbox<Payload extends DoxaValue>(
     type: string,
     payload: Payload,
     availableAt?: Instant,
   ): void {
     this.#pendingOutbox.push({
       type,
-      payload: clone(payload),
+      payload: encodeDateTimeValues(payload) as JsonValue,
       ...(availableAt ? { availableAt } : {}),
     })
   }

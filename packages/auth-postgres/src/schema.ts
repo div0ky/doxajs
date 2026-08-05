@@ -60,6 +60,17 @@ export const authSessions = pgTable(
     idleExpiresAt: timestamp('idle_expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
     revokedAt: timestamp('revoked_at', { withTimezone: true, mode: 'date' }),
+    impersonationGrantId: uuid('impersonation_grant_id'),
+    impersonatedIdentityId: text('impersonated_identity_id'),
+    impersonationReason: text('impersonation_reason'),
+    impersonationStartedAt: timestamp('impersonation_started_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
+    impersonationExpiresAt: timestamp('impersonation_expires_at', {
+      withTimezone: true,
+      mode: 'date',
+    }),
     ipAddress: text('ip_address'),
     userAgent: text('user_agent'),
   },
@@ -67,6 +78,7 @@ export const authSessions = pgTable(
     uniqueIndex('doxa_auth_session_token_idx').on(table.tokenDigest),
     index('doxa_auth_session_identity_idx').on(table.identityId, table.revokedAt),
     index('doxa_auth_session_expiry_idx').on(table.expiresAt, table.idleExpiresAt),
+    uniqueIndex('doxa_auth_session_impersonation_grant_idx').on(table.impersonationGrantId),
   ],
 )
 

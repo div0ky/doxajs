@@ -1,4 +1,5 @@
-import type { JsonValue } from './index.js'
+import { decodeDateTimeValues, encodeDateTimeValues } from './datetime-codec.js'
+import type { DoxaValue, JsonValue } from './index.js'
 
 export type DeliveryState =
   | 'pending'
@@ -32,7 +33,7 @@ export interface MailMessage {
   readonly text?: string
   readonly html?: string
   readonly template?: string
-  readonly data?: Readonly<Record<string, JsonValue>>
+  readonly data?: Readonly<Record<string, DoxaValue>>
 }
 
 export interface SmsMessage {
@@ -96,7 +97,7 @@ export abstract class DeliveryLedger {
 export class FakeMailTransport extends MailTransport {
   readonly sent: MailMessage[] = []
   async send(message: MailMessage): Promise<DeliveryAcceptance> {
-    this.sent.push(structuredClone(message))
+    this.sent.push(decodeDateTimeValues(encodeDateTimeValues(message)) as MailMessage)
     return {
       messageId: message.id,
       providerMessageId: `fake-mail:${message.id}`,

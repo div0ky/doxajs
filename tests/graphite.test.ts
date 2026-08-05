@@ -1,4 +1,15 @@
-import { DateTimeError, Duration, Graphite, Instant, LocalDate } from '@doxajs/core'
+import {
+  Channel,
+  DateTimeError,
+  Duration,
+  FakeMailTransport,
+  Graphite,
+  Instant,
+  LocalDate,
+  type DoxaValue,
+  type MailMessage,
+  type ShouldBroadcast,
+} from '@doxajs/core'
 import {
   decodeDateTimeValues,
   encodeDateTimeStrings,
@@ -130,14 +141,36 @@ describe('Graphite datetimes', () => {
     ).toThrow('Unsupported Doxa datetime tag instant@2.')
   })
 
-  it('uses canonical strings at public boundaries and explicit legacy Date bridges', () => {
+  it('uses Doxa values at application boundaries and canonical strings on the wire', async () => {
     const graphite = Graphite.parse('2026-08-05T09:00:00.123000-05:00[America/Chicago]')
     const instant = graphite.toInstant()
+    const payload = { graphite, instant } satisfies DoxaValue
+    const broadcast = {
+      broadcastOn: () => new Channel('appointments.public'),
+      broadcastWith: () => payload,
+    } satisfies ShouldBroadcast
+    const mail = {
+      id: 'appointment-reminder',
+      from: 'doxa@example.test',
+      to: ['developer@example.test'],
+      template: 'appointment-reminder',
+      data: payload,
+    } satisfies MailMessage
 
-    expect(encodeDateTimeStrings({ graphite, instant })).toEqual({
+    expect(encodeDateTimeStrings(broadcast.broadcastWith())).toEqual({
       graphite: graphite.toString(),
       instant: instant.toString(),
     })
+    const transport = new FakeMailTransport()
+    await transport.send(mail)
+    expect(transport.sent[0]?.data?.graphite).toBeInstanceOf(Graphite)
+    expect(transport.sent[0]?.data?.instant).toBeInstanceOf(Instant)
+  })
+
+  it('provides explicit lossless legacy Date bridges', () => {
+    const graphite = Graphite.parse('2026-08-05T09:00:00.123000-05:00[America/Chicago]')
+    const instant = graphite.toInstant()
+
     expect(Instant.fromLegacyDate(instant.toLegacyDate()).equals(instant)).toBe(true)
     expect(
       Graphite.fromLegacyDate(graphite.toLegacyDate(), graphite.timeZone).equals(graphite),

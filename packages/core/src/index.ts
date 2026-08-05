@@ -1,6 +1,6 @@
 export type Class<T = object> = abstract new (...args: never[]) => T
 
-import type { Instant } from './graphite.js'
+import type { Duration, Graphite, Instant, LocalDate } from './graphite.js'
 
 export {
   DateTimeError,
@@ -139,6 +139,8 @@ export {
   type AuthIdentity,
   type AuthIdentityRegistrationFactory,
   type AuthIdentityRegistrationInput,
+  type AuthImpersonation,
+  type AuthImpersonationGrant,
   type AuthRequestMetadata,
   type AuthSession,
   type AuthSessionGrant,
@@ -294,6 +296,10 @@ export interface DoxaFrameworkConfiguration {
     readonly secureCookies?: boolean
     readonly trustedOrigins?: readonly string[]
     readonly identity?: AuthIdentityConfiguration
+    readonly impersonation?: {
+      readonly enabled?: boolean
+      readonly sessionSeconds?: number
+    }
   }
   readonly queue?: {
     readonly localConcurrency?: number
@@ -539,6 +545,7 @@ export interface AuthenticationContext {
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
   readonly authenticatedAt?: Instant
   readonly sessionId?: string
+  readonly impersonationGrantId?: string
   readonly credentialId?: string
   readonly constraints?: readonly string[]
 }
@@ -610,6 +617,14 @@ export abstract class CurrentExecution {
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue }
+export type DoxaValue =
+  | JsonPrimitive
+  | Graphite
+  | Instant
+  | LocalDate
+  | Duration
+  | readonly DoxaValue[]
+  | { readonly [key: string]: DoxaValue }
 
 export interface PersistedEntity<State extends JsonValue = JsonValue> {
   readonly type: string

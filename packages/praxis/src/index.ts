@@ -1128,11 +1128,19 @@ async function compiledAuthMigrations(cwd: string): Promise<ReadonlySet<string>>
     }
     const authentication = manifest.authentication
     if (!authentication || authentication.source === 'doxa-owned') {
-      return new Set(['0001_doxa_auth.sql', '0003_challenge_recipient_binding.sql'])
+      return new Set([
+        '0001_doxa_auth.sql',
+        '0003_challenge_recipient_binding.sql',
+        '0004_native_impersonation.sql',
+      ])
     }
-    return new Set(['0000_auth_infrastructure.sql'])
+    return new Set(['0000_auth_infrastructure.sql', '0004_native_impersonation.sql'])
   } catch {
-    return new Set(['0001_doxa_auth.sql', '0003_challenge_recipient_binding.sql'])
+    return new Set([
+      '0001_doxa_auth.sql',
+      '0003_challenge_recipient_binding.sql',
+      '0004_native_impersonation.sql',
+    ])
   }
 }
 

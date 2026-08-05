@@ -104,7 +104,9 @@ const legacy = Instant.fromLegacyDate(new Date('2026-08-05T14:00:00.000Z')).toLe
 Database persistence always writes its UTC instant and hydrates Graphite in UTC; preserving a user
 or branch zone remains an explicit domain field. `Instant` is the UTC timeline value, `LocalDate`
 has no time or zone, and `Duration` has no anchor. JavaScript `Date` is unsupported in application
-models and framework contracts. Database adapters bridge legacy driver values privately.
+models and framework contracts. Database adapters bridge legacy driver values privately. Application
+payloads use the recursive `DoxaValue` type when they may carry these values; framework storage and
+wire contracts remain plain `JsonValue` after boundary encoding.
 
 Clock-relative calls such as `Graphite.now()` require an admitted Doxa execution. Every execution
 uses the configured application time zone and locale, defaulting to `UTC` and `en-US`. Strict input

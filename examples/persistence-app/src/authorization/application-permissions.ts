@@ -3,9 +3,13 @@ import { PermissionSource, type PermissionSourceRequest } from '@doxajs/core'
 import { User } from './models/legacy-access.js'
 
 export type AuthorizationFixtureAbility =
-  'authorization.branch.override' | 'authorization.contact.read' | 'authorization.user.update'
+  | 'accounts.impersonate'
+  | 'authorization.branch.override'
+  | 'authorization.contact.read'
+  | 'authorization.user.update'
 
 const ABILITIES: Readonly<Record<string, AuthorizationFixtureAbility>> = {
+  'account:impersonate': 'accounts.impersonate',
   'contact:read': 'authorization.contact.read',
   'override:branch': 'authorization.branch.override',
   'user:update': 'authorization.user.update',
@@ -28,6 +32,7 @@ export function resetPermissionSourceProof(): void {
 export class ApplicationPermissions extends PermissionSource {
   static override readonly id = 'application-permissions'
   static override readonly abilities = [
+    'accounts.impersonate',
     'authorization.branch.override',
     'authorization.contact.read',
     'authorization.user.update',

@@ -31,6 +31,7 @@ export class ProcessCounterJob extends Job<ProcessCounterInput> {
         correlationId: this.execution.context.correlationId,
         causationId: this.execution.context.causationId,
         actor: this.execution.context.actor.kind,
+        actorId: this.execution.context.actor.id,
       }),
     )
     if (input.holdMilliseconds) {
