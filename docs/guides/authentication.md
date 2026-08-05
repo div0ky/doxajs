@@ -129,8 +129,8 @@ user, and `delegation` records original user, target, unique activation grant, r
 Same context drives HTTP and Keryx cookie or admission-ticket authentication. Expiry, target
 ineligibility, stop, logout, and session revocation remove target authority; live Keryx connections
 revalidate before frames and on heartbeat. Generated impersonation-enabled applications default the
-configurable Keryx heartbeat to 10 seconds. Queued work retains impersonation attribution and
-revalidates the owning session at delivery.
+configurable Keryx heartbeat to 10 seconds. Queued work retains impersonation attribution and runs
+with the target authority accepted at dispatch, even if impersonation later stops or expires.
 
 Custom Auth providers must override `validateAuthentication` to support live session or bearer
 credentials. The base implementation rejects credential-bearing validation rather than assuming a

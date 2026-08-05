@@ -925,7 +925,7 @@ describe('@doxajs/testing', () => {
     }
   })
 
-  it('rejects queued impersonation after its browser session is restored', async () => {
+  it('runs queued impersonation with its dispatched actor after the browser session is restored', async () => {
     resetRecordedJobAttempts()
     const queue = new FakeQueueManager()
     const harness = await DoxaTestHarness.boot(Application, {
@@ -961,7 +961,7 @@ describe('@doxajs/testing', () => {
             {
               from: { kind: 'user', id: admin.id },
               to: { kind: 'user', id: target.id },
-              grantId: grant.session.id,
+              grantId: grant.session.impersonation!.grantId,
               reason: grant.session.impersonation!.reason,
               expiresAt: grant.session.impersonation!.expiresAt,
             },
@@ -1007,8 +1007,14 @@ describe('@doxajs/testing', () => {
         ),
       ).resolves.toBe(true)
 
-      await expect(queue.runNext()).rejects.toThrow('Queued impersonation is expired or revoked')
-      expect(recordedJobAttempts).toEqual([])
+      await expect(queue.runNext()).resolves.toBeUndefined()
+      expect(recordedJobAttempts).toEqual([
+        expect.objectContaining({
+          key: 'restored-impersonation',
+          actor: 'user',
+          actorId: target.id,
+        }),
+      ])
     } finally {
       await harness.shutdown()
     }

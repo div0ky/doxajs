@@ -2359,7 +2359,6 @@ export class DoxaRuntime {
   private async handleQueueDelivery(delivery: QueueDelivery): Promise<void> {
     const { envelope, attempt } = delivery
     assertQueueDelivery(envelope, attempt)
-    await this.validateQueuedImpersonation(envelope)
     const priorAttemptTrace =
       attempt > 1 ? await this.findQueueAttemptTrace(envelope.id, attempt - 1) : undefined
     let succeeded = false
@@ -2478,40 +2477,6 @@ export class DoxaRuntime {
         await this.clearQueueAttemptTraces(envelope.id)
       }
     }
-  }
-
-  private async validateQueuedImpersonation(envelope: QueueEnvelope): Promise<void> {
-    const { actor, initiator, delegation, authentication } = envelope.context
-    const hop = delegation[0]
-    if (
-      delegation.length !== 1 ||
-      !hop ||
-      actor.kind !== 'user' ||
-      initiator.kind !== 'user' ||
-      hop.from.kind !== 'user' ||
-      hop.to.kind !== 'user' ||
-      authentication.state !== 'authenticated' ||
-      authentication.method !== 'password' ||
-      authentication.identityId !== hop.from.id ||
-      initiator.id !== hop.from.id ||
-      actor.id !== hop.to.id
-    )
-      return
-    if (authentication.impersonationGrantId !== hop.grantId)
-      throw new OperationDispatchError('Queued impersonation is expired or revoked.')
-    const valid = await this.authentication?.validateAuthentication(actor, {
-      state: authentication.state,
-      identityId: authentication.identityId!,
-      method: authentication.method,
-      ...(authentication.assurance ? { assurance: authentication.assurance } : {}),
-      ...(authentication.authenticatedAt
-        ? { authenticatedAt: new Date(authentication.authenticatedAt) }
-        : {}),
-      ...(authentication.credentialId ? { credentialId: authentication.credentialId } : {}),
-      impersonationGrantId: hop.grantId,
-      ...(authentication.constraints ? { constraints: authentication.constraints } : {}),
-    })
-    if (!valid) throw new OperationDispatchError('Queued impersonation is expired or revoked.')
   }
 
   private async findQueueAttemptTrace(
@@ -4471,12 +4436,6 @@ function assertQueueDelivery(envelope: QueueEnvelope, attempt: number): void {
     }
     if (validHop.expiresAt !== undefined && !validIsoDate(validHop.expiresAt)) {
       invalid(`delegation ${index} expiry is invalid.`)
-    }
-    if (
-      typeof validHop.expiresAt === 'string' &&
-      new Date(validHop.expiresAt).getTime() <= Date.now()
-    ) {
-      invalid(`delegation ${index} is expired.`)
     }
   }
   const tenant = validContext.tenant as Record<string, unknown> | undefined

@@ -155,7 +155,7 @@ export interface AuthenticationContext {
 The method is a stable Doxa identifier such as `password` or `passkey`, not a plugin-specific type.
 Session IDs are local diagnostic references and must not be serialized into jobs, events, or
 external trace baggage. Impersonation activation grant IDs are non-secret revocation references and
-may cross the queue boundary with delegated work.
+may cross the queue boundary as historical attribution for delegated work.
 
 ## Context creation
 

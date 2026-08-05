@@ -38,9 +38,10 @@ Each admitted execution carries:
 - `delegation`: original-to-target hop with activation grant ID, reason, and expiry.
 
 Queue propagation keeps actor, initiator, and delegation attribution but omits browser session ID,
-following existing durable execution-context contract. Native impersonation uses the delegation
-grant ID to revalidate the owning session at delivery, so stopped, revoked, or expired impersonation
-cannot execute queued work or revive after a later impersonation starts on the same session.
+following existing durable execution-context contract. Dispatch snapshots the authorized target,
+impersonator, activation grant, reason, and expiry. Already queued work runs with that historical
+context after impersonation stops or expires; those transitions prevent new dispatches but do not
+cancel durable work.
 
 ## Stop, expiry, eligibility, and revocation
 

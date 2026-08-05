@@ -26,7 +26,8 @@ original actor when impersonation stops or expires.
   authorization decisions, and session revocation remain durable audit evidence.
 - HTTP and Keryx use the same resolved context. Keryx tickets preserve delegation, never outlive it,
   and live sockets revalidate before frames and during bounded heartbeats.
-- Queued delegated work revalidates the exact activation grant before delivery.
+- Queued delegated work snapshots the authorized target and attribution at dispatch. Later stop,
+  expiry, or revocation prevents new work without cancelling durable work already accepted.
 - Stop restores original actor. Expiry or target ineligibility clears impersonation without
   restoring target authority. Ordinary session revocation invalidates the whole session.
 
