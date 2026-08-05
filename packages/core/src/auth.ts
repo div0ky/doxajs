@@ -23,12 +23,25 @@ export interface AuthSession {
   readonly expiresAt: Date
   readonly lastSeenAt?: Date
   readonly revokedAt?: Date
+  readonly impersonation?: AuthImpersonation
+}
+
+export interface AuthImpersonation {
+  readonly grantId: string
+  readonly targetIdentityId: string
+  readonly reason: string
+  readonly startedAt: Date
+  readonly expiresAt: Date
 }
 
 export interface AuthSessionGrant {
   readonly identity: AuthIdentity
   readonly session: AuthSession
   readonly token: SecretString
+}
+
+export interface AuthImpersonationGrant extends AuthSessionGrant {
+  readonly target: AuthIdentity
 }
 
 export interface AuthAccessToken {
@@ -90,6 +103,8 @@ export interface AuthRequestMetadata {
 
 export interface ResolvedHttpAuthentication {
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: ExecutionContext['delegation']
   readonly authentication: AuthenticationContext
   readonly responseHeaders?: Readonly<Record<string, string>>
 }
@@ -149,7 +164,9 @@ export class AuthenticationError extends Error {
       | 'email_taken'
       | 'invalid_registration'
       | 'invalid_token'
-      | 'compromised_password',
+      | 'compromised_password'
+      | 'impersonation_not_allowed'
+      | 'impersonation_not_active',
     message: string,
     options?: ErrorOptions,
   ) {
@@ -190,6 +207,47 @@ export abstract class Auth {
     password: string,
     metadata?: AuthRequestMetadata,
   ): Promise<Date>
+  async startImpersonation(
+    identityId: string,
+    sessionId: string,
+    targetIdentityId: string,
+    reason: string,
+  ): Promise<AuthImpersonationGrant> {
+    void identityId
+    void sessionId
+    void targetIdentityId
+    void reason
+    throw new AuthenticationError(
+      'impersonation_not_allowed',
+      'This authentication provider does not support impersonation.',
+    )
+  }
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
+    void identityId
+    void sessionId
+    void impersonationGrantId
+    throw new AuthenticationError(
+      'impersonation_not_active',
+      'This authentication provider does not support impersonation.',
+    )
+  }
+  async validateAuthentication(
+    actor: ActorRef,
+    authentication: AuthenticationContext,
+  ): Promise<boolean> {
+    if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
+    if (
+      authentication.sessionId ||
+      authentication.credentialId ||
+      authentication.impersonationGrantId
+    )
+      return false
+    return actor.kind === 'user' && actor.id === authentication.identityId
+  }
   abstract revokeSession(sessionId: string): Promise<void>
   abstract listSessions(identityId: string): Promise<readonly AuthSession[]>
   abstract revokeAllSessions(identityId: string): Promise<number>

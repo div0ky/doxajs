@@ -6,6 +6,7 @@ export interface SeedLegacyAccessInput {
   readonly userId: string
   readonly branchTag: string
   readonly includeGroupOverride?: boolean
+  readonly includeImpersonation?: boolean
 }
 
 export class SeedLegacyAccess extends Action<SeedLegacyAccessInput, void> {
@@ -30,6 +31,13 @@ export class SeedLegacyAccess extends Action<SeedLegacyAccessInput, void> {
       resource: 'user',
       action: 'update',
     })
+    if (input.includeImpersonation) {
+      await Permission.create({
+        id: `${input.userId}-account-impersonate`,
+        resource: 'account',
+        action: 'impersonate',
+      })
+    }
     await User.create({
       id: input.userId,
       groupId,
@@ -45,6 +53,13 @@ export class SeedLegacyAccess extends Action<SeedLegacyAccessInput, void> {
       userId: input.userId,
       permissionId: `${input.userId}-user-update`,
     })
+    if (input.includeImpersonation) {
+      await UserPermission.create({
+        id: `${input.userId}-direct-account-impersonate`,
+        userId: input.userId,
+        permissionId: `${input.userId}-account-impersonate`,
+      })
+    }
     if (input.includeGroupOverride !== false) {
       await GroupPermission.create({
         id: `${input.userId}-group-branch-override`,

@@ -119,6 +119,8 @@ export {
   type AuthIdentity,
   type AuthIdentityRegistrationFactory,
   type AuthIdentityRegistrationInput,
+  type AuthImpersonation,
+  type AuthImpersonationGrant,
   type AuthRequestMetadata,
   type AuthSession,
   type AuthSessionGrant,
@@ -270,6 +272,10 @@ export interface DoxaFrameworkConfiguration {
     readonly secureCookies?: boolean
     readonly trustedOrigins?: readonly string[]
     readonly identity?: AuthIdentityConfiguration
+    readonly impersonation?: {
+      readonly enabled?: boolean
+      readonly sessionSeconds?: number
+    }
   }
   readonly queue?: {
     readonly localConcurrency?: number
@@ -515,6 +521,7 @@ export interface AuthenticationContext {
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
   readonly authenticatedAt?: Date
   readonly sessionId?: string
+  readonly impersonationGrantId?: string
   readonly credentialId?: string
   readonly constraints?: readonly string[]
 }

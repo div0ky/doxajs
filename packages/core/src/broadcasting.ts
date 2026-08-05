@@ -59,6 +59,8 @@ export interface BroadcastMessage {
 export interface BroadcastConnectionAdmission {
   readonly connectionId: string
   readonly actor: ActorRef
+  readonly initiator?: ActorRef
+  readonly delegation?: readonly import('./index.js').DelegationHop[]
   readonly authentication: AuthenticationContext
   readonly tenant?: TenantRef
   readonly correlationId: string
@@ -93,6 +95,7 @@ export interface RealtimeCommandThrottleDecision {
 
 export interface BroadcastGateway {
   connect(connectionId: string, request: Request): Promise<BroadcastConnectionAdmission>
+  validate?(admission: BroadcastConnectionAdmission): Promise<boolean>
   subscribe(
     admission: BroadcastConnectionAdmission,
     destination: BroadcastDestination,
@@ -165,6 +168,10 @@ export class FakeBroadcastTransport extends BroadcastTransport {
 
   connect(connectionId: string, request: Request): Promise<BroadcastConnectionAdmission> {
     return this.#requireGateway().connect(connectionId, request)
+  }
+
+  validate(admission: BroadcastConnectionAdmission): Promise<boolean> {
+    return this.#requireGateway().validate?.(admission) ?? Promise.resolve(true)
   }
 
   subscribe(

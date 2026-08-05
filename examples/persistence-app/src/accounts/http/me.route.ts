@@ -24,6 +24,8 @@ export class MeRoute extends Route {
         verification: identity.verification,
       },
       actor: this.execution.context.actor,
+      initiator: this.execution.context.initiator,
+      delegation: this.execution.context.delegation,
       authentication: {
         method: this.execution.context.authentication.method,
         assurance: this.execution.context.authentication.assurance,

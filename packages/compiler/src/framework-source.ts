@@ -56,6 +56,7 @@ export function prepareFrameworkSource(fileName: string, sourceText: string): Pr
   const database = framework ? nestedObject(framework, 'database') : undefined
   const auth = framework ? nestedObject(framework, 'auth') : undefined
   const identity = auth ? nestedObject(auth, 'identity') : undefined
+  const impersonation = auth ? nestedObject(auth, 'impersonation') : undefined
   const queue = framework ? nestedObject(framework, 'queue') : undefined
   const broadcasting = framework ? nestedObject(framework, 'broadcasting') : undefined
   const theoria = framework ? nestedObject(framework, 'theoria') : undefined
@@ -135,6 +136,12 @@ export function prepareFrameworkSource(fileName: string, sourceText: string): Pr
     identityMode: identity ? requiredNestedString(identity, 'mode') : 'doxa-owned',
     hasContactEmail: identity ? hasObjectProperty(identity, 'contactEmail') : true,
     verificationMode: identityVerificationMode(identity),
+    impersonationEnabled: impersonation
+      ? (optionalBoolean(impersonation, 'enabled') ?? true)
+      : false,
+    impersonationSessionSeconds: impersonation
+      ? (optionalPositiveInteger(impersonation, 'sessionSeconds') ?? 60 * 60)
+      : 60 * 60,
     ...(localConcurrency === undefined ? {} : { localConcurrency }),
     ...(outboxPollingMilliseconds === undefined ? {} : { outboxPollingMilliseconds }),
     broadcastingEnabled: broadcasting ? (optionalBoolean(broadcasting, 'enabled') ?? true) : false,
@@ -206,6 +213,8 @@ function renderFrameworkSource(
     readonly identityMode: string
     readonly hasContactEmail: boolean
     readonly verificationMode: string
+    readonly impersonationEnabled: boolean
+    readonly impersonationSessionSeconds: number
     readonly localConcurrency?: number
     readonly outboxPollingMilliseconds?: number
     readonly broadcastingEnabled: boolean
@@ -256,6 +265,7 @@ function renderFrameworkSource(
   host = '127.0.0.1'
   port = 6001
   path = '/app'
+  heartbeatMilliseconds = ${configuration.impersonationEnabled ? '10_000' : '30_000'}
   key = 'default'
   declare secret?: SecretString
   declare publishUrl?: string
@@ -271,6 +281,7 @@ export class ApplicationBroadcasting extends Keryx {
       host: config.host,
       port: config.port,
       path: config.path,
+      heartbeatMilliseconds: config.heartbeatMilliseconds,
       key: config.key,
       ...(config.secret ? { secret: config.secret.reveal() } : {}),
       ...(config.publishUrl ? { publishUrl: config.publishUrl } : {}),
@@ -439,6 +450,7 @@ export class DatabaseConfig extends Configuration {
 export class AuthConfig extends Configuration {
   secureCookies = ${configuration.secureCookies}
   trustedOrigins = ${JSON.stringify(configuration.trustedOrigins.join(','))}
+  impersonationSessionSeconds = ${configuration.impersonationSessionSeconds}
 }
 
 export class Transactions extends PostgresTransactionManager {
@@ -460,6 +472,7 @@ export class ApplicationAuth extends PostgresAuth {
       connectionString: database.connectionString.reveal(),
       secureCookies: auth.secureCookies,
       trustedOrigins: auth.trustedOrigins.split(',').map((origin) => origin.trim()).filter(Boolean),
+      impersonationSessionSeconds: auth.impersonationSessionSeconds,
     })
   }
 }
@@ -496,6 +509,8 @@ ${
     const context = this.execution.context
     const grant = this.broadcasting.issueConnectionTicket({
       actor: context.actor,
+      initiator: context.initiator,
+      delegation: context.delegation,
       authentication: context.authentication,
       ...(context.tenant ? { tenant: context.tenant } : {}),
       correlationId: context.correlationId,
@@ -614,8 +629,71 @@ export class MeRoute extends Route {
   readonly path = '/auth/me'
   private readonly execution = this.inject(CurrentExecution)
   handle(_request: HttpRequest) {
-    return { actor: this.execution.context.actor, authentication: this.execution.context.authentication }
+    return {
+      actor: this.execution.context.actor,
+      initiator: this.execution.context.initiator,
+      delegation: this.execution.context.delegation,
+      authentication: this.execution.context.authentication,
+    }
   }
+}
+
+${
+  configuration.impersonationEnabled
+    ? `export class StartImpersonationRoute extends Route {
+  static override readonly id = 'start-impersonation'
+  static override readonly access = 'accounts.impersonate'
+  readonly method = 'POST'
+  readonly path = '/auth/impersonation'
+  private readonly auth = this.inject(Auth)
+  private readonly execution = this.inject(CurrentExecution)
+  async handle(request: HttpRequest): Promise<Response> {
+    const identityId = requirePasswordSession(this.execution)
+    const sessionId = this.execution.context.authentication.sessionId!
+    const body = await request.json<{ targetIdentityId?: unknown; reason?: unknown }>()
+    if (typeof body.targetIdentityId !== 'string' || typeof body.reason !== 'string') {
+      throw new HttpError(422, 'validation_failed', 'targetIdentityId and reason are required')
+    }
+    const grant = await this.auth.startImpersonation(
+      identityId,
+      sessionId,
+      body.targetIdentityId,
+      body.reason,
+    )
+    return Http.json(
+      {
+        impersonator: publicIdentity(grant.identity),
+        target: publicIdentity(grant.target),
+        expiresAt: grant.session.impersonation!.expiresAt.toISOString(),
+      },
+      200,
+      { 'set-cookie': this.auth.sessionCookie(grant) },
+    )
+  }
+}
+
+export class StopImpersonationRoute extends Route {
+  static override readonly id = 'stop-impersonation'
+  static override readonly access = 'accounts.impersonation.stop'
+  readonly method = 'DELETE'
+  readonly path = '/auth/impersonation'
+  private readonly auth = this.inject(Auth)
+  private readonly execution = this.inject(CurrentExecution)
+  async handle(_request: HttpRequest): Promise<Response> {
+    const authentication = this.execution.context.authentication
+    if (!authentication.identityId || !authentication.sessionId || !authentication.impersonationGrantId) {
+      throw new HttpError(401, 'authentication_required', 'Authentication is required.')
+    }
+    const grant = await this.auth.stopImpersonation(
+      authentication.identityId,
+      authentication.sessionId,
+      authentication.impersonationGrantId,
+    )
+    return Http.noContent({ 'set-cookie': this.auth.sessionCookie(grant) })
+  }
+}
+`
+    : ''
 }
 
 export class VerifyEmailRoute extends Route {
@@ -769,6 +847,13 @@ export class ListSessionsRoute extends Route {
       lastSeenAt: session.lastSeenAt?.toISOString(),
       expiresAt: session.expiresAt.toISOString(),
       revokedAt: session.revokedAt?.toISOString(),
+      impersonation: session.impersonation ? {
+        grantId: session.impersonation.grantId,
+        targetIdentityId: session.impersonation.targetIdentityId,
+        reason: session.impersonation.reason,
+        startedAt: session.impersonation.startedAt.toISOString(),
+        expiresAt: session.impersonation.expiresAt.toISOString(),
+      } : undefined,
       current: session.id === this.execution.context.authentication.sessionId,
     })) }
   }
@@ -858,10 +943,20 @@ export class AccountPolicy extends Policy {
     'accounts.sessions.manage',
     'accounts.tokens.manage',
     'accounts.view-self',
+    'accounts.impersonation.stop',
   ]
   decide(request: PolicyRequest): PolicyDecision {
     if (request.actor.kind !== 'user' || request.context.authentication.state !== 'authenticated') {
       return deny('account', 'authentication_required')
+    }
+    if (
+      request.ability === 'accounts.impersonation.stop' &&
+      (!request.context.authentication.impersonationGrantId ||
+        !request.context.delegation.some(
+          (hop) => hop.grantId === request.context.authentication.impersonationGrantId,
+        ))
+    ) {
+      return deny('account', 'impersonation_required')
     }
     if (
       ['accounts.tokens.manage', 'accounts.sessions.manage', 'accounts.password.change'].includes(request.ability) &&
@@ -878,7 +973,7 @@ export class DoxaCoreFeature extends Feature {
   configs = [${configs.join(', ')}]
   providers = [${providers.join(', ')}]
   actions = [${verificationRoutes || recoveryRoutes ? 'SendAuthEmail' : ''}]
-  routes = [HealthRoute, ${configuration.broadcastingEnabled ? 'BroadcastAuthorizeRoute, ' : ''}${managedIdentity ? 'RegisterRoute, ' : ''}LoginRoute, LogoutRoute, ReauthenticateRoute, MeRoute, ${verificationRoutes ? 'VerifyEmailRoute, ResendVerificationRoute, ' : ''}TokenRoute, ListAccessTokensRoute, RotateAccessTokenRoute, RevokeAccessTokenRoute, ${managedIdentity ? 'ChangePasswordRoute, ' : ''}ListSessionsRoute, RevokeSessionRoute${recoveryRoutes ? ', RequestPasswordResetRoute, ResetPasswordRoute' : ''}]
+  routes = [HealthRoute, ${configuration.broadcastingEnabled ? 'BroadcastAuthorizeRoute, ' : ''}${managedIdentity ? 'RegisterRoute, ' : ''}LoginRoute, LogoutRoute, ReauthenticateRoute, MeRoute, ${configuration.impersonationEnabled ? 'StartImpersonationRoute, StopImpersonationRoute, ' : ''}${verificationRoutes ? 'VerifyEmailRoute, ResendVerificationRoute, ' : ''}TokenRoute, ListAccessTokensRoute, RotateAccessTokenRoute, RevokeAccessTokenRoute, ${managedIdentity ? 'ChangePasswordRoute, ' : ''}ListSessionsRoute, RevokeSessionRoute${recoveryRoutes ? ', RequestPasswordResetRoute, ResetPasswordRoute' : ''}]
   policies = [AccountPolicy]
 }
 `

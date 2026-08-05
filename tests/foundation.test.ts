@@ -204,6 +204,45 @@ describe('foundational compile-to-boot slice', () => {
     expect(featureRoutes).not.toContain('ResetPasswordRoute')
   })
 
+  it('generates native impersonation only after explicit opt-in', () => {
+    const disabled = prepareFrameworkSource(
+      'app.config.ts',
+      `export class Application { id = 'disabled'; features = [] }`,
+    )
+    expect(disabled.source).not.toContain('StartImpersonationRoute')
+
+    const enabled = prepareFrameworkSource(
+      'app.config.ts',
+      `export class Application {
+        id = 'enabled'
+        features = []
+        framework = {
+          auth: { impersonation: { enabled: true, sessionSeconds: 900 } },
+          broadcasting: { enabled: true },
+        }
+      }`,
+    )
+    expect(enabled.source).toContain('impersonationSessionSeconds = 900')
+    expect(enabled.source).toContain('heartbeatMilliseconds = 10_000')
+    expect(enabled.source).toContain('heartbeatMilliseconds: config.heartbeatMilliseconds')
+    expect(enabled.source).toContain('export class StartImpersonationRoute extends Route')
+    expect(enabled.source).toContain("static override readonly access = 'accounts.impersonate'")
+    expect(enabled.source).toContain('export class StopImpersonationRoute extends Route')
+    expect(enabled.source).toContain("readonly path = '/auth/impersonation'")
+    expect(enabled.source).toContain('StartImpersonationRoute, StopImpersonationRoute')
+
+    expect(() =>
+      prepareFrameworkSource(
+        'app.config.ts',
+        `export class Application {
+          id = 'invalid'
+          features = []
+          framework = { auth: { impersonation: { sessionSeconds: 0 } } }
+        }`,
+      ),
+    ).toThrow('sessionSeconds must be a positive number literal')
+  })
+
   it('omits verification routes when a managed external identity leaves verification unmapped', () => {
     const prepared = prepareFrameworkSource(
       'app.config.ts',

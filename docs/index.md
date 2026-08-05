@@ -6,8 +6,8 @@ Doxa documentation is organized by what a developer is trying to accomplish:
 - [Application model](concepts/application-model.md) explains Features, roles, scopes, and services.
 - [Events, jobs, and schedules](guides/events-jobs-schedules.md) covers reactive and asynchronous
   work.
-- [Authentication](guides/authentication.md) covers sessions, bearer tokens, trusted origins, and
-  sensitive-operation reauthentication.
+- [Authentication](guides/authentication.md) covers sessions, bearer tokens, trusted origins,
+  sensitive-operation reauthentication, and native impersonation.
 - [Authorization and application permissions](guides/authorization.md) covers stable abilities,
   application permission sources, resource policies, and execution-local caching.
 - [Observability, OpenTelemetry, and Theoria](guides/observability.md) covers distributed traces,

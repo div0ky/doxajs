@@ -924,4 +924,103 @@ describe('@doxajs/testing', () => {
       await harness.shutdown()
     }
   })
+
+  it('runs queued impersonation with its dispatched actor after the browser session is restored', async () => {
+    resetRecordedJobAttempts()
+    const queue = new FakeQueueManager()
+    const harness = await DoxaTestHarness.boot(Application, {
+      artifactsDirectory: artifacts,
+      dotenvPath: false,
+      environment: { DATABASE_CONNECTION_STRING: 'test-memory-database' },
+      authProviderId: 'provider:infrastructure/auth',
+      providerOverrides: {
+        'provider:infrastructure/transactions': new MemoryTransactionManager(queue),
+        'provider:infrastructure/queues': queue,
+        'provider:infrastructure/cache': new MemoryCache(),
+        'provider:infrastructure/mail': new FakeMailTransport(),
+        'provider:infrastructure/sms': new FakeSmsTransport(),
+        'provider:infrastructure/telemetry': new MemoryTelemetry(),
+      },
+    })
+    try {
+      const auth = harness.auth!
+      const admin = await auth.register({ identifier: 'admin@test.dev', password: 'password' })
+      const target = await auth.register({ identifier: 'target@test.dev', password: 'password' })
+      const login = await auth.login({ identifier: admin.identifier, password: 'password' })
+      const grant = await auth.startImpersonation(
+        admin.id,
+        login.session.id,
+        target.id,
+        'Support ticket 42',
+      )
+      await harness.runtime.admit(
+        {
+          actor: { kind: 'user', id: target.id },
+          initiator: { kind: 'user', id: admin.id },
+          delegation: [
+            {
+              from: { kind: 'user', id: admin.id },
+              to: { kind: 'user', id: target.id },
+              grantId: grant.session.impersonation!.grantId,
+              reason: grant.session.impersonation!.reason,
+              expiresAt: grant.session.impersonation!.expiresAt,
+            },
+          ],
+          authentication: {
+            state: 'authenticated',
+            identityId: admin.id,
+            method: 'password',
+            sessionId: grant.session.id,
+            impersonationGrantId: grant.session.impersonation!.grantId,
+          },
+          transport: { kind: 'test', name: 'test:queued-impersonation' },
+        },
+        () => ProcessCounterJob.dispatch({ key: 'restored-impersonation' }),
+      )
+      expect(queue.queued[0]!.context).toEqual(
+        expect.objectContaining({
+          actor: { kind: 'user', id: target.id },
+          initiator: { kind: 'user', id: admin.id },
+          authentication: expect.objectContaining({ identityId: admin.id, method: 'password' }),
+        }),
+      )
+      expect(queue.queued[0]!.context.authentication).not.toHaveProperty('impersonationGrantId')
+      ;(queue.queued[0]!.context.delegation[0] as { expiresAt?: string }).expiresAt = new Date(
+        0,
+      ).toISOString()
+      await auth.stopImpersonation(admin.id, grant.session.id, grant.session.impersonation!.grantId)
+      const restarted = await auth.startImpersonation(
+        admin.id,
+        grant.session.id,
+        target.id,
+        'Support ticket 43',
+      )
+      await expect(
+        auth.stopImpersonation(admin.id, grant.session.id, grant.session.impersonation!.grantId),
+      ).rejects.toThrow('not active')
+      await expect(
+        auth.validateAuthentication(
+          { kind: 'user', id: target.id },
+          {
+            state: 'authenticated',
+            identityId: admin.id,
+            method: 'password',
+            sessionId: restarted.session.id,
+            impersonationGrantId: restarted.session.impersonation!.grantId,
+          },
+        ),
+      ).resolves.toBe(true)
+
+      await expect(queue.runNext()).resolves.toBeUndefined()
+      expect(recordedJobAttempts).toEqual([
+        expect.objectContaining({
+          key: 'restored-impersonation',
+          actor: 'user',
+          actorId: target.id,
+        }),
+      ])
+    } finally {
+      await harness.shutdown()
+    }
+  })
 })

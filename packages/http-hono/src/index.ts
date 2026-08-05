@@ -51,6 +51,8 @@ export class HonoHttpEngine implements HttpEngine {
           const result = await runtime.admit(
             {
               actor: resolved.actor,
+              ...(resolved.initiator ? { initiator: resolved.initiator } : {}),
+              ...(resolved.delegation ? { delegation: resolved.delegation } : {}),
               authentication: resolved.authentication,
               ...(requestedCorrelation ? { correlationId: requestedCorrelation } : {}),
               ...(trace ? { trace } : {}),

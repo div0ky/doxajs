@@ -187,6 +187,8 @@ observable programming contract remains to be specified.
     opens one bounded read transaction.
 36. [Make Gnosis Doxa's version-matched architectural authority](0036-gnosis-architectural-authority.md)
     — Accepted on 2026-07-30.
+37. [Provide native session impersonation](0037-native-session-impersonation.md) — Accepted on
+    2026-08-05.
 
 ## Adding a decision
 

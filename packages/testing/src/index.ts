@@ -8,6 +8,7 @@ import {
   type AuthAccessTokenGrant,
   type AuthChallengeGrant,
   type AuthIdentity,
+  type AuthImpersonationGrant,
   type AuthRequestMetadata,
   type AuthSessionGrant,
   type AuthSession,
@@ -430,6 +431,77 @@ export class TestAuth extends Auth {
     const session = this.#sessions.get(sessionId)
     if (session) this.#sessions.set(sessionId, { ...session, authenticatedAt })
     return authenticatedAt
+  }
+  async startImpersonation(
+    identityId: string,
+    sessionId: string,
+    targetIdentityId: string,
+    reason: string,
+  ): Promise<AuthImpersonationGrant> {
+    const identity = this.#identities.get(identityId)
+    const target = this.#identities.get(targetIdentityId)
+    const session = this.#sessions.get(sessionId)
+    if (!identity || !target || !session || session.identityId !== identityId) {
+      throw new Error('Test impersonation is not allowed.')
+    }
+    const impersonating = {
+      ...session,
+      impersonation: {
+        grantId: randomUUID(),
+        targetIdentityId,
+        reason,
+        startedAt: new Date(),
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
+    }
+    this.#sessions.set(sessionId, impersonating)
+    return {
+      identity,
+      target,
+      session: impersonating,
+      token: SecretString.from(`test-impersonation-${sessionId}`),
+    }
+  }
+  async stopImpersonation(
+    identityId: string,
+    sessionId: string,
+    impersonationGrantId: string,
+  ): Promise<AuthSessionGrant> {
+    const identity = this.#identities.get(identityId)
+    const session = this.#sessions.get(sessionId)
+    if (
+      !identity ||
+      session?.identityId !== identityId ||
+      session.impersonation?.grantId !== impersonationGrantId
+    )
+      throw new Error('Test impersonation is not active.')
+    const { impersonation: _impersonation, ...restored } = session
+    this.#sessions.set(sessionId, restored)
+    return {
+      identity,
+      session: restored,
+      token: SecretString.from(`test-restored-${sessionId}`),
+    }
+  }
+  async validateAuthentication(
+    actor: ActorRef,
+    authentication: AuthenticationContext,
+  ): Promise<boolean> {
+    if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
+    if (!authentication.sessionId && !authentication.impersonationGrantId)
+      return actor.id === authentication.identityId
+    const session = authentication.sessionId
+      ? this.#sessions.get(authentication.sessionId)
+      : [...this.#sessions.values()].find(
+          (candidate) => candidate.impersonation?.grantId === authentication.impersonationGrantId,
+        )
+    return Boolean(
+      session &&
+      !session.revokedAt &&
+      actor.id === (session.impersonation?.targetIdentityId ?? session.identityId) &&
+      (authentication.impersonationGrantId === undefined ||
+        authentication.impersonationGrantId === session.impersonation?.grantId),
+    )
   }
   async revokeSession(id: string): Promise<void> {
     const value = this.#sessions.get(id)

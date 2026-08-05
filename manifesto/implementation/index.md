@@ -97,3 +97,5 @@ requirement to its implementation and acceptance evidence.
     — concrete `Feature.provides` scope preservation plus one application-wide, execution-cached
     permission source composed with credential constraints and resource policies, now with ambient
     read-only declared-model access over the owning authorization persistence boundary.
+31. [Native impersonation vertical slice](native-impersonation-vertical-slice.md) — opt-in,
+    policy-authorized session delegation, audit, restoration, expiry, and HTTP/Keryx parity.

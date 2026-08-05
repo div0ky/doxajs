@@ -16,6 +16,14 @@ export class ListSessionsRoute extends Route {
         lastSeenAt: session.lastSeenAt?.toISOString(),
         expiresAt: session.expiresAt.toISOString(),
         revokedAt: session.revokedAt?.toISOString(),
+        impersonation: session.impersonation
+          ? {
+              targetIdentityId: session.impersonation.targetIdentityId,
+              reason: session.impersonation.reason,
+              startedAt: session.impersonation.startedAt.toISOString(),
+              expiresAt: session.impersonation.expiresAt.toISOString(),
+            }
+          : undefined,
         current: session.id === this.execution.context.authentication.sessionId,
       })),
     }
