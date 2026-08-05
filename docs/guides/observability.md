@@ -60,7 +60,9 @@ pnpm theoria
 
 The default explorer binds to `127.0.0.1:4400`. The Timeline view preserves chronological semantic
 facts and cross-execution causality. The Waterfall view groups timed work by trace parentage. Source
-and worker execution links move between asynchronous parts of a correlation chain.
+and worker execution links move between asynchronous parts of a correlation chain. Automatic refresh
+preserves the current execution, observation, and pane scroll positions while you inspect evidence;
+explicit filters, searches, and navigation remain operator-controlled.
 
 ## Production diagnostics
 
