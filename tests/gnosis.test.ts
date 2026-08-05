@@ -341,6 +341,7 @@ describe('Gnosis read-only local engineering server', () => {
       ['realtime command mutable provider', 'diagnostic.realtime-command-infrastructure'],
       ['event facts queued consistency', 'concept.orchestration-consistency'],
       ['folders runtime meaning', 'programming-model.core'],
+      ['less software', 'programming-model.core'],
     ] as const) {
       expect(searchDocumentation(entries, query, 5).map((entry) => entry.id)).toContain(expectedId)
     }
