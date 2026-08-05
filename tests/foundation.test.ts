@@ -8,6 +8,7 @@ import {
   applyModelQueryPlan,
   Graphite,
   Instant,
+  Duration,
   MemoryCache,
   Model,
   ModelIdentityMutationError,
@@ -466,6 +467,62 @@ describe('foundational compile-to-boot slice', () => {
         relationshipConstraints: [],
       }),
     ).toThrow('Model query numbers must be finite')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [],
+          orders: [{ attribute: 'elapsed', direction: 'asc' }],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support ordering')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [
+            {
+              boolean: 'and',
+              predicate: {
+                kind: 'comparison',
+                attribute: 'elapsed',
+                operator: '<',
+                value: Duration.parse('PT1H'),
+              },
+            },
+          ],
+          orders: [],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support comparison')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [
+            {
+              boolean: 'and',
+              predicate: {
+                kind: 'between',
+                attribute: 'elapsed',
+                values: [Duration.parse('PT1H'), Duration.parse('PT2H')],
+                negate: false,
+              },
+            },
+          ],
+          orders: [],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support range queries')
   })
 
   it('keeps model query plans immutable at runtime', () => {

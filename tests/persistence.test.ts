@@ -233,8 +233,8 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         external_id text PRIMARY KEY,
         email_address text NOT NULL UNIQUE,
         verified_at timestamptz,
-        created_on timestamptz NOT NULL,
-        updated_on timestamptz NOT NULL,
+        created_on timestamp without time zone NOT NULL,
+        updated_on timestamp without time zone NOT NULL,
         password_record text NOT NULL
       )
     `)
@@ -374,6 +374,25 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         tenant: { id: 'tenant-3' },
         trace: result.context.trace,
       })
+    }
+  })
+
+  it('preserves transactional outbox availability through PostgreSQL microseconds', async () => {
+    const manager = new PostgresTransactionManager({ connectionString })
+    const lifecycle = lifecycleContext()
+    await manager.start(lifecycle)
+    try {
+      const availableAt = Instant.parse('2026-08-05T12:34:56.123456Z')
+      const id = await manager.transaction(executionContext('microsecond-outbox'), (unit) =>
+        unit.enqueue({ type: 'precision.proof', payload: {}, availableAt }),
+      )
+      const result = await pool.query<{ available_at: string }>(
+        `SELECT available_at::text FROM doxa_outbox_messages WHERE id = $1`,
+        [id],
+      )
+      expect(result.rows[0]?.available_at).toBe('2026-08-05 12:34:56.123456+00')
+    } finally {
+      await manager.dispose(lifecycle)
     }
   })
 
@@ -4947,6 +4966,15 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       expect((await pool.query(`SELECT 1 FROM doxa_auth_identities`)).rowCount).toBe(0)
       expect((await pool.query(`SELECT 1 FROM doxa_auth_passwords`)).rowCount).toBe(0)
 
+      await pool.query(
+        `UPDATE legacy_auth_users
+         SET created_on = '2026-08-05 12:34:56.123456'
+         WHERE external_id = 'employee-42'`,
+      )
+      expect((await auth.findIdentity('employee-42'))?.createdAt.toString()).toBe(
+        '2026-08-05T12:34:56.123456Z',
+      )
+
       const verification = await auth.issueEmailVerification(identity.id)
       expect(verification.expiresAt).toBeInstanceOf(Instant)
       expect((await auth.verifyEmail(verification.token.reveal())).verification).toBe('verified')
@@ -4973,10 +5001,24 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         ).actor,
       ).toEqual({ kind: 'user', id: 'employee-42' })
 
+      const accessExpiresAt = Instant.parse('2036-08-05T12:34:56.123456Z')
       const access = await auth.issueAccessToken(identity.id, {
         name: 'legacy-api',
         constraints: ['profile.view'],
+        expiresAt: accessExpiresAt,
       })
+      expect(access.accessToken.expiresAt.equals(accessExpiresAt)).toBe(true)
+      expect(
+        (
+          await pool.query<{ expires_at: string }>(
+            `SELECT expires_at::text FROM doxa_auth_access_tokens WHERE id = $1`,
+            [access.accessToken.id],
+          )
+        ).rows[0]?.expires_at,
+      ).toBe('2036-08-05 12:34:56.123456+00')
+      expect((await auth.listAccessTokens(identity.id))[0]?.expiresAt.equals(accessExpiresAt)).toBe(
+        true,
+      )
       expect(
         (
           await auth.resolveHttp(

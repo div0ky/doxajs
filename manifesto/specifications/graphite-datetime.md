@@ -27,7 +27,9 @@ not clock state.
 
 HTTP responses use canonical strings through `toJSON`. HTTP requests use explicit Standard Schema
 validation; `@doxajs/core/zod` supplies the first-party Zod codecs. Doxa-owned durable JSON uses
-versioned tagged values and decodes tags only at trusted framework boundaries.
+versioned tagged values and decodes tags only at trusted framework boundaries. Ordinary JSON objects
+that use the reserved `$doxa` key are escaped during durable encoding; unknown or malformed tags
+fail closed. Realtime output uses canonical strings rather than durable tags.
 
 Database persistence canonicalizes Graphite and Instant to UTC. Managed columns use `timestamptz`;
 existing `timestamp without time zone` columns are treated as UTC. Hydrated Graphite values are in

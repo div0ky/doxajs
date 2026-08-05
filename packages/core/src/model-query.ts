@@ -333,7 +333,7 @@ export class ModelQuery<
     return this.constraint('and', { kind: 'null', attribute, negate: true })
   }
 
-  whereBetween<Key extends AttributeName<Attributes>>(
+  whereBetween<Key extends OrderedAttributeName<Attributes>>(
     attribute: Key,
     values: readonly [AttributeValue<Attributes[Key]>, AttributeValue<Attributes[Key]>],
   ): ModelQuery<Instance, Attributes, Relations> {
@@ -345,7 +345,7 @@ export class ModelQuery<
     })
   }
 
-  whereNotBetween<Key extends AttributeName<Attributes>>(
+  whereNotBetween<Key extends OrderedAttributeName<Attributes>>(
     attribute: Key,
     values: readonly [AttributeValue<Attributes[Key]>, AttributeValue<Attributes[Key]>],
   ): ModelQuery<Instance, Attributes, Relations> {
@@ -357,9 +357,9 @@ export class ModelQuery<
     })
   }
 
-  whereColumn(
-    attribute: ScalarAttributeName<Attributes>,
-    operator: ModelQueryOperator,
+  whereColumn<Key extends ScalarAttributeName<Attributes>>(
+    attribute: Key,
+    operator: OperatorFor<Attributes[Key]>,
     comparedAttribute: ScalarAttributeName<Attributes>,
   ): ModelQuery<Instance, Attributes, Relations> {
     validOperator(operator)
@@ -367,7 +367,7 @@ export class ModelQuery<
   }
 
   orderBy(
-    attribute: ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes>,
     direction: ModelQueryDirection = 'asc',
   ): ModelQuery<Instance, Attributes, Relations> {
     if (direction !== 'asc' && direction !== 'desc') {
@@ -377,19 +377,19 @@ export class ModelQuery<
   }
 
   orderByDesc(
-    attribute: ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes>,
   ): ModelQuery<Instance, Attributes, Relations> {
     return this.orderBy(attribute, 'desc')
   }
 
   latest(
-    attribute: ScalarAttributeName<Attributes> = 'createdAt' as ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes> = 'createdAt' as OrderedAttributeName<Attributes>,
   ) {
     return this.orderBy(attribute, 'desc')
   }
 
   oldest(
-    attribute: ScalarAttributeName<Attributes> = 'createdAt' as ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes> = 'createdAt' as OrderedAttributeName<Attributes>,
   ) {
     return this.orderBy(attribute, 'asc')
   }
@@ -819,16 +819,18 @@ export function applyModelQueryPlan<State extends Record<string, unknown>>(
 export function validateModelQueryPlan(
   plan: ModelQueryPlan,
   allowedAttributes?: ReadonlySet<string>,
+  attributeTypes?: Readonly<Record<string, { readonly kind: string }>>,
 ): void {
   if (plan.limit !== undefined) positiveInteger(plan.limit, 'Query limit')
   if (plan.offset !== undefined) nonNegativeInteger(plan.offset, 'Query offset')
   for (const order of plan.orders) {
     validateAttribute(order.attribute, allowedAttributes)
+    rejectDurationOperation(attributeTypes?.[order.attribute]?.kind, 'ordering')
     if (order.direction !== 'asc' && order.direction !== 'desc') {
       throw new ModelQueryError(`Unsupported model query direction ${String(order.direction)}.`)
     }
   }
-  validateConstraints(plan.constraints, allowedAttributes)
+  validateConstraints(plan.constraints, allowedAttributes, attributeTypes)
   for (const eagerLoad of plan.eagerLoads) {
     if (!eagerLoad.path.trim()) throw new ModelQueryError('Relationship paths cannot be empty.')
   }
@@ -842,6 +844,7 @@ export function validateModelQueryPlan(
 function validateConstraints(
   constraints: readonly ModelQueryConstraint[],
   allowedAttributes?: ReadonlySet<string>,
+  attributeTypes?: Readonly<Record<string, { readonly kind: string }>>,
 ): void {
   for (const constraint of constraints) {
     if (constraint.boolean !== 'and' && constraint.boolean !== 'or') {
@@ -849,22 +852,37 @@ function validateConstraints(
     }
     const predicate = constraint.predicate
     if (predicate.kind === 'group') {
-      validateConstraints(predicate.predicates, allowedAttributes)
+      validateConstraints(predicate.predicates, allowedAttributes, attributeTypes)
       continue
     }
     validateAttribute(predicate.attribute, allowedAttributes)
+    const kind = attributeTypes?.[predicate.attribute]?.kind
     if (predicate.kind === 'comparison') {
       validOperator(predicate.operator)
+      if (predicate.operator !== '=' && predicate.operator !== '!=') {
+        rejectDurationOperation(kind, 'comparison')
+      }
       queryValue(predicate.value)
     } else if (predicate.kind === 'column') {
       validOperator(predicate.operator)
       validateAttribute(predicate.comparedAttribute, allowedAttributes)
+      if (predicate.operator !== '=' && predicate.operator !== '!=') {
+        rejectDurationOperation(kind, 'comparison')
+        rejectDurationOperation(attributeTypes?.[predicate.comparedAttribute]?.kind, 'comparison')
+      }
     } else if (predicate.kind === 'membership') {
       for (const value of predicate.values) queryValue(value)
     } else if (predicate.kind === 'between') {
+      rejectDurationOperation(kind, 'range queries')
       queryValue(predicate.values[0])
       queryValue(predicate.values[1])
     }
+  }
+}
+
+function rejectDurationOperation(kind: string | undefined, operation: string): void {
+  if (kind === 'duration') {
+    throw new ModelQueryError(`Duration model attributes do not support ${operation}.`)
   }
 }
 

@@ -657,9 +657,7 @@ class PostgresUnitOfWork extends UnitOfWork {
       payload: message.payload,
       context: durableContext(this.context),
       status: 'pending',
-      availableAt: message.availableAt
-        ? new Date(Number(message.availableAt.epochMicroseconds / 1_000n))
-        : now,
+      availableAt: message.availableAt ? sql`${message.availableAt.toString()}::timestamptz` : now,
       createdAt: now,
     })
     return id

@@ -99,6 +99,10 @@ function assertFractionPrecision(value: string, kind: string): void {
   }
 }
 
+function assertIanaTimeZone(value: string): void {
+  if (/^[+-]/u.test(value)) throw invalid('time zone', value)
+}
+
 function nativeDuration(value: DurationInput): NativeDuration {
   const serialized = value instanceof Duration ? value.toString() : value
   try {
@@ -185,6 +189,12 @@ export class Instant {
     return new Instant(temporal().Instant.fromEpochNanoseconds(value))
   }
 
+  static fromLegacyDate(value: Date): Instant {
+    if (!(value instanceof Date) || Number.isNaN(value.getTime()))
+      throw invalid('legacy Date', value)
+    return Instant.fromEpochMicroseconds(BigInt(value.getTime()) * 1_000n)
+  }
+
   get epochMicroseconds(): bigint {
     return this.value.epochNanoseconds / 1_000n
   }
@@ -221,6 +231,13 @@ export class Instant {
     return Graphite.fromInstant(this, timeZone)
   }
 
+  toLegacyDate(): Date {
+    if (this.epochMicroseconds % 1_000n !== 0n) {
+      throw new DateTimeError('JavaScript Date cannot represent sub-millisecond precision.')
+    }
+    return new Date(Number(this.epochMicroseconds / 1_000n))
+  }
+
   toString(): string {
     return this.value.toString({ fractionalSecondDigits: 6 })
   }
@@ -248,7 +265,8 @@ export class Graphite {
     const match = value.match(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\[([^\]]+)\]$/,
     )
-    if (!match || /^[+-]/.test(match[1]!)) throw invalid('Graphite datetime', value)
+    if (!match) throw invalid('Graphite datetime', value)
+    assertIanaTimeZone(match[1]!)
     assertFractionPrecision(value, 'Graphite')
     try {
       return new Graphite(
@@ -262,6 +280,7 @@ export class Graphite {
 
   static fromInstant(value: Instant | string, timeZone = 'UTC'): Graphite {
     const instant = typeof value === 'string' ? Instant.parse(value) : value
+    assertIanaTimeZone(timeZone)
     try {
       return new Graphite(
         temporal()
@@ -274,10 +293,15 @@ export class Graphite {
     }
   }
 
+  static fromLegacyDate(value: Date, timeZone = 'UTC'): Graphite {
+    return Graphite.fromInstant(Instant.fromLegacyDate(value), timeZone)
+  }
+
   static fromLocal(
     value: string | GraphiteLocalFields,
     options: GraphiteFromLocalOptions,
   ): Graphite {
+    assertIanaTimeZone(options.timeZone)
     if (typeof value === 'string') {
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value)) {
         throw invalid('local datetime', value)
@@ -486,14 +510,14 @@ export class Graphite {
   }
 
   diff(other: Graphite | Instant, largestUnit: DateTimeUnit = 'day'): Duration {
-    const target = other instanceof Graphite ? other : other.inTimeZone(this.timeZone)
+    const target = other.inTimeZone(this.timeZone)
     return Duration.parse(
       this.value.until(target.value, { largestUnit: plural(largestUnit) }).toString(),
     )
   }
 
   diffIn(unit: DateTimeUnit, other: Graphite | Instant): number {
-    const target = other instanceof Graphite ? other : other.inTimeZone(this.timeZone)
+    const target = other.inTimeZone(this.timeZone)
     return this.value.until(target.value).total({ unit: plural(unit), relativeTo: this.value })
   }
 
@@ -531,6 +555,10 @@ export class Graphite {
 
   toInstant(): Instant {
     return Instant.fromEpochMicroseconds(this.epochMicroseconds)
+  }
+
+  toLegacyDate(): Date {
+    return this.toInstant().toLegacyDate()
   }
 
   toLocalDate(): LocalDate {

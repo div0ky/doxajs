@@ -106,6 +106,7 @@ import {
 import {
   currentModelSessionState,
   decodeDateTimeValues,
+  encodeDateTimeStrings,
   encodeDateTimeValues,
   type EventDispatcher,
   type JobDispatcher,
@@ -1963,7 +1964,7 @@ export class DoxaRuntime {
       id: messageId,
       event: eventName,
       channels: Object.freeze(channels),
-      data: serializeQueuePayload(candidate.broadcastWith?.() ?? event.payload),
+      data: serializeBroadcastPayload(candidate.broadcastWith?.() ?? event.payload),
       occurredAt: new Date().toISOString(),
     })
     await this.observeObservation(
@@ -4687,6 +4688,14 @@ function serializeQueuePayload(value: unknown): import('@doxajs/core').JsonValue
     return encodeDateTimeValues(value) as import('@doxajs/core').JsonValue
   } catch (cause) {
     throw new OperationDispatchError('Queued payloads must be JSON serializable.', { cause })
+  }
+}
+
+function serializeBroadcastPayload(value: unknown): import('@doxajs/core').JsonValue {
+  try {
+    return encodeDateTimeStrings(value) as import('@doxajs/core').JsonValue
+  } catch (cause) {
+    throw new OperationDispatchError('Broadcast payloads must be JSON serializable.', { cause })
   }
 }
 

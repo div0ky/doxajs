@@ -24,7 +24,7 @@ import {
   SecretString,
   type Starts,
 } from '@doxajs/core'
-import { and, eq, gt, isNull, or } from 'drizzle-orm'
+import { and, eq, gt, isNull, or, sql } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { Pool, type PoolClient, type QueryResultRow } from 'pg'
 
@@ -964,7 +964,9 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
     const material = accessTokenMaterial(identityId, input)
     await this.#requireDatabase().transaction(async (transaction) => {
-      await transaction.insert(authAccessTokens).values(material.row)
+      await transaction
+        .insert(authAccessTokens)
+        .values({ ...material.row, expiresAt: sql`${material.expiresAt.toString()}::timestamptz` })
       await transaction.insert(authAuditEvents).values({
         id: randomUUID(),
         eventType: 'access_token.issued',
@@ -981,7 +983,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
     }
     const rows = await this.#requireDatabase()
-      .select()
+      .select(accessTokenProjection())
       .from(authAccessTokens)
       .where(eq(authAccessTokens.identityId, identityId))
     return rows.map(accessTokenFrom)
@@ -993,7 +995,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     }
     const database = this.#requireDatabase()
     const [existing] = await database
-      .select()
+      .select(accessTokenProjection())
       .from(authAccessTokens)
       .where(
         and(
@@ -1008,14 +1010,16 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     const material = accessTokenMaterial(identityId, {
       name: existing.name,
       constraints: existing.constraints,
-      expiresAt: instantFromDate(existing.expiresAt),
+      expiresAt: instantFromDatabase(existing.expiresAt),
     })
     await database.transaction(async (transaction) => {
       await transaction
         .update(authAccessTokens)
         .set({ revokedAt: material.row.createdAt })
         .where(eq(authAccessTokens.id, existing.id))
-      await transaction.insert(authAccessTokens).values(material.row)
+      await transaction
+        .insert(authAccessTokens)
+        .values({ ...material.row, expiresAt: sql`${material.expiresAt.toString()}::timestamptz` })
       await transaction.insert(authAuditEvents).values({
         id: randomUUID(),
         eventType: 'access_token.rotated',
@@ -1431,8 +1435,8 @@ interface StoredIdentity {
   readonly email: string
   readonly contactEmail?: string
   readonly emailVerifiedAt: Date | null
-  readonly createdAt: Date
-  readonly updatedAt: Date
+  readonly createdAt: Date | string
+  readonly updatedAt: Date | string
 }
 
 function validateAuthMappings(tables: NonNullable<PostgresAuthOptions['tables']>): void {
@@ -1820,8 +1824,8 @@ async function findMappedIdentity(
       i.${quoteIdentifier(mapping.email)} AS email,
       ${mapping.contactEmail ? `i.${quoteIdentifier(mapping.contactEmail)} AS contact_email` : 'NULL::text AS contact_email'},
       ${verificationSelect(mapping, 'i')},
-      i.${quoteIdentifier(mapping.createdAt)} AS created_at,
-      i.${quoteIdentifier(mapping.updatedAt)} AS updated_at
+      i.${quoteIdentifier(mapping.createdAt)}::text AS created_at,
+      i.${quoteIdentifier(mapping.updatedAt)}::text AS updated_at
     FROM ${quoteQualified(mapping.table)} i
     WHERE ${
       by === 'email'
@@ -1874,8 +1878,8 @@ interface MappedIdentityRow extends QueryResultRow {
   readonly email: string
   readonly contact_email: string | null
   readonly email_verified_at: Date | null
-  readonly created_at: Date
-  readonly updated_at: Date
+  readonly created_at: string
+  readonly updated_at: string
 }
 
 function mappedIdentity(row: MappedIdentityRow): StoredIdentity {
@@ -1929,8 +1933,8 @@ async function findMappedLogin(
       i.${quoteIdentifier(identity.email)} AS email,
       ${identity.contactEmail ? `i.${quoteIdentifier(identity.contactEmail)} AS contact_email` : 'NULL::text AS contact_email'},
       ${verificationSelect(identity, 'i')},
-      i.${quoteIdentifier(identity.createdAt)} AS created_at,
-      i.${quoteIdentifier(identity.updatedAt)} AS updated_at,
+      i.${quoteIdentifier(identity.createdAt)}::text AS created_at,
+      i.${quoteIdentifier(identity.updatedAt)}::text AS updated_at,
       p.${quoteIdentifier(password.password)} AS password_record
     FROM ${quoteQualified(identity.table)} i
     INNER JOIN ${quoteQualified(password.table)} p
@@ -2074,10 +2078,10 @@ async function updateMappedIdentityVerification(
   const result = await queryable.query(
     `
     UPDATE ${quoteQualified(mapping.table)}
-    SET ${quoteIdentifier(mapping.emailVerifiedAt)} = $1, ${quoteIdentifier(mapping.updatedAt)} = $1
-    WHERE ${quoteIdentifier(mapping.id)}::text = $2
+    SET ${quoteIdentifier(mapping.emailVerifiedAt)} = $1, ${quoteIdentifier(mapping.updatedAt)} = $2
+    WHERE ${quoteIdentifier(mapping.id)}::text = $3
   `,
-    [now, identityId],
+    [now, now, identityId],
   )
   if (result.rowCount !== 1)
     throw new AuthenticationError('invalid_credentials', 'Authentication is required.')
@@ -2107,7 +2111,7 @@ function identityFromStored(row: StoredIdentity, mapping?: AuthIdentityTableMapp
         : verificationMode === 'trusted' || row.emailVerifiedAt !== null
           ? 'verified'
           : 'unverified',
-    createdAt: instantFromDate(row.createdAt),
+    createdAt: instantFromDatabase(row.createdAt),
   })
 }
 
@@ -2142,6 +2146,7 @@ function accessTokenMaterial(
   input: IssueAccessTokenInput,
 ): {
   readonly row: typeof authAccessTokens.$inferInsert
+  readonly expiresAt: Instant
   readonly grant: AuthAccessTokenGrant
 } {
   const name = input.name.trim()
@@ -2172,9 +2177,9 @@ function accessTokenMaterial(
     )
   }
   const expiresAt =
-    (input.expiresAt ? dateFromInstant(input.expiresAt) : undefined) ??
-    new Date(createdAt.getTime() + 30 * 24 * 60 * 60 * 1_000)
-  if (expiresAt.getTime() <= createdAt.getTime()) {
+    input.expiresAt ??
+    Instant.fromEpochMicroseconds(BigInt(createdAt.getTime() + 30 * 24 * 60 * 60 * 1_000) * 1_000n)
+  if (expiresAt.epochMicroseconds <= BigInt(createdAt.getTime()) * 1_000n) {
     throw new AuthenticationError(
       'invalid_registration',
       'Access token expiration must be in the future.',
@@ -2191,13 +2196,15 @@ function accessTokenMaterial(
     tokenDigest: digest(token),
     constraints,
     createdAt,
-    expiresAt,
+    expiresAt: new Date(Number(expiresAt.epochMicroseconds / 1_000n)),
   }
   return {
     row,
+    expiresAt,
     grant: Object.freeze({
       accessToken: accessTokenFrom({
         ...row,
+        expiresAt,
         lastUsedAt: null,
         revokedAt: null,
       }),
@@ -2206,17 +2213,42 @@ function accessTokenMaterial(
   }
 }
 
-function accessTokenFrom(row: typeof authAccessTokens.$inferSelect): AuthAccessToken {
+function accessTokenProjection() {
+  return {
+    id: authAccessTokens.id,
+    identityId: authAccessTokens.identityId,
+    name: authAccessTokens.name,
+    displayPrefix: authAccessTokens.displayPrefix,
+    tokenDigest: authAccessTokens.tokenDigest,
+    constraints: authAccessTokens.constraints,
+    createdAt: sql<string>`${authAccessTokens.createdAt}::text`,
+    expiresAt: sql<string>`${authAccessTokens.expiresAt}::text`,
+    lastUsedAt: sql<string | null>`${authAccessTokens.lastUsedAt}::text`,
+    revokedAt: sql<string | null>`${authAccessTokens.revokedAt}::text`,
+  }
+}
+
+function accessTokenFrom(
+  row: Omit<
+    typeof authAccessTokens.$inferSelect,
+    'createdAt' | 'expiresAt' | 'lastUsedAt' | 'revokedAt'
+  > & {
+    readonly createdAt: Date | string | Instant
+    readonly expiresAt: Date | string | Instant
+    readonly lastUsedAt: Date | string | Instant | null
+    readonly revokedAt: Date | string | Instant | null
+  },
+): AuthAccessToken {
   return Object.freeze({
     id: row.id,
     identityId: row.identityId,
     name: row.name,
     displayPrefix: row.displayPrefix,
     constraints: Object.freeze([...row.constraints]),
-    createdAt: instantFromDate(row.createdAt),
-    expiresAt: instantFromDate(row.expiresAt),
-    ...(row.lastUsedAt ? { lastUsedAt: instantFromDate(row.lastUsedAt) } : {}),
-    ...(row.revokedAt ? { revokedAt: instantFromDate(row.revokedAt) } : {}),
+    createdAt: instantFromDatabase(row.createdAt),
+    expiresAt: instantFromDatabase(row.expiresAt),
+    ...(row.lastUsedAt ? { lastUsedAt: instantFromDatabase(row.lastUsedAt) } : {}),
+    ...(row.revokedAt ? { revokedAt: instantFromDatabase(row.revokedAt) } : {}),
   })
 }
 
@@ -2241,8 +2273,12 @@ function instantFromDate(value: Date): Instant {
   return Instant.fromEpochMicroseconds(BigInt(value.getTime()) * 1_000n)
 }
 
-function dateFromInstant(value: Instant): Date {
-  return new Date(Number(value.epochMicroseconds / 1_000n))
+function instantFromDatabase(value: Date | string | Instant): Instant {
+  if (value instanceof Instant) return value
+  if (value instanceof Date) return instantFromDate(value)
+  let text = value.replace(' ', 'T')
+  if (/[+-]\d{2}$/u.test(text)) text = `${text}:00`
+  return Instant.parse(/(?:Z|[+-]\d{2}:\d{2})$/u.test(text) ? text : `${text}Z`)
 }
 
 function isUniqueViolation(error: unknown): boolean {

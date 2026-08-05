@@ -1,6 +1,7 @@
 import { DateTimeError, Duration, Graphite, Instant, LocalDate } from '@doxajs/core'
 import {
   decodeDateTimeValues,
+  encodeDateTimeStrings,
   encodeDateTimeValues,
   runWithDateTimeContext,
 } from '@doxajs/core/runtime'
@@ -20,6 +21,11 @@ describe('Graphite datetimes', () => {
   })
 
   it('rejects ambiguity, gaps, mismatched offsets, and excess precision', () => {
+    const instant = Instant.parse('2026-08-05T14:00:00Z')
+    expect(() => Graphite.fromInstant(instant, '+05:00')).toThrow(DateTimeError)
+    expect(() => Graphite.fromLocal('2026-08-05T09:00:00', { timeZone: '+05:00' })).toThrow(
+      DateTimeError,
+    )
     expect(() =>
       Graphite.fromLocal('2026-11-01T01:30:00', { timeZone: 'America/Chicago' }),
     ).toThrow(DateTimeError)
@@ -56,6 +62,8 @@ describe('Graphite datetimes', () => {
     expect(value.isBefore(next)).toBe(true)
     expect(value.isBetween(value.subtract({ seconds: 1 }), next)).toBe(true)
     expect(value.diffIn('hour', next)).toBe(26)
+    expect(value.diff(value.inTimeZone('UTC')).toString()).toBe('PT0S')
+    expect(value.diffIn('day', value.inTimeZone('UTC'))).toBe(0)
   })
 
   it('uses only an admitted Doxa clock for relative operations', () => {
@@ -111,5 +119,31 @@ describe('Graphite datetimes', () => {
     expect(decoded.expiresAt).toBeInstanceOf(Instant)
     expect(decoded.dates[0]).toBeInstanceOf(LocalDate)
     expect(decoded.dates[1]).toBeInstanceOf(Duration)
+
+    const collision = { $doxa: 'instant@1', value: 'ordinary application data' }
+    expect(decodeDateTimeValues(encodeDateTimeValues(collision))).toEqual(collision)
+    expect(() => decodeDateTimeValues({ $doxa: 'instant@1', value: 42 })).toThrow(
+      'Malformed Doxa datetime tag.',
+    )
+    expect(() =>
+      decodeDateTimeValues({ $doxa: 'instant@2', value: '2026-08-05T15:00:00Z' }),
+    ).toThrow('Unsupported Doxa datetime tag instant@2.')
+  })
+
+  it('uses canonical strings at public boundaries and explicit legacy Date bridges', () => {
+    const graphite = Graphite.parse('2026-08-05T09:00:00.123000-05:00[America/Chicago]')
+    const instant = graphite.toInstant()
+
+    expect(encodeDateTimeStrings({ graphite, instant })).toEqual({
+      graphite: graphite.toString(),
+      instant: instant.toString(),
+    })
+    expect(Instant.fromLegacyDate(instant.toLegacyDate()).equals(instant)).toBe(true)
+    expect(
+      Graphite.fromLegacyDate(graphite.toLegacyDate(), graphite.timeZone).equals(graphite),
+    ).toBe(true)
+    expect(() => Instant.parse('2026-08-05T14:00:00.123456Z').toLegacyDate()).toThrow(
+      'JavaScript Date cannot represent sub-millisecond precision.',
+    )
   })
 })

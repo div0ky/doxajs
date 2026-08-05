@@ -95,6 +95,9 @@ const storedInstant = startsAt.toInstant()
 const shownForBranch = storedInstant.inTimeZone('America/Chicago')
 const serviceDate = LocalDate.parse('2026-08-05')
 const reminderLead = Duration.parse('PT30M')
+
+// Explicit legacy interop rejects sub-millisecond loss on the way back to Date.
+const legacy = Instant.fromLegacyDate(new Date('2026-08-05T14:00:00.000Z')).toLegacyDate()
 ```
 
 `Graphite` couples an exact instant with an IANA time zone for calendar arithmetic and display.

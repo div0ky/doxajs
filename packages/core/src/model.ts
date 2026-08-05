@@ -1160,8 +1160,9 @@ export class ModelSession {
     Constructor: ModelConstructor<Instance, Attributes>,
     plan: ModelQueryPlan,
   ): Promise<ModelQueryPlan> {
-    const attributes = this.definitionFor(Constructor).attributes
-    validateModelQueryPlan(plan, attributes)
+    const definition = this.definitionFor(Constructor)
+    const attributes = definition.attributes
+    validateModelQueryPlan(plan, attributes, definition.storage.attributeTypes)
     if (plan.relationshipConstraints.length === 0) return plan
     const constraints = [...plan.constraints]
     for (const constraint of plan.relationshipConstraints) {
@@ -1241,7 +1242,7 @@ export class ModelSession {
       })
     }
     const resolved = { ...plan, constraints, relationshipConstraints: [] }
-    validateModelQueryPlan(resolved, attributes)
+    validateModelQueryPlan(resolved, attributes, definition.storage.attributeTypes)
     return resolved
   }
 

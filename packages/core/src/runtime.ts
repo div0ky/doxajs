@@ -6,6 +6,7 @@ export {
 } from './datetime-context.js'
 export {
   decodeDateTimeValues,
+  encodeDateTimeStrings,
   encodeDateTimeValues,
   type EncodedDateTimeValue,
 } from './datetime-codec.js'

@@ -1,4 +1,4 @@
-import { Model } from '@doxajs/core'
+import { Duration, Model } from '@doxajs/core'
 
 import { Counter, CounterNote } from '../examples/persistence-app/dist/counters/models/counter.js'
 
@@ -72,3 +72,17 @@ RequiredUndefinedTypeProof.prototype.fill({ required: undefined })
 
 void modelQueryTypeProofs
 void ModelIdentityTypeProof
+
+class DurationQueryTypeProof extends Model<{ id: string; elapsed: Duration }> {}
+
+DurationQueryTypeProof.where('elapsed', Duration.parse('PT1H'))
+DurationQueryTypeProof.query().whereIn('elapsed', [Duration.parse('PT1H')])
+// @ts-expect-error Duration supports equality and membership only.
+DurationQueryTypeProof.where('elapsed', '<', Duration.parse('PT1H'))
+// @ts-expect-error Duration is not range-orderable.
+DurationQueryTypeProof.query().whereBetween('elapsed', [
+  Duration.parse('PT1H'),
+  Duration.parse('PT2H'),
+])
+// @ts-expect-error Duration is not orderable.
+DurationQueryTypeProof.query().orderBy('elapsed')
