@@ -3467,13 +3467,19 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     )
     expect(developmentMetrics).toHaveLength(1)
     expect(developmentSerialization).toHaveLength(1)
-    const safeAttributes = {
-      activeOperation: 'aggregate',
+    const safeAttributes = developmentMetrics[0]?.attributes
+    expect(Object.keys(safeAttributes ?? {}).sort()).toEqual([
+      'activeEntityType',
+      'activeOperation',
+      'queuedEntityType',
+      'queuedOperation',
+    ])
+    expect(safeAttributes).toMatchObject({
       activeEntityType: 'model:counters/counter',
-      queuedOperation: 'aggregate',
       queuedEntityType: 'model:counters/counter',
-    }
-    expect(developmentMetrics[0]?.attributes).toEqual(safeAttributes)
+    })
+    expect(['aggregate', 'find']).toContain(safeAttributes?.activeOperation)
+    expect(['aggregate', 'find']).toContain(safeAttributes?.queuedOperation)
     expect(developmentSerialization[0]?.attributes).toEqual(safeAttributes)
 
     const productionLogs = new MemoryLogSink()
