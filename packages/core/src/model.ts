@@ -563,6 +563,7 @@ export abstract class Model<
 }
 
 const modelHydrations = new AsyncLocalStorage<{
+  active: boolean
   readonly session: ModelSession
   readonly models: ReadonlyMap<string, Model>
 }>()
@@ -613,10 +614,11 @@ export class ModelSession {
     const type = definition.entityType
     const identity = `${type}/${id}`
     const hydration = modelHydrations.getStore()
-    const hydrating = hydration?.session === this ? hydration.models.get(identity) : undefined
-    if (hydrating) return hydrating as Instance
+    const hydrating =
+      hydration?.active && hydration.session === this ? hydration.models.get(identity) : undefined
+    if (hydrating && this.#identityMap.get(identity) === hydrating) return hydrating as Instance
     const pending = this.#hydrations.get(identity)
-    if (pending) return (await pending) as Instance
+    if (pending && !hydrating) return (await pending) as Instance
     const existing = this.#identityMap.get(identity)
     if (existing) return existing as Instance
     const persisted = await this.observeOperation(definition, 'find', () =>
@@ -1011,10 +1013,11 @@ export class ModelSession {
   ): Promise<Instance> {
     const identity = `${type}/${persisted.id}`
     const current = modelHydrations.getStore()
-    const hydrating = current?.session === this ? current.models.get(identity) : undefined
-    if (hydrating) return hydrating as Instance
+    const hydrating =
+      current?.active && current.session === this ? current.models.get(identity) : undefined
+    if (hydrating && this.#identityMap.get(identity) === hydrating) return hydrating as Instance
     const pending = this.#hydrations.get(identity)
-    if (pending) return (await pending) as Instance
+    if (pending && !hydrating) return (await pending) as Instance
     const existing = this.#identityMap.get(identity)
     if (existing) return existing as Instance
     const hydration = (async () => {
@@ -1026,17 +1029,19 @@ export class ModelSession {
       const model = new Constructor(attributes)
       model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
       this.#identityMap.set(identity, model)
+      const parentModels = current?.active && current.session === this ? current.models : []
+      const models = new Map(parentModels)
+      models.set(identity, model)
+      const scope = { active: true, session: this, models }
       try {
-        const models = new Map(current?.session === this ? current.models : [])
-        models.set(identity, model)
-        await modelHydrations.run({ session: this, models }, () =>
-          this.observers?.dispatch('retrieved', model),
-        )
+        await modelHydrations.run(scope, () => this.observers?.dispatch('retrieved', model))
         this.assertActive()
         return model
       } catch (error) {
         if (this.#identityMap.get(identity) === model) this.#identityMap.delete(identity)
         throw error
+      } finally {
+        scope.active = false
       }
     })()
     this.#hydrations.set(identity, hydration)

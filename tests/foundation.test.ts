@@ -825,16 +825,25 @@ describe('foundational compile-to-boot slice', () => {
     expect(failedRetrievedCount).toBe(1)
     failing.close()
 
+    let escapedFind: Promise<HydrationProofModel | undefined> | undefined
     const deleting = new ModelSession(reader, definitions, {
       dispatch: async (phase, model) => {
-        if (phase === 'retrieved') await model.delete()
+        if (phase !== 'retrieved') return
+        await model.delete()
+        if (!escapedFind) {
+          escapedFind = new Promise((resolve, reject) => {
+            setImmediate(
+              () => void deleting.find(HydrationProofModel, 'deleted').then(resolve, reject),
+            )
+          })
+        }
       },
     })
     const readsBeforeDeletion = reader.findCount
-    const [deletedFirst, deletedSecond] = await runWithModelSession(deleting, async () => [
-      await deleting.find(HydrationProofModel, 'deleted'),
-      await deleting.find(HydrationProofModel, 'deleted'),
-    ])
+    const deletedFirst = await runWithModelSession(deleting, () =>
+      deleting.find(HydrationProofModel, 'deleted'),
+    )
+    const deletedSecond = await escapedFind
     expect(deletedSecond).not.toBe(deletedFirst)
     expect(reader.findCount - readsBeforeDeletion).toBe(2)
     expect(reader.deleteCount).toBe(2)
