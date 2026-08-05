@@ -346,6 +346,7 @@ export class DoxaRuntime {
     private readonly telemetry: Telemetry,
     private readonly observations: ObservationRecorder,
     private readonly eventTestHook: EventTestHook | undefined,
+    private readonly production: boolean,
     logger: Logger,
   ) {
     this.logger = logger
@@ -613,6 +614,7 @@ export class DoxaRuntime {
       telemetry,
       observations,
       options.eventTestHook,
+      (options.environment ?? process.env).NODE_ENV === 'production',
       logger,
     )
     transactions?.bindCompiledModels(
@@ -1758,18 +1760,78 @@ export class DoxaRuntime {
   }
 
   private modelOperationObserver(): ModelOperationObserver {
+    if (!this.transactions?.serializesConcurrentOperations) {
+      return Object.freeze({
+        observe: <Output>(
+          diagnostic: import('@doxajs/core').ModelOperationDiagnostic,
+          work: () => Promise<Output>,
+        ) =>
+          this.observeObservation(
+            'model',
+            `${diagnostic.entityType}.${diagnostic.operation}`,
+            { operation: diagnostic.operation, storage: diagnostic.storage },
+            work,
+            diagnostic.entityType,
+          ),
+      })
+    }
+    const active = new Set<import('@doxajs/core').ModelOperationDiagnostic>()
+    let reportedConcurrency = false
     return Object.freeze({
-      observe: <Output>(
+      observe: async <Output>(
         diagnostic: import('@doxajs/core').ModelOperationDiagnostic,
         work: () => Promise<Output>,
-      ) =>
-        this.observeObservation(
-          'model',
-          `${diagnostic.entityType}.${diagnostic.operation}`,
-          { operation: diagnostic.operation, storage: diagnostic.storage },
-          work,
-          diagnostic.entityType,
-        ),
+      ) => {
+        const running = active.values().next().value
+        let report = Promise.resolve<unknown>(undefined)
+        if (running && !reportedConcurrency) {
+          reportedConcurrency = true
+          const attributes = {
+            activeOperation: running.operation,
+            activeEntityType: running.entityType,
+            queuedOperation: diagnostic.operation,
+            queuedEntityType: diagnostic.entityType,
+          }
+          if (!this.production) {
+            this.logger
+              .channel('persistence')
+              .warn(
+                "Concurrent model operations were serialized to preserve this execution's PostgreSQL transaction and snapshot. Promise.all does not add database parallelism here; await sequentially or reduce database round trips.",
+                attributes,
+              )
+          }
+          report = Promise.all([
+            this.recordObservation({
+              kind: 'model',
+              name: 'transaction serialization',
+              phase: 'occurred',
+              roleId: diagnostic.entityType,
+              attributes,
+            }),
+            this.recordTelemetry({
+              kind: 'metric',
+              name: 'doxa.persistence.transaction.serialization.total',
+              value: 1,
+              unit: 'count',
+              attributes,
+            }),
+          ])
+        }
+        active.add(diagnostic)
+        try {
+          const output = await this.observeObservation(
+            'model',
+            `${diagnostic.entityType}.${diagnostic.operation}`,
+            { operation: diagnostic.operation, storage: diagnostic.storage },
+            work,
+            diagnostic.entityType,
+          )
+          await report
+          return output
+        } finally {
+          active.delete(diagnostic)
+        }
+      },
     })
   }
 

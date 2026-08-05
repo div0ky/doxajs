@@ -120,6 +120,8 @@ Every model query requires an active Doxa execution and `ModelSession`.
 - Query results pass through the session identity map.
 - A read-only session observes one stable persistence snapshot across pagination, cursor, aggregate,
   and relationship-loading statements.
+- Concurrent terminal operations in one session are accepted but execute serially on its persistence
+  transaction. `Promise.all` does not add database parallelism or weaken snapshot consistency.
 - Overlapping results for the same model identity return the same object instance.
 - `retrieved` fires only when an identity is newly hydrated into that session.
 - Query-mode `save`, `create`, and `delete` fail with `ReadOnlyExecutionError` before persistence.
@@ -232,6 +234,10 @@ Query observations must identify the model, terminal, constraint count, ordering
 and eager-loaded relationship names without recording sensitive values. Diagnostics must be able to
 show the logical plan and resolved mapping separately from engine SQL.
 
+The first concurrent overlap emits one privacy-safe serialization observation and metric per model
+session. Development and test runtimes also warn that `Promise.all` does not improve transactional
+database parallelism; production retains structured diagnostics without warning-log noise.
+
 `find` and `findOrFail` are distinct terminal names in query observations even though both append
 the same identity constraint and force a one-row limit.
 
@@ -252,6 +258,8 @@ the same identity constraint and force a one-row limit.
 12. Builder `find` and `findOrFail` preserve existing plan clauses, eager-load relationships, report
     distinct diagnostics, become stale with their bound session, and return or fail with the exact
     requested identity.
+13. Concurrent terminals execute serially, emit one serialization diagnostic, retain one snapshot,
+    and drain or fail before transaction cleanup.
 
 ## Deferred question
 

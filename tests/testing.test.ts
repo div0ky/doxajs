@@ -31,6 +31,7 @@ import { SaveCounter } from '../examples/persistence-app/dist/counters/actions/s
 import { SaveLegacyCustomer } from '../examples/persistence-app/dist/counters/actions/save-legacy-customer.js'
 import { ExerciseReadOnlyLegacyCustomer } from '../examples/persistence-app/dist/counters/actions/exercise-read-only-legacy-customer.js'
 import { InspectCounterQueries } from '../examples/persistence-app/dist/counters/queries/inspect-counter-queries.js'
+import { ConcurrentCounterReads } from '../examples/persistence-app/dist/counters/queries/concurrent-counter-reads.js'
 import {
   authorizedActionUser,
   authorizedJobUser,
@@ -174,6 +175,21 @@ describe('@doxajs/testing', () => {
       expect(transactions.state.deliveries.get(ids.mailId)?.state).toBe('accepted')
       expect(transactions.state.deliveries.get(ids.smsId)?.state).toBe('accepted')
       expect(telemetry.records.some((record) => record.kind === 'span')).toBe(true)
+      expect(await harness.query(ConcurrentCounterReads, undefined)).toEqual(
+        Array.from({ length: 9 }, () => 1),
+      )
+      expect(
+        harness.logs.records.some((record) =>
+          record.message.includes('Promise.all does not add database parallelism'),
+        ),
+      ).toBe(false)
+      expect(
+        telemetry.records.some(
+          (record) =>
+            record.kind === 'metric' &&
+            record.name === 'doxa.persistence.transaction.serialization.total',
+        ),
+      ).toBe(false)
       expect(harness.observations?.observations).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ kind: 'action', phase: 'completed' }),
