@@ -25,7 +25,6 @@ import {
   sanitizeObservationError,
   validateModelQueryPlan,
 } from '@doxajs/core'
-import { ModelSession } from '@doxajs/core/runtime'
 import {
   Doxa,
   ConfigurationValidationError,
