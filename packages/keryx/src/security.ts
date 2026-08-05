@@ -353,6 +353,9 @@ function serializeTicketAuthentication(
       ? { authenticatedAt: authentication.authenticatedAt.toISOString() }
       : {}),
     ...(authentication.sessionId ? { sessionId: authentication.sessionId } : {}),
+    ...(authentication.impersonationGrantId
+      ? { impersonationGrantId: authentication.impersonationGrantId }
+      : {}),
     ...(authentication.credentialId ? { credentialId: authentication.credentialId } : {}),
     ...(authentication.constraints
       ? { constraints: Object.freeze([...authentication.constraints]) }
@@ -422,6 +425,7 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
     !optionalString(value.identityId) ||
     !optionalString(value.method) ||
     !optionalString(value.sessionId) ||
+    !optionalString(value.impersonationGrantId) ||
     !optionalString(value.credentialId) ||
     (value.assurance !== undefined &&
       !['single-factor', 'multi-factor', 'phishing-resistant'].includes(String(value.assurance))) ||
@@ -449,6 +453,9 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
       : {}),
     ...(authenticatedAt ? { authenticatedAt } : {}),
     ...(typeof value.sessionId === 'string' ? { sessionId: value.sessionId } : {}),
+    ...(typeof value.impersonationGrantId === 'string'
+      ? { impersonationGrantId: value.impersonationGrantId }
+      : {}),
     ...(typeof value.credentialId === 'string' ? { credentialId: value.credentialId } : {}),
     ...(Array.isArray(value.constraints)
       ? { constraints: Object.freeze([...value.constraints] as string[]) }

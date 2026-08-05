@@ -1,7 +1,22 @@
+import { Auth } from '@doxajs/core'
 import { KeryxAdmissionTickets } from '@doxajs/keryx'
 import { describe, expect, it } from 'vitest'
 
 describe('native impersonation transport context', () => {
+  it('fails closed when a custom Auth provider does not implement live credential validation', async () => {
+    await expect(
+      Auth.prototype.validateAuthentication(
+        { kind: 'user', id: 'admin' },
+        {
+          state: 'authenticated',
+          identityId: 'admin',
+          method: 'password',
+          sessionId: 'session-1',
+        },
+      ),
+    ).resolves.toBe(false)
+  })
+
   it('preserves impersonator, target, audit delegation, and bounded expiry in Keryx tickets', () => {
     const now = Date.parse('2026-08-05T15:00:00.000Z')
     const expiresAt = new Date(now + 10_000)
@@ -18,7 +33,7 @@ describe('native impersonation transport context', () => {
         {
           from: { kind: 'user', id: 'admin' },
           to: { kind: 'user', id: 'target' },
-          grantId: 'session-1',
+          grantId: 'grant-1',
           reason: 'Support ticket 42',
           expiresAt,
         },
@@ -28,6 +43,7 @@ describe('native impersonation transport context', () => {
         identityId: 'admin',
         method: 'password',
         sessionId: 'session-1',
+        impersonationGrantId: 'grant-1',
       },
       correlationId: 'correlation-1',
       origin: 'https://app.example.test',
@@ -42,7 +58,7 @@ describe('native impersonation transport context', () => {
           {
             from: { kind: 'user', id: 'admin' },
             to: { kind: 'user', id: 'target' },
-            grantId: 'session-1',
+            grantId: 'grant-1',
             reason: 'Support ticket 42',
             expiresAt,
           },
@@ -50,6 +66,7 @@ describe('native impersonation transport context', () => {
         authentication: expect.objectContaining({
           identityId: 'admin',
           sessionId: 'session-1',
+          impersonationGrantId: 'grant-1',
         }),
       }),
     )
@@ -61,7 +78,7 @@ describe('native impersonation transport context', () => {
           {
             from: { kind: 'user', id: 'admin' },
             to: { kind: 'user', id: 'target' },
-            grantId: 'session-1',
+            grantId: 'grant-1',
             reason: 'Expired grant',
             expiresAt: new Date(now),
           },

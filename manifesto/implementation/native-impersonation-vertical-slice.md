@@ -9,7 +9,8 @@
 Doxa now provides opt-in, policy-authorized native browser-session impersonation without target
 credentials. PostgreSQL retains original session authority, records target delegation and audit
 evidence, rotates on start/stop, restores automatically, and resolves identical actor attribution
-for HTTP and WebSocket cookie admission.
+for HTTP, WebSocket cookie admission, and queued delivery. Each activation uses a unique persisted
+grant, preventing stopped authority from reviving after another impersonation starts.
 
 ## Evidence
 
@@ -17,6 +18,6 @@ Focused tests cover explicit compiler opt-in, duration validation, permission de
 eligibility denial, start and stop rotation, stale-cookie rejection, actor/initiator/delegation
 resolution, Keryx admission, live-session revalidation, automatic expiry, restoration, and durable
 start/stop/expiry audit rows. Ticket tests cover encrypted delegation round-trip, delegation-bounded
-expiry, and rejection of already expired delegation.
+expiry, exact-grant revocation, and rejection of already expired delegation.
 
 Complete repository gate: `pnpm verify`.

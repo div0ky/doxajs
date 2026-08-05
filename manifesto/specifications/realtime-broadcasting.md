@@ -86,8 +86,9 @@ Connection admission resolves Doxa authentication from the WebSocket upgrade req
 subscribe and unsubscribe command is then admitted as a fresh Doxa execution using that actor,
 initiator, delegation, authentication, tenant, and connection correlation context. Keryx revalidates
 admitted session or bearer authority before inbound frames and during bounded heartbeats; expired
-impersonation also closes before local event delivery. Connection identity is never treated as an
-execution scope.
+impersonation also closes before local event delivery. Heartbeat intervals are bounded;
+authentication provider latency is additional. Connection identity is never treated as an execution
+scope.
 
 Cookie-authenticated upgrade requests require the same trusted `Origin` validation as unsafe HTTP
 requests even though the WebSocket handshake uses `GET`. Upgrade admission must not rotate a browser

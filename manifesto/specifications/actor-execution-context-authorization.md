@@ -148,12 +148,14 @@ export interface AuthenticationContext {
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
   readonly authenticatedAt?: Date
   readonly sessionId?: SessionId
+  readonly impersonationGrantId?: string
 }
 ```
 
 The method is a stable Doxa identifier such as `password` or `passkey`, not a plugin-specific type.
 Session IDs are local diagnostic references and must not be serialized into jobs, events, or
-external trace baggage.
+external trace baggage. Impersonation activation grant IDs are non-secret revocation references and
+may cross the queue boundary with delegated work.
 
 ## Context creation
 

@@ -521,6 +521,7 @@ export interface AuthenticationContext {
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
   readonly authenticatedAt?: Date
   readonly sessionId?: string
+  readonly impersonationGrantId?: string
   readonly credentialId?: string
   readonly constraints?: readonly string[]
 }

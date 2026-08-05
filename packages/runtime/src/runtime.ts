@@ -2497,6 +2497,8 @@ export class DoxaRuntime {
       actor.id !== hop.to.id
     )
       return
+    if (authentication.impersonationGrantId !== hop.grantId)
+      throw new OperationDispatchError('Queued impersonation is expired or revoked.')
     const valid = await this.authentication?.validateAuthentication(actor, {
       state: authentication.state,
       identityId: authentication.identityId!,
@@ -2506,8 +2508,8 @@ export class DoxaRuntime {
         ? { authenticatedAt: new Date(authentication.authenticatedAt) }
         : {}),
       ...(authentication.credentialId ? { credentialId: authentication.credentialId } : {}),
+      impersonationGrantId: hop.grantId,
       ...(authentication.constraints ? { constraints: authentication.constraints } : {}),
-      sessionId: hop.grantId,
     })
     if (!valid) throw new OperationDispatchError('Queued impersonation is expired or revoked.')
   }
@@ -4335,6 +4337,9 @@ function queueContext(context: ExecutionContext): QueueExecutionEnvelope {
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
         : {}),
+      ...(context.authentication.impersonationGrantId
+        ? { impersonationGrantId: context.authentication.impersonationGrantId }
+        : {}),
       ...(context.authentication.constraints
         ? { constraints: [...context.authentication.constraints] }
         : {}),
@@ -4385,6 +4390,9 @@ function queueSeed(
         : {}),
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
+        : {}),
+      ...(context.authentication.impersonationGrantId
+        ? { impersonationGrantId: context.authentication.impersonationGrantId }
         : {}),
       ...(context.authentication.constraints
         ? { constraints: [...context.authentication.constraints] }
@@ -4496,6 +4504,8 @@ function assertQueueDelivery(envelope: QueueEnvelope, attempt: number): void {
         String(authentication.assurance),
       )) ||
     (authentication.credentialId !== undefined && !boundedText(authentication.credentialId, 256)) ||
+    (authentication.impersonationGrantId !== undefined &&
+      !boundedText(authentication.impersonationGrantId, 256)) ||
     (authentication.authenticatedAt !== undefined &&
       !validIsoDate(authentication.authenticatedAt)) ||
     (authentication.constraints !== undefined &&
@@ -4600,6 +4610,7 @@ const AUTHENTICATION_KEYS = new Set([
   'assurance',
   'authenticatedAt',
   'credentialId',
+  'impersonationGrantId',
   'constraints',
 ])
 const TRACE_KEYS = new Set([

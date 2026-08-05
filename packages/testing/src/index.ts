@@ -447,6 +447,7 @@ export class TestAuth extends Auth {
     const impersonating = {
       ...session,
       impersonation: {
+        grantId: randomUUID(),
         targetIdentityId,
         reason,
         startedAt: new Date(),
@@ -478,12 +479,19 @@ export class TestAuth extends Auth {
     authentication: AuthenticationContext,
   ): Promise<boolean> {
     if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
-    if (!authentication.sessionId) return actor.id === authentication.identityId
-    const session = this.#sessions.get(authentication.sessionId)
+    if (!authentication.sessionId && !authentication.impersonationGrantId)
+      return actor.id === authentication.identityId
+    const session = authentication.sessionId
+      ? this.#sessions.get(authentication.sessionId)
+      : [...this.#sessions.values()].find(
+          (candidate) => candidate.impersonation?.grantId === authentication.impersonationGrantId,
+        )
     return Boolean(
       session &&
       !session.revokedAt &&
-      actor.id === (session.impersonation?.targetIdentityId ?? session.identityId),
+      actor.id === (session.impersonation?.targetIdentityId ?? session.identityId) &&
+      (authentication.impersonationGrantId === undefined ||
+        authentication.impersonationGrantId === session.impersonation?.grantId),
     )
   }
   async revokeSession(id: string): Promise<void> {

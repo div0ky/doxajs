@@ -34,12 +34,13 @@ Each admitted execution carries:
 - `initiator`: original identity;
 - `authentication.identityId`: original credential owner;
 - `authentication.sessionId`: original session;
-- `delegation`: original-to-target hop with session grant ID, reason, and expiry.
+- `authentication.impersonationGrantId`: unique activation grant;
+- `delegation`: original-to-target hop with activation grant ID, reason, and expiry.
 
 Queue propagation keeps actor, initiator, and delegation attribution but omits browser session ID,
 following existing durable execution-context contract. Native impersonation uses the delegation
 grant ID to revalidate the owning session at delivery, so stopped, revoked, or expired impersonation
-cannot execute queued work.
+cannot execute queued work or revive after a later impersonation starts on the same session.
 
 ## Stop, expiry, eligibility, and revocation
 
@@ -51,7 +52,8 @@ At HTTP resolution Doxa rechecks original and target eligibility. Expired or new
 state is cleared and audited before admitting original actor. Existing impersonated WebSockets close
 when delegation expires, when session revalidation fails before an inbound frame, or during next
 Keryx heartbeat. Generated impersonation-enabled applications default that configurable heartbeat to
-10 seconds; other generated applications retain Keryx's 30-second default. A stopped or revoked
+10 seconds; other generated applications retain Keryx's 30-second default. Closure occurs after the
+heartbeat begins and the authentication provider completes revalidation. A stopped or revoked
 admission cannot authorize another subscription or realtime command.
 
 Keryx admission tickets encrypt actor, initiator, authentication, and delegation; bind them to exact

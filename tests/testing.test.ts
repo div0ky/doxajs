@@ -971,6 +971,7 @@ describe('@doxajs/testing', () => {
             identityId: admin.id,
             method: 'password',
             sessionId: grant.session.id,
+            impersonationGrantId: grant.session.impersonation!.grantId,
           },
           transport: { kind: 'test', name: 'test:queued-impersonation' },
         },
@@ -984,6 +985,7 @@ describe('@doxajs/testing', () => {
         }),
       )
       await auth.stopImpersonation(admin.id, grant.session.id)
+      await auth.startImpersonation(admin.id, grant.session.id, target.id, 'Support ticket 43')
 
       await expect(queue.runNext()).rejects.toThrow('Queued impersonation is expired or revoked')
       expect(recordedJobAttempts).toEqual([])

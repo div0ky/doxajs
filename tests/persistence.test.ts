@@ -2072,6 +2072,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
 
     const restarted = await requestImpersonation(restoredCookie)
     const expiringCookie = restarted.headers.get('set-cookie')!.split(';', 1)[0]!
+    expect(await broadcasts.validate(socketAdmission)).toBe(false)
     await pool.query(
       `UPDATE doxa_auth_sessions
        SET impersonation_started_at = now() - interval '2 seconds',

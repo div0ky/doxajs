@@ -847,6 +847,7 @@ export class ListSessionsRoute extends Route {
       expiresAt: session.expiresAt.toISOString(),
       revokedAt: session.revokedAt?.toISOString(),
       impersonation: session.impersonation ? {
+        grantId: session.impersonation.grantId,
         targetIdentityId: session.impersonation.targetIdentityId,
         reason: session.impersonation.reason,
         startedAt: session.impersonation.startedAt.toISOString(),
@@ -949,9 +950,9 @@ export class AccountPolicy extends Policy {
     }
     if (
       request.ability === 'accounts.impersonation.stop' &&
-      (!request.context.authentication.sessionId ||
+      (!request.context.authentication.impersonationGrantId ||
         !request.context.delegation.some(
-          (hop) => hop.grantId === request.context.authentication.sessionId,
+          (hop) => hop.grantId === request.context.authentication.impersonationGrantId,
         ))
     ) {
       return deny('account', 'impersonation_required')

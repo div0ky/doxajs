@@ -26,9 +26,9 @@ export class AccountPolicy extends Policy {
     }
     if (
       request.ability === 'accounts.impersonation.stop' &&
-      (!request.context.authentication.sessionId ||
+      (!request.context.authentication.impersonationGrantId ||
         !request.context.delegation.some(
-          (hop) => hop.grantId === request.context.authentication.sessionId,
+          (hop) => hop.grantId === request.context.authentication.impersonationGrantId,
         ))
     ) {
       return deny('account', 'impersonation_required')

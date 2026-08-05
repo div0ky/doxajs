@@ -929,6 +929,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
       )
     }
     const token = randomBytes(32).toString('base64url')
+    const grantId = randomUUID()
     const now = new Date()
     const requestedExpiry = new Date(now.getTime() + this.#impersonationSessionSeconds * 1_000)
     const recentAfter = new Date(now.getTime() - 15 * 60 * 1_000)
@@ -940,6 +941,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           previousTokenDigest: null,
           previousTokenExpiresAt: null,
           lastSeenAt: now,
+          impersonationGrantId: grantId,
           impersonatedIdentityId: targetIdentityId,
           impersonationReason: normalizedReason,
           impersonationStartedAt: now,
@@ -965,6 +967,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         sessionId,
         metadata: {
           targetIdentityId,
+          grantId,
           reason: normalizedReason,
           expiresAt: session.impersonationExpiresAt!.toISOString(),
         },
@@ -1011,6 +1014,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           previousTokenDigest: null,
           previousTokenExpiresAt: null,
           lastSeenAt: now,
+          impersonationGrantId: null,
           impersonatedIdentityId: null,
           impersonationReason: null,
           impersonationStartedAt: null,
@@ -1031,7 +1035,10 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         eventType: 'impersonation.stopped',
         identityId,
         sessionId,
-        metadata: { targetIdentityId: current.impersonatedIdentityId! },
+        metadata: {
+          targetIdentityId: current.impersonatedIdentityId!,
+          grantId: current.impersonationGrantId!,
+        },
         occurredAt: now,
       })
       return session
@@ -1061,13 +1068,18 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
     if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
     if (actor.kind !== 'user' || !actor.id || !authentication.identityId) return false
     const now = new Date()
-    if (authentication.method === 'password' && authentication.sessionId) {
+    if (
+      authentication.method === 'password' &&
+      (authentication.sessionId || authentication.impersonationGrantId)
+    ) {
       const [session] = await this.#requireDatabase()
         .select()
         .from(authSessions)
         .where(
           and(
-            eq(authSessions.id, authentication.sessionId),
+            authentication.sessionId
+              ? eq(authSessions.id, authentication.sessionId)
+              : eq(authSessions.impersonationGrantId, authentication.impersonationGrantId!),
             eq(authSessions.identityId, authentication.identityId),
             isNull(authSessions.revokedAt),
             gt(authSessions.expiresAt, now),
@@ -1075,7 +1087,13 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
           ),
         )
         .limit(1)
-      if (!session || !(await this.findIdentity(session.identityId))) return false
+      if (
+        !session ||
+        !(await this.findIdentity(session.identityId)) ||
+        (authentication.impersonationGrantId !== undefined &&
+          session.impersonationGrantId !== authentication.impersonationGrantId)
+      )
+        return false
       const target =
         session.impersonatedIdentityId &&
         session.impersonationExpiresAt &&
@@ -1338,6 +1356,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         const [ended] = await transaction
           .update(authSessions)
           .set({
+            impersonationGrantId: null,
             impersonatedIdentityId: null,
             impersonationReason: null,
             impersonationStartedAt: null,
@@ -1359,6 +1378,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
             sessionId: session.id,
             metadata: {
               targetIdentityId: impersonation!.targetIdentityId,
+              grantId: impersonation!.grantId,
               reason:
                 eventType === 'impersonation.expired' ? 'duration_expired' : 'target_ineligible',
             },
@@ -1425,7 +1445,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
               Object.freeze({
                 from: Object.freeze({ kind: 'user' as const, id: identity.id }),
                 to: Object.freeze({ kind: 'user' as const, id: impersonation.targetIdentityId }),
-                grantId: session.id,
+                grantId: impersonation.grantId,
                 reason: impersonation.reason,
                 expiresAt: impersonation.expiresAt,
               }),
@@ -1439,6 +1459,7 @@ export class PostgresAuth extends Auth implements Starts, Disposes {
         assurance: 'single-factor' as const,
         authenticatedAt: session.authenticatedAt,
         sessionId: session.id,
+        ...(impersonation ? { impersonationGrantId: impersonation.grantId } : {}),
       }),
       ...(responseHeaders ? { responseHeaders } : {}),
     })
@@ -2358,6 +2379,7 @@ function identityFrom(row: typeof authIdentities.$inferSelect): AuthIdentity {
 function sessionFrom(row: typeof authSessions.$inferSelect): AuthSession {
   const completeImpersonation =
     row.impersonatedIdentityId &&
+    row.impersonationGrantId &&
     row.impersonationReason &&
     row.impersonationStartedAt &&
     row.impersonationExpiresAt
@@ -2372,6 +2394,7 @@ function sessionFrom(row: typeof authSessions.$inferSelect): AuthSession {
     ...(completeImpersonation
       ? {
           impersonation: Object.freeze({
+            grantId: row.impersonationGrantId!,
             targetIdentityId: row.impersonatedIdentityId!,
             reason: row.impersonationReason!,
             startedAt: row.impersonationStartedAt!,

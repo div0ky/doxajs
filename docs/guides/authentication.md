@@ -125,12 +125,16 @@ opaque cookie, and never asks for target password. `DELETE /auth/impersonation` 
 restores original user.
 
 During impersonation, `actor` is target, `initiator` and `authentication.identityId` remain original
-user, and `delegation` records original user, target, session grant, reason, and expiry. Same
-context drives HTTP and Keryx cookie or admission-ticket authentication. Expiry, target
+user, and `delegation` records original user, target, unique activation grant, reason, and expiry.
+Same context drives HTTP and Keryx cookie or admission-ticket authentication. Expiry, target
 ineligibility, stop, logout, and session revocation remove target authority; live Keryx connections
 revalidate before frames and on heartbeat. Generated impersonation-enabled applications default the
 configurable Keryx heartbeat to 10 seconds. Queued work retains impersonation attribution and
 revalidates the owning session at delivery.
+
+Custom Auth providers must override `validateAuthentication` to support live session or bearer
+credentials. The base implementation rejects credential-bearing validation rather than assuming a
+credential remains active.
 
 See [native impersonation contract](../../manifesto/specifications/native-impersonation.md).
 

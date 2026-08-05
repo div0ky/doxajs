@@ -27,6 +27,7 @@ export interface AuthSession {
 }
 
 export interface AuthImpersonation {
+  readonly grantId: string
   readonly targetIdentityId: string
   readonly reason: string
   readonly startedAt: Date
@@ -233,9 +234,14 @@ export abstract class Auth {
     actor: ActorRef,
     authentication: AuthenticationContext,
   ): Promise<boolean> {
-    return authentication.state === 'anonymous'
-      ? actor.kind === 'anonymous'
-      : actor.kind === 'user' && actor.id === authentication.identityId
+    if (authentication.state === 'anonymous') return actor.kind === 'anonymous'
+    if (
+      authentication.sessionId ||
+      authentication.credentialId ||
+      authentication.impersonationGrantId
+    )
+      return false
+    return actor.kind === 'user' && actor.id === authentication.identityId
   }
   abstract revokeSession(sessionId: string): Promise<void>
   abstract listSessions(identityId: string): Promise<readonly AuthSession[]>

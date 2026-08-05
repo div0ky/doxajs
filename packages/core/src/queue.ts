@@ -100,6 +100,7 @@ export interface QueueExecutionEnvelope {
     readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
     readonly authenticatedAt?: string
     readonly credentialId?: string
+    readonly impersonationGrantId?: string
     readonly constraints?: readonly string[]
   }
   readonly trace: TraceContext
