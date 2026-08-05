@@ -153,9 +153,9 @@ export interface AuthenticationContext {
 ```
 
 The method is a stable Doxa identifier such as `password` or `passkey`, not a plugin-specific type.
-Session IDs are local diagnostic references and must not be serialized into jobs, events, or
-external trace baggage. Impersonation activation grant IDs are non-secret revocation references and
-may cross the queue boundary as historical attribution for delegated work.
+Session IDs and live impersonation activation fields are local references and must not be serialized
+into jobs, events, or external trace baggage. The activation grant ID crosses the queue boundary
+only in the delegation hop as historical attribution for delegated work.
 
 ## Context creation
 
@@ -223,8 +223,10 @@ The default model should be:
 - The message or event ID becomes causation.
 - Authorization uses the worker's explicit capability and current application state.
 
-A job that truly needs delegated user authority must declare that requirement, carry a validated
-delegation grant, and re-evaluate the grant when it executes. A serialized session or prior
+A job that truly needs delegated user authority must declare that requirement and carry the
+dispatch-time actor, initiator, and delegation attribution. Delivery re-evaluates the operation's
+current application permissions, but does not revalidate the originating browser activation:
+accepted durable work survives that activation's stop or expiry. A serialized session or prior
 authorization result is never sufficient.
 
 Retries create a new execution ID and span while preserving correlation, causation, actor,
@@ -501,9 +503,10 @@ tenants, and authentication alone must not choose authority accidentally.
 
 ### Persist delegation grants
 
-Delegation and impersonation should use durable, revocable, scoped, expiring grant records. Only the
-opaque grant ID and actor references should cross a process boundary; the receiver reloads and
-revalidates the grant before accepting delegated authority.
+Delegation and impersonation should use durable, revocable, scoped, expiring grant records. Live
+transports reload and revalidate the opaque grant before accepting delegated authority. Queue
+dispatch instead snapshots the authorized actor, initiator, and delegation attribution; delivery
+re-evaluates current application permissions without revalidating the browser activation.
 
 ### Separate audit identity from general telemetry identity
 

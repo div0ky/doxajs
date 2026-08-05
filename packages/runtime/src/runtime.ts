@@ -4302,9 +4302,6 @@ function queueContext(context: ExecutionContext): QueueExecutionEnvelope {
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
         : {}),
-      ...(context.authentication.impersonationGrantId
-        ? { impersonationGrantId: context.authentication.impersonationGrantId }
-        : {}),
       ...(context.authentication.constraints
         ? { constraints: [...context.authentication.constraints] }
         : {}),
@@ -4355,9 +4352,6 @@ function queueSeed(
         : {}),
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }
-        : {}),
-      ...(context.authentication.impersonationGrantId
-        ? { impersonationGrantId: context.authentication.impersonationGrantId }
         : {}),
       ...(context.authentication.constraints
         ? { constraints: [...context.authentication.constraints] }
@@ -4463,8 +4457,6 @@ function assertQueueDelivery(envelope: QueueEnvelope, attempt: number): void {
         String(authentication.assurance),
       )) ||
     (authentication.credentialId !== undefined && !boundedText(authentication.credentialId, 256)) ||
-    (authentication.impersonationGrantId !== undefined &&
-      !boundedText(authentication.impersonationGrantId, 256)) ||
     (authentication.authenticatedAt !== undefined &&
       !validIsoDate(authentication.authenticatedAt)) ||
     (authentication.constraints !== undefined &&
@@ -4569,7 +4561,6 @@ const AUTHENTICATION_KEYS = new Set([
   'assurance',
   'authenticatedAt',
   'credentialId',
-  'impersonationGrantId',
   'constraints',
 ])
 const TRACE_KEYS = new Set([

@@ -984,6 +984,10 @@ describe('@doxajs/testing', () => {
           authentication: expect.objectContaining({ identityId: admin.id, method: 'password' }),
         }),
       )
+      expect(queue.queued[0]!.context.authentication).not.toHaveProperty('impersonationGrantId')
+      ;(queue.queued[0]!.context.delegation[0] as { expiresAt?: string }).expiresAt = new Date(
+        0,
+      ).toISOString()
       await auth.stopImpersonation(admin.id, grant.session.id, grant.session.impersonation!.grantId)
       const restarted = await auth.startImpersonation(
         admin.id,
