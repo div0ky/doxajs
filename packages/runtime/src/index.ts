@@ -10,6 +10,7 @@ export {
   RuntimeIntegrityError,
   RuntimeShutdownError,
   type BootOptions,
+  type DoxaClock,
   type EventTestHook,
   type ModelRecordQuery,
   type ModelRecordQueryResult,

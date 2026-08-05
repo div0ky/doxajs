@@ -8,7 +8,13 @@ import {
   timingSafeEqual,
 } from 'node:crypto'
 
-import type { ActorRef, AuthenticationContext, DelegationHop, TenantRef } from '@doxajs/core'
+import {
+  Instant,
+  type ActorRef,
+  type AuthenticationContext,
+  type DelegationHop,
+  type TenantRef,
+} from '@doxajs/core'
 
 const KEY_HEADER = 'x-doxa-key'
 const TIMESTAMP_HEADER = 'x-doxa-timestamp'
@@ -31,7 +37,7 @@ export interface KeryxConnectionTicketInput {
 
 export interface KeryxConnectionTicketGrant {
   readonly ticket: string
-  readonly expiresAt: Date
+  readonly expiresAt: Instant
 }
 
 export interface KeryxConnectionTicketAdmission {
@@ -42,7 +48,7 @@ export interface KeryxConnectionTicketAdmission {
   readonly authentication: AuthenticationContext
   readonly tenant?: TenantRef
   readonly correlationId: string
-  readonly expiresAt: number
+  readonly expiresAt: Instant
 }
 
 interface AdmissionTicketPayload {
@@ -50,7 +56,7 @@ interface AdmissionTicketPayload {
   readonly applicationId: string
   readonly ticketId: string
   readonly issuedAt: number
-  readonly expiresAt: number
+  readonly expiresAt: string
   readonly origin: string
   readonly actor: ActorRef
   readonly initiator?: ActorRef
@@ -181,21 +187,21 @@ export class KeryxAdmissionTickets {
 
   issue(input: KeryxConnectionTicketInput): KeryxConnectionTicketGrant {
     const issuedAt = this.now()
-    const delegationExpiry = input.delegation
-      ?.flatMap((hop) => (hop.expiresAt ? [hop.expiresAt.getTime()] : []))
-      .sort((left, right) => left - right)[0]
-    const expiresAt = Math.min(
-      issuedAt + this.lifetimeMilliseconds,
-      delegationExpiry ?? Number.POSITIVE_INFINITY,
-    )
-    if (expiresAt <= issuedAt)
+    let expiresAt = BigInt(issuedAt + this.lifetimeMilliseconds) * 1_000n
+    for (const hop of input.delegation ?? []) {
+      if (hop.expiresAt && hop.expiresAt.epochMicroseconds < expiresAt) {
+        expiresAt = hop.expiresAt.epochMicroseconds
+      }
+    }
+    if (expiresAt <= BigInt(issuedAt) * 1_000n)
       throw new TypeError('Keryx cannot issue a ticket for expired delegation.')
+    const expiresAtInstant = Instant.fromEpochMicroseconds(expiresAt)
     const payload: AdmissionTicketPayload = {
       version: ADMISSION_TICKET_VERSION,
       applicationId: this.applicationId,
       ticketId: randomUUID(),
       issuedAt,
-      expiresAt,
+      expiresAt: expiresAtInstant.toString(),
       origin: normalizeBrowserOrigin(input.origin),
       actor: parseTicketActor(input.actor),
       ...(input.initiator ? { initiator: parseTicketActor(input.initiator) } : {}),
@@ -219,7 +225,7 @@ export class KeryxAdmissionTickets {
         encrypted.toString('base64url'),
         tag.toString('base64url'),
       ].join('.'),
-      expiresAt: new Date(expiresAt),
+      expiresAt: expiresAtInstant,
     })
   }
 
@@ -269,13 +275,18 @@ export class KeryxAdmissionTickets {
       value.applicationId !== this.applicationId ||
       typeof value.issuedAt !== 'number' ||
       !Number.isSafeInteger(value.issuedAt) ||
-      typeof value.expiresAt !== 'number' ||
-      !Number.isSafeInteger(value.expiresAt) ||
+      typeof value.expiresAt !== 'string' ||
       value.issuedAt > now + 5_000 ||
-      value.expiresAt <= now ||
-      value.expiresAt <= value.issuedAt ||
-      value.expiresAt - value.issuedAt > this.lifetimeMilliseconds ||
       value.origin !== normalizeBrowserOrigin(origin)
+    )
+      throw this.#invalidTicket()
+    const expiresAt = Instant.parse(value.expiresAt)
+    const expiresAtMicroseconds = expiresAt.epochMicroseconds
+    const issuedAtMicroseconds = BigInt(value.issuedAt) * 1_000n
+    if (
+      expiresAtMicroseconds <= BigInt(now) * 1_000n ||
+      expiresAtMicroseconds <= issuedAtMicroseconds ||
+      expiresAtMicroseconds - issuedAtMicroseconds > BigInt(this.lifetimeMilliseconds) * 1_000n
     )
       throw this.#invalidTicket()
     return Object.freeze({
@@ -288,7 +299,7 @@ export class KeryxAdmissionTickets {
       authentication: parseTicketAuthentication(value.authentication),
       ...(value.tenant === undefined ? {} : { tenant: parseTicketTenant(value.tenant) }),
       correlationId: nonEmptyString(value.correlationId, 'correlation id'),
-      expiresAt: value.expiresAt,
+      expiresAt,
     })
   }
 
@@ -350,7 +361,7 @@ function serializeTicketAuthentication(
     ...(authentication.method ? { method: authentication.method } : {}),
     ...(authentication.assurance ? { assurance: authentication.assurance } : {}),
     ...(authentication.authenticatedAt
-      ? { authenticatedAt: authentication.authenticatedAt.toISOString() }
+      ? { authenticatedAt: authentication.authenticatedAt.toString() }
       : {}),
     ...(authentication.sessionId ? { sessionId: authentication.sessionId } : {}),
     ...(authentication.impersonationGrantId
@@ -374,7 +385,7 @@ function serializeTicketDelegation(
         to: parseTicketActor(hop.to),
         grantId: nonEmptyString(hop.grantId, 'delegation grant id'),
         reason: nonEmptyString(hop.reason, 'delegation reason'),
-        ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toISOString() } : {}),
+        ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toString() } : {}),
       }),
     ),
   )
@@ -386,13 +397,15 @@ function parseTicketDelegation(value: unknown): readonly DelegationHop[] {
   return Object.freeze(
     value.map((entry) => {
       if (!isRecord(entry)) throw new TypeError('Keryx admission ticket delegation is invalid.')
-      let expiresAt: Date | undefined
+      let expiresAt: Instant | undefined
       if (entry.expiresAt !== undefined) {
         if (typeof entry.expiresAt !== 'string')
           throw new TypeError('Keryx admission ticket delegation is invalid.')
-        expiresAt = new Date(entry.expiresAt)
-        if (!Number.isFinite(expiresAt.getTime()))
+        try {
+          expiresAt = Instant.parse(entry.expiresAt)
+        } catch {
           throw new TypeError('Keryx admission ticket delegation is invalid.')
+        }
       }
       return Object.freeze({
         from: parseTicketActor(entry.from),
@@ -434,13 +447,14 @@ function parseTicketAuthentication(value: unknown): AuthenticationContext {
         !value.constraints.every((constraint) => typeof constraint === 'string')))
   )
     throw new TypeError('Keryx admission ticket authentication is invalid.')
-  let authenticatedAt: Date | undefined
+  let authenticatedAt: Instant | undefined
   if (value.authenticatedAt !== undefined) {
     if (typeof value.authenticatedAt !== 'string') {
       throw new TypeError('Keryx admission ticket authentication is invalid.')
     }
-    authenticatedAt = new Date(value.authenticatedAt)
-    if (!Number.isFinite(authenticatedAt.getTime())) {
+    try {
+      authenticatedAt = Instant.parse(value.authenticatedAt)
+    } catch {
       throw new TypeError('Keryx admission ticket authentication is invalid.')
     }
   }

@@ -422,6 +422,7 @@ export async function compileApplication(
   for (const [command, root] of realtimeCommandRoots) registerRealtimeCommand(command, root.ownerId)
 
   const authentication = compileAuthentication()
+  const time = compileTime()
 
   assertUnique(providers, (provider) => provider.id, 'provider ID')
   assertUnique(actions, (operation) => operation.id, 'action ID')
@@ -550,6 +551,7 @@ export async function compileApplication(
     frameworkVersion: compilerVersion,
     compilerVersion,
     application,
+    time,
     authentication,
     plugins: [...plugins].sort(byId),
     features: [...features].sort(byId),
@@ -657,6 +659,31 @@ export async function compileApplication(
   )
 
   return { manifest, manifestPath, registryPath, advisories }
+
+  function compileTime(): DoxaManifest['time'] {
+    const framework = instanceObject(applicationDeclaration, 'framework')
+    const configured = framework ? objectFieldObject(framework, 'time') : undefined
+    const timeZoneValue = configured ? optionalObjectString(configured, 'timeZone') : undefined
+    const localeValue = configured ? optionalObjectString(configured, 'locale') : undefined
+    const timeZone = timeZoneValue ?? 'UTC'
+    const locale = localeValue ?? 'en-US'
+    try {
+      if (timeZone !== 'UTC' && !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+\-]+)+$/u.test(timeZone)) {
+        throw new RangeError('not an IANA time zone')
+      }
+      const canonicalTimeZone = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+      }).resolvedOptions().timeZone
+      const canonicalLocale = Intl.getCanonicalLocales(locale)[0]
+      if (!canonicalLocale) throw new RangeError('invalid locale')
+      return { timeZone: canonicalTimeZone, locale: canonicalLocale }
+    } catch {
+      fail(
+        configured ?? applicationDeclaration,
+        'framework.time must declare a valid IANA timeZone and Intl locale.',
+      )
+    }
+  }
 
   function compileAuthentication(): AuthenticationManifestEntry {
     const framework = instanceObject(applicationDeclaration, 'framework')
@@ -1614,7 +1641,7 @@ export async function compileApplication(
         const values = members.filter(
           (member) => (member.flags & (ts.TypeFlags.Null | ts.TypeFlags.Undefined)) === 0,
         )
-        const kind = modelAttributeKind(values)
+        const kind = modelAttributeKind(values, source)
         return [
           property.name,
           {
@@ -1633,6 +1660,7 @@ export async function compileApplication(
 
   function modelAttributeKind(
     types: readonly ts.Type[],
+    source: ts.Node,
   ): ModelManifestEntry['attributeTypes'][string]['kind'] {
     if (
       types.length > 0 &&
@@ -1656,7 +1684,29 @@ export async function compileApplication(
       )
     )
       return 'boolean'
-    if (types.length > 0 && types.every((type) => type.getSymbol()?.name === 'Date')) return 'date'
+    if (types.some((type) => type.getSymbol()?.name === 'Date')) {
+      fail(source, 'JavaScript Date model attributes are unsupported; use Instant or Graphite.')
+    }
+    const datetimeKinds = types.map((type) => {
+      const symbol = type.getSymbol()
+      const declaration = symbol?.declarations?.[0]
+      if (!symbol || !declaration || !isCoreDeclaration(declaration)) return undefined
+      if (symbol.name === 'Graphite') return 'graphite' as const
+      if (symbol.name === 'Instant') return 'instant' as const
+      if (symbol.name === 'LocalDate') return 'local-date' as const
+      if (symbol.name === 'Duration') return 'duration' as const
+      return undefined
+    })
+    const datetimeKind = datetimeKinds.find((kind) => kind !== undefined)
+    if (datetimeKind) {
+      if (
+        datetimeKinds.some((kind) => kind === undefined) ||
+        datetimeKinds.some((kind) => kind !== datetimeKind)
+      ) {
+        fail(source, 'Datetime model attributes must use one Doxa datetime value type.')
+      }
+      return datetimeKind
+    }
     return 'json'
   }
 

@@ -4,6 +4,9 @@ import path from 'node:path'
 
 import { compileApplication } from '@doxajs/compiler'
 import {
+  Duration,
+  Graphite,
+  Instant,
   ReadOnlyExecutionError,
   ReadOnlyModelError,
   StaleModelError,
@@ -100,6 +103,41 @@ describe('@doxajs/testing', () => {
 
   afterAll(async () => {
     await rm(artifacts, { recursive: true, force: true })
+  })
+
+  it('freezes, travels, and restores each harness clock', async () => {
+    const queue = new FakeQueueManager()
+    const harness = await DoxaTestHarness.boot(Application, {
+      artifactsDirectory: artifacts,
+      dotenvPath: false,
+      environment: { DATABASE_CONNECTION_STRING: 'test-memory-database' },
+      authProviderId: 'provider:infrastructure/auth',
+      providerOverrides: {
+        'provider:infrastructure/transactions': new MemoryTransactionManager(queue),
+        'provider:infrastructure/queues': queue,
+        'provider:infrastructure/cache': new MemoryCache(),
+        'provider:infrastructure/mail': new FakeMailTransport(),
+        'provider:infrastructure/sms': new FakeSmsTransport(),
+        'provider:infrastructure/telemetry': new MemoryTelemetry(),
+      },
+    })
+    const admittedNow = () =>
+      harness.runtime.admit(
+        { actor: { kind: 'system', id: 'doxa:test' }, transport: { kind: 'test' } },
+        () => Instant.now(),
+      )
+    try {
+      harness.freezeTime(Graphite.parse('2026-08-05T09:00:00.000000-05:00[America/Chicago]'))
+      expect((await admittedNow()).toString()).toBe('2026-08-05T14:00:00.000000Z')
+
+      harness.travel(Duration.parse('PT90M'))
+      expect((await admittedNow()).toString()).toBe('2026-08-05T15:30:00.000000Z')
+
+      harness.restoreTime()
+      expect((await admittedNow()).isAfter(Instant.parse('2026-08-05T15:30:00.000000Z'))).toBe(true)
+    } finally {
+      await harness.shutdown()
+    }
   })
 
   it('boots the real manifest with visible deterministic provider overrides', async () => {

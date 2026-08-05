@@ -2,8 +2,15 @@ import { isDeepStrictEqual } from 'node:util'
 
 import { currentModelSession, registerModelSessionState } from './model-session-context.js'
 import {
+  decodeDateTimeValues,
+  encodeDateTimeValues,
+  type EncodedDateTimeValue,
+} from './datetime-codec.js'
+import { Duration, Graphite, Instant, LocalDate } from './graphite.js'
+import {
   PersistenceError,
   ReadOnlyExecutionError,
+  type DoxaValue,
   type JsonValue,
   type ModelReader,
   type ModelStorage,
@@ -91,15 +98,15 @@ export type ModelAttributePatch<Attributes extends ModelAttributes> = {
   [Key in OptionalModelAttributeKey<Attributes>]?: Attributes[Key] | undefined
 }
 
-export interface ModelJournalFact<Payload extends JsonValue = JsonValue> {
+export interface ModelJournalFact<Payload extends DoxaValue = DoxaValue> {
   readonly type: string
   readonly payload: Payload
 }
 
-export interface ModelOutboxMessage<Payload extends JsonValue = JsonValue> {
+export interface ModelOutboxMessage<Payload extends DoxaValue = DoxaValue> {
   readonly type: string
   readonly payload: Payload
-  readonly availableAt?: Date
+  readonly availableAt?: Instant
 }
 
 export interface ModelQueryDiagnostic {
@@ -200,7 +207,7 @@ interface PendingJournalFact {
 interface PendingOutboxMessage {
   readonly type: string
   readonly payload: JsonValue
-  readonly availableAt?: Date
+  readonly availableAt?: Instant
 }
 
 interface ModelInternals<Attributes extends ModelAttributes> {
@@ -320,7 +327,7 @@ export abstract class Model<
     attribute: Key,
     operator: NonNullable<Attributes[Key]> extends string
       ? import('./model-query.js').ModelQueryOperator
-      : NonNullable<Attributes[Key]> extends number | Date
+      : NonNullable<Attributes[Key]> extends number | Graphite | Instant | LocalDate
         ? '=' | '!=' | '<' | '<=' | '>' | '>='
         : '=' | '!=',
     value: ModelQueryAttributeValue<Attributes[Key]>,
@@ -409,7 +416,7 @@ export abstract class Model<
   }
 
   isDirty(key?: keyof Attributes): boolean {
-    if (key) return !isDeepStrictEqual((this.attributes as Attributes)[key], this.#original[key])
+    if (key) return !sameValue((this.attributes as Attributes)[key], this.#original[key])
     return Object.keys(this.currentChanges()).length > 0
   }
 
@@ -454,19 +461,19 @@ export abstract class Model<
     return this.#relations.get(String(key)) as Relations[Key]
   }
 
-  protected journal<Payload extends JsonValue>(type: string, payload: Payload): void {
-    this.#pendingJournal.push({ type, payload: clone(payload) })
+  protected journal<Payload extends DoxaValue>(type: string, payload: Payload): void {
+    this.#pendingJournal.push({ type, payload: encodeDateTimeValues(payload) as JsonValue })
   }
 
-  protected outbox<Payload extends JsonValue>(
+  protected outbox<Payload extends DoxaValue>(
     type: string,
     payload: Payload,
-    availableAt?: Date,
+    availableAt?: Instant,
   ): void {
     this.#pendingOutbox.push({
       type,
-      payload: clone(payload),
-      ...(availableAt ? { availableAt: new Date(availableAt) } : {}),
+      payload: encodeDateTimeValues(payload) as JsonValue,
+      ...(availableAt ? { availableAt } : {}),
     })
   }
 
@@ -531,7 +538,7 @@ export abstract class Model<
     >
     const attributes = this.attributes as Attributes
     for (const key of keys) {
-      if (!isDeepStrictEqual(attributes[key], this.#original[key])) {
+      if (!sameValue(attributes[key], this.#original[key])) {
         changes[key] = clone(attributes[key])
       }
     }
@@ -606,7 +613,10 @@ export class ModelSession {
     if (!persisted) return undefined
     const concurrent = this.#identityMap.get(identity)
     if (concurrent) return concurrent as Instance
-    const attributes = this.validatedAttributes<Attributes>(definition, persisted.state)
+    const attributes = this.validatedAttributes<Attributes>(
+      definition,
+      hydratedState(definition.storage, persisted.state),
+    )
     const model = new Constructor(attributes)
     model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
     this.#identityMap.set(identity, model)
@@ -701,8 +711,10 @@ export class ModelSession {
               type,
               id: model.id,
               ...(internals.version !== undefined ? { expectedVersion: internals.version } : {}),
-              state: clone(internals.attributes) as unknown as JsonValue,
-              ...(internals.version !== undefined ? { patch } : {}),
+              state: persistedState(definition.storage, internals.attributes),
+              ...(internals.version !== undefined
+                ? { patch: persistedState(definition.storage, patch) as Record<string, JsonValue> }
+                : {}),
               ...(removedAttributes.length > 0 ? { removedAttributes } : {}),
               storage: definition.storage,
             }),
@@ -783,7 +795,10 @@ export class ModelSession {
     )
     if (!persisted) throw new ModelNotFoundError(model.constructor.name, model.id)
     model[MODEL_INTERNALS]().replace(
-      this.validatedAttributes<Attributes>(definition, persisted.state),
+      this.validatedAttributes<Attributes>(
+        definition,
+        hydratedState(definition.storage, persisted.state),
+      ),
       persisted.version,
       true,
     )
@@ -837,7 +852,10 @@ export class ModelSession {
         eagerLoads: [],
       }),
     )
-    return persisted.map((entity) => (entity.state as Attributes)[attribute])
+    return persisted.map(
+      (entity) =>
+        (hydratedState(definition.storage, entity.state) as unknown as Attributes)[attribute],
+    )
   }
 
   async queryAggregate<
@@ -992,7 +1010,10 @@ export class ModelSession {
     const existing = this.#identityMap.get(identity)
     if (existing) return existing as Instance
     const definition = this.definitionFor(Constructor)
-    const attributes = this.validatedAttributes<Attributes>(definition, persisted.state)
+    const attributes = this.validatedAttributes<Attributes>(
+      definition,
+      hydratedState(definition.storage, persisted.state),
+    )
     const model = new Constructor(attributes)
     model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)
     this.#identityMap.set(identity, model)
@@ -1140,8 +1161,9 @@ export class ModelSession {
     Constructor: ModelConstructor<Instance, Attributes>,
     plan: ModelQueryPlan,
   ): Promise<ModelQueryPlan> {
-    const attributes = this.definitionFor(Constructor).attributes
-    validateModelQueryPlan(plan, attributes)
+    const definition = this.definitionFor(Constructor)
+    const attributes = definition.attributes
+    validateModelQueryPlan(plan, attributes, definition.storage.attributeTypes)
     if (plan.relationshipConstraints.length === 0) return plan
     const constraints = [...plan.constraints]
     for (const constraint of plan.relationshipConstraints) {
@@ -1221,7 +1243,7 @@ export class ModelSession {
       })
     }
     const resolved = { ...plan, constraints, relationshipConstraints: [] }
-    validateModelQueryPlan(resolved, attributes)
+    validateModelQueryPlan(resolved, attributes, definition.storage.attributeTypes)
     return resolved
   }
 
@@ -1305,7 +1327,24 @@ function requireCurrentSession(): ModelSession {
 }
 
 function clone<Value>(value: Value): Value {
-  return structuredClone(value)
+  if (
+    value instanceof Graphite ||
+    value instanceof Instant ||
+    value instanceof LocalDate ||
+    value instanceof Duration
+  ) {
+    return value
+  }
+  if (Array.isArray(value)) return value.map((item) => clone(item)) as Value
+  if (value instanceof Date) {
+    throw new PersistenceError('JavaScript Date model values are unsupported; use a Doxa datetime.')
+  }
+  if (typeof value === 'object' && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, clone(item)]),
+    ) as Value
+  }
+  return value
 }
 
 function modelAttributeState<Attributes extends ModelAttributes>(
@@ -1333,6 +1372,18 @@ function uniqueValues(values: readonly unknown[]): unknown[] {
 }
 
 function sameValue(left: unknown, right: unknown): boolean {
+  if (left instanceof Graphite && right instanceof Graphite) {
+    return left.epochMicroseconds === right.epochMicroseconds
+  }
+  if (left instanceof Instant && right instanceof Instant) {
+    return left.epochMicroseconds === right.epochMicroseconds
+  }
+  if (left instanceof LocalDate && right instanceof LocalDate) {
+    return left.toString() === right.toString()
+  }
+  if (left instanceof Duration && right instanceof Duration) {
+    return left.toString() === right.toString()
+  }
   return isDeepStrictEqual(left, right)
 }
 
@@ -1396,14 +1447,24 @@ function deterministicOrders(orders: ModelQueryPlan['orders']): ModelQueryPlan['
     : [...orders, { attribute: 'id', direction: 'asc' }]
 }
 
+function persistedState(storage: ModelStorage, value: unknown): JsonValue {
+  return (storage.kind === 'entity-state' ? encodeDateTimeValues(value) : clone(value)) as JsonValue
+}
+
+function hydratedState(storage: ModelStorage, value: JsonValue): JsonValue {
+  return (
+    storage.kind === 'entity-state' ? decodeDateTimeValues(value as EncodedDateTimeValue) : value
+  ) as JsonValue
+}
+
 function encodeCursor(model: Model, orders: ModelQueryPlan['orders']): string {
   const Constructor = model.constructor as typeof Model
   return Buffer.from(
     JSON.stringify({
-      version: 1,
+      version: 2,
       model: Constructor.id,
       ordering: orders.map((order) => [order.attribute, order.direction]),
-      values: orders.map((order) => attribute(model, order.attribute)),
+      values: encodeDateTimeValues(orders.map((order) => attribute(model, order.attribute))),
     }),
   ).toString('base64url')
 }
@@ -1422,27 +1483,35 @@ function decodeCursor(
     }
     const expectedOrdering = orders.map((order) => [order.attribute, order.direction])
     if (
-      decoded.version !== 1 ||
+      decoded.version !== 2 ||
       decoded.model !== Constructor.id ||
       !isDeepStrictEqual(decoded.ordering, expectedOrdering) ||
       !Array.isArray(decoded.values)
     ) {
       throw new Error('invalid')
     }
-    return decoded.values.map((value) => {
-      if (
-        value === null ||
-        typeof value === 'string' ||
-        typeof value === 'number' ||
-        typeof value === 'boolean'
-      ) {
-        return value
-      }
-      throw new Error('invalid')
-    })
+    const values = decodeDateTimeValues(decoded.values as EncodedDateTimeValue)
+    if (!Array.isArray(values)) throw new Error('invalid')
+    return values.map((value) => queryCursorValue(value))
   } catch {
     throw new InvalidModelCursorError('Model cursor is invalid or unsupported.')
   }
+}
+
+function queryCursorValue(value: unknown): ModelQueryValue {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean' ||
+    value instanceof Graphite ||
+    value instanceof Instant ||
+    value instanceof LocalDate ||
+    value instanceof Duration
+  ) {
+    return value
+  }
+  throw new Error('invalid')
 }
 
 function addCursorConstraint(

@@ -45,14 +45,14 @@ describe('compiled authentication identity mappings', () => {
 
   it('resolves logical model attributes into an immutable managed mapping', async () => {
     const result = await compileFixture(`
-      import { DoxaApplication, Feature, Model, type ModelAttributes } from '@doxajs/core'
+      import { DoxaApplication, Feature, Instant, Model, type ModelAttributes } from '@doxajs/core'
       interface UserAttributes extends ModelAttributes {
         id: string
         email: string
         active: boolean
-        emailVerifiedAt: Date | null
-        createdAt: Date
-        updatedAt: Date
+        emailVerifiedAt: Instant | null
+        createdAt: Instant
+        updatedAt: Instant
       }
       class User extends Model<UserAttributes> {
         static override readonly id = 'user'
@@ -243,8 +243,8 @@ describe('compiled authentication identity mappings', () => {
   it('fails closed when a model mapping references an undeclared logical attribute', async () => {
     await expect(
       compileFixture(`
-        import { DoxaApplication, Feature, Model, type ModelAttributes } from '@doxajs/core'
-        interface UserAttributes extends ModelAttributes { id: string; createdAt: Date; updatedAt: Date }
+        import { DoxaApplication, Feature, Instant, Model, type ModelAttributes } from '@doxajs/core'
+        interface UserAttributes extends ModelAttributes { id: string; createdAt: Instant; updatedAt: Instant }
         class User extends Model<UserAttributes> { static override readonly id = 'user'; static override readonly table = 'users' }
         class AppFeature extends Feature { id = 'app'; models = [User] }
         export class Application extends DoxaApplication {
@@ -270,9 +270,9 @@ describe('compiled authentication identity mappings', () => {
 
   it('compiles identities without a contact email as unsupported for email verification', async () => {
     const result = await compileFixture(`
-      import { DoxaApplication, Feature, Model, type ModelAttributes } from '@doxajs/core'
+      import { DoxaApplication, Feature, Instant, Model, type ModelAttributes } from '@doxajs/core'
       interface UserAttributes extends ModelAttributes {
-        id: string; username: string; createdAt: Date; updatedAt: Date
+        id: string; username: string; createdAt: Instant; updatedAt: Instant
       }
       class User extends Model<UserAttributes> {
         static override readonly id = 'user'
@@ -301,9 +301,9 @@ describe('compiled authentication identity mappings', () => {
 
   it('disables verification when an external identity does not map a verification column', async () => {
     const result = await compileFixture(`
-      import { DoxaApplication, Feature, Model, type ModelAttributes } from '@doxajs/core'
+      import { DoxaApplication, Feature, Instant, Model, type ModelAttributes } from '@doxajs/core'
       interface UserAttributes extends ModelAttributes {
-        id: string; email: string; createdAt: Date; updatedAt: Date
+        id: string; email: string; createdAt: Instant; updatedAt: Instant
       }
       class User extends Model<UserAttributes> {
         static override readonly id = 'user'
@@ -380,9 +380,9 @@ describe('compiled authentication identity mappings', () => {
   it('checks registration-factory services for duplicate stable provider IDs', async () => {
     await expect(
       compileFixture(`
-        import { DoxaApplication, Feature, Model, type ModelAttributes } from '@doxajs/core'
+        import { DoxaApplication, Feature, Instant, Model, type ModelAttributes } from '@doxajs/core'
         interface UserAttributes extends ModelAttributes {
-          id: string; email: string; createdAt: Date; updatedAt: Date
+          id: string; email: string; createdAt: Instant; updatedAt: Instant
         }
         class User extends Model<UserAttributes> {
           static override readonly id = 'user'

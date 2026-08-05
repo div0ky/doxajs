@@ -1,4 +1,4 @@
-export const MANIFEST_FORMAT_VERSION = 8 as const
+export const MANIFEST_FORMAT_VERSION = 9 as const
 
 export type Scope = 'singleton' | 'execution' | 'transient'
 
@@ -116,7 +116,15 @@ export interface ModelManifestEntry {
     Record<
       string,
       {
-        readonly kind: 'string' | 'number' | 'boolean' | 'date' | 'json'
+        readonly kind:
+          | 'string'
+          | 'number'
+          | 'boolean'
+          | 'graphite'
+          | 'instant'
+          | 'local-date'
+          | 'duration'
+          | 'json'
         readonly nullable: boolean
         readonly optional: boolean
       }
@@ -404,6 +412,7 @@ export interface DoxaManifest {
   readonly compilerVersion: string
   readonly buildHash: string
   readonly application: ApplicationManifestEntry
+  readonly time: { readonly timeZone: string; readonly locale: string }
   readonly authentication: AuthenticationManifestEntry
   readonly plugins: readonly PluginManifestEntry[]
   readonly features: readonly FeatureManifestEntry[]
@@ -467,6 +476,7 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
 
   if (
     !isRecord(value.application) ||
+    !isRecord(value.time) ||
     !isRecord(value.authentication) ||
     !Array.isArray(value.plugins) ||
     !Array.isArray(value.features) ||
@@ -489,6 +499,10 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
     !Array.isArray(value.realtimeCommands)
   ) {
     throw new ManifestCompatibilityError('Doxa manifest is missing required graph sections.')
+  }
+
+  if (!validManifestTime(value.time)) {
+    throw new ManifestCompatibilityError('Doxa manifest has invalid time defaults.')
   }
 
   assertManifestEntry(value.application, 'application')
@@ -581,7 +595,16 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
         const contract = model.attributeTypes[attribute]
         return (
           !isRecord(contract) ||
-          !['string', 'number', 'boolean', 'date', 'json'].includes(String(contract.kind)) ||
+          ![
+            'string',
+            'number',
+            'boolean',
+            'graphite',
+            'instant',
+            'local-date',
+            'duration',
+            'json',
+          ].includes(String(contract.kind)) ||
           typeof contract.nullable !== 'boolean' ||
           typeof contract.optional !== 'boolean'
         )
@@ -679,6 +702,19 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
       }
       assertModelRelationship(model.id, relationship)
     }
+  }
+}
+
+function validManifestTime(value: Record<string, unknown>): boolean {
+  if (!nonEmptyString(value.timeZone) || !nonEmptyString(value.locale)) return false
+  try {
+    const timeZone = new Intl.DateTimeFormat('en-US', {
+      timeZone: value.timeZone,
+    }).resolvedOptions().timeZone
+    const locale = Intl.getCanonicalLocales(value.locale)[0]
+    return timeZone === value.timeZone && locale === value.locale
+  } catch {
+    return false
   }
 }
 

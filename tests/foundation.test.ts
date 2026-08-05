@@ -5,10 +5,15 @@ import path from 'node:path'
 import { compileApplication } from '@doxajs/compiler'
 import {
   AuthorizationError,
+  applyModelQueryPlan,
+  Graphite,
+  Instant,
+  Duration,
   MemoryCache,
   Model,
   ModelIdentityMutationError,
   type ModelQuery,
+  type ModelQueryPlan,
   RoleInjectionError,
   SecretString,
   StaleModelError,
@@ -56,7 +61,7 @@ import {
   resetReferenceObservability,
 } from '../examples/reference-app/dist/reference-observability.js'
 import { prepareFrameworkSource } from '../packages/compiler/src/framework-source.js'
-import { runWithModelSession } from '../packages/core/dist/model-session-context.js'
+import { encodeDateTimeValues, ModelSession, runWithModelSession } from '@doxajs/core/runtime'
 import { assertManifest } from '../packages/manifest/dist/index.js'
 
 const workspace = path.resolve(import.meta.dirname, '..')
@@ -501,6 +506,62 @@ describe('foundational compile-to-boot slice', () => {
         relationshipConstraints: [],
       }),
     ).toThrow('Model query numbers must be finite')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [],
+          orders: [{ attribute: 'elapsed', direction: 'asc' }],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support ordering')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [
+            {
+              boolean: 'and',
+              predicate: {
+                kind: 'comparison',
+                attribute: 'elapsed',
+                operator: '<',
+                value: Duration.parse('PT1H'),
+              },
+            },
+          ],
+          orders: [],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support comparison')
+    expect(() =>
+      validateModelQueryPlan(
+        {
+          constraints: [
+            {
+              boolean: 'and',
+              predicate: {
+                kind: 'between',
+                attribute: 'elapsed',
+                values: [Duration.parse('PT1H'), Duration.parse('PT2H')],
+                negate: false,
+              },
+            },
+          ],
+          orders: [],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+        new Set(['elapsed']),
+        { elapsed: { kind: 'duration' } },
+      ),
+    ).toThrow('Duration model attributes do not support range queries')
   })
 
   it('keeps model query plans immutable at runtime', () => {
@@ -562,6 +623,117 @@ describe('foundational compile-to-boot slice', () => {
     expect(model.id).toBe('mutation-proof')
   })
 
+  it('preserves datetime model values and compares Graphite by persisted instant', async () => {
+    class Appointment extends Model<{ id: string; startsAt: Graphite }> {
+      static override readonly id = 'appointment'
+
+      recordSchedule(): void {
+        const payload = { startsAt: this.attributes.startsAt }
+        this.journal('appointment.scheduled', payload)
+        this.outbox('appointment.scheduled', payload)
+      }
+    }
+    const instant = Instant.parse('2026-08-05T14:00:00.000000Z')
+    const chicago = Graphite.fromInstant(instant, 'America/Chicago')
+    const utc = Graphite.fromInstant(instant, 'UTC')
+    const later = Graphite.fromInstant(instant.add({ hours: 1 }), 'UTC')
+    const queryPlans: ModelQueryPlan[] = []
+    const durablePayloads: unknown[] = []
+    let queryCount = 0
+    const session = new ModelSession(
+      {
+        findEntity: async () => ({
+          type: 'model:appointments/appointment',
+          id: 'appointment-1',
+          version: 1,
+          state: encodeDateTimeValues({ id: 'appointment-1', startsAt: chicago }),
+        }),
+        queryEntities: async (_type: string, _storage: unknown, plan: ModelQueryPlan) => {
+          queryPlans.push(plan)
+          const values =
+            queryCount++ === 0
+              ? [
+                  { id: 'appointment-1', startsAt: chicago },
+                  { id: 'appointment-2', startsAt: later },
+                ]
+              : [{ id: 'appointment-2', startsAt: later }]
+          return values.map((value) => ({
+            type: 'model:appointments/appointment',
+            id: value.id,
+            version: 1,
+            state: encodeDateTimeValues(value),
+          }))
+        },
+        record: async (fact: { payload: unknown }) => {
+          durablePayloads.push(fact.payload)
+          return 'journal-1'
+        },
+        enqueue: async (message: { payload: unknown }) => {
+          durablePayloads.push(message.payload)
+          return 'outbox-1'
+        },
+        afterCommit: () => undefined,
+      } as never,
+      new Map([
+        [
+          Appointment,
+          {
+            entityType: 'model:appointments/appointment',
+            storage: {
+              kind: 'entity-state',
+              attributeTypes: {
+                id: { kind: 'string', nullable: false, optional: false },
+                startsAt: { kind: 'graphite', nullable: false, optional: false },
+              },
+            },
+            attributes: new Set(['id', 'startsAt']),
+          },
+        ],
+      ]),
+    )
+    await runWithModelSession(session, async () => {
+      const appointment = await Appointment.findOrFail('appointment-1')
+      expect(appointment.getAttribute('startsAt')).toBeInstanceOf(Graphite)
+      appointment.setAttribute('startsAt', utc)
+      expect(appointment.isDirty('startsAt')).toBe(false)
+      appointment.recordSchedule()
+      await appointment.save()
+
+      const firstPage = await Appointment.query().orderBy('startsAt').cursorPaginate({ first: 1 })
+      expect(firstPage.nextCursor).toEqual(expect.any(String))
+      await Appointment.query()
+        .orderBy('startsAt')
+        .cursorPaginate({ first: 1, after: firstPage.nextCursor! })
+      const cursorValue = queryPlans[1]?.constraints.at(-1)?.predicate
+      expect(JSON.stringify(cursorValue)).toContain('2026-08-05T14:00:00.000000+00:00[UTC]')
+    })
+    session.close()
+    expect(durablePayloads).toEqual([
+      encodeDateTimeValues({ startsAt: utc }),
+      encodeDateTimeValues({ startsAt: utc }),
+    ])
+
+    expect(
+      applyModelQueryPlan(
+        [
+          { id: 'same', startsAt: chicago },
+          { id: 'later', startsAt: later },
+        ],
+        {
+          constraints: [
+            {
+              boolean: 'and',
+              predicate: { kind: 'comparison', attribute: 'startsAt', operator: '=', value: utc },
+            },
+          ],
+          orders: [],
+          eagerLoads: [],
+          relationshipConstraints: [],
+        },
+      ).map((value) => value.id),
+    ).toEqual(['same'])
+  })
+
   it('rejects model queries and cursors after their execution session ends', async () => {
     class QueryProofModel extends Model<{ id: string; value: number }> {
       static override readonly id = 'query-proof'
@@ -619,7 +791,7 @@ describe('foundational compile-to-boot slice', () => {
     await expect(
       recorder.start({
         signal: new AbortController().signal,
-        deadline: new Date(Date.now() + 1_000),
+        deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 1_000) * 1_000n),
       }),
     ).rejects.toThrow('production diagnostics require')
   })
@@ -635,7 +807,7 @@ describe('foundational compile-to-boot slice', () => {
       await expect(
         recorder.start({
           signal: new AbortController().signal,
-          deadline: new Date(Date.now() + 1_000),
+          deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 1_000) * 1_000n),
         }),
       ).rejects.toThrow('production diagnostics require')
     } finally {
@@ -887,6 +1059,70 @@ describe('foundational compile-to-boot slice', () => {
       readOnly: true,
       versionSource: { kind: 'none' },
     })
+  })
+
+  it('compiles Doxa datetime model kinds and rejects JavaScript Date', async () => {
+    const result = await compileFixture(`
+      import {
+        DoxaApplication, Duration, Feature, Graphite, Instant, LocalDate, Model,
+      } from '@doxajs/core'
+
+      interface AppointmentAttributes {
+        id: string
+        startsAt: Graphite
+        recordedAt: Instant
+        serviceDate: LocalDate
+        elapsed: Duration
+      }
+      class Appointment extends Model<AppointmentAttributes> {
+        static readonly id = 'appointment'
+        static readonly table = 'appointments'
+      }
+      class AppointmentFeature extends Feature {
+        id = 'appointments'
+        models = [Appointment]
+      }
+      export class Application extends DoxaApplication {
+        id = 'datetime-model-contract'
+        features = [AppointmentFeature]
+        framework = { time: { timeZone: 'America/Chicago', locale: 'fr-ca' } } as const
+      }
+    `)
+    expect(result.manifest.time).toEqual({ timeZone: 'America/Chicago', locale: 'fr-CA' })
+    expect(() =>
+      assertManifest({ ...result.manifest, time: { timeZone: 'Chicago', locale: 'fr-CA' } }),
+    ).toThrow('invalid time defaults')
+    expect(result.manifest.models[0]?.attributeTypes).toEqual({
+      elapsed: { kind: 'duration', nullable: false, optional: false },
+      id: { kind: 'string', nullable: false, optional: false },
+      recordedAt: { kind: 'instant', nullable: false, optional: false },
+      serviceDate: { kind: 'local-date', nullable: false, optional: false },
+      startsAt: { kind: 'graphite', nullable: false, optional: false },
+    })
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication, Feature, Model } from '@doxajs/core'
+        interface LegacyAttributes { id: string; occurredAt: Date }
+        class Legacy extends Model<LegacyAttributes> { static readonly id = 'legacy' }
+        class LegacyFeature extends Feature { id = 'legacy'; models = [Legacy] }
+        export class Application extends DoxaApplication {
+          id = 'legacy-date-model'
+          features = [LegacyFeature]
+        }
+      `),
+    ).rejects.toThrow('JavaScript Date model attributes are unsupported; use Instant or Graphite')
+
+    await expect(
+      compileFixture(`
+        import { DoxaApplication } from '@doxajs/core'
+        export class Application extends DoxaApplication {
+          id = 'invalid-time-defaults'
+          features = []
+          framework = { time: { timeZone: 'Chicago', locale: 'not_a_locale' } } as const
+        }
+      `),
+    ).rejects.toThrow('framework.time must declare a valid IANA timeZone and Intl locale')
   })
 
   it('requires literal mapped-model management settings', async () => {
@@ -2305,7 +2541,7 @@ describe('foundational compile-to-boot slice', () => {
       {
         actor: { kind: 'system', id: 'deadline-test' },
         transport: { kind: 'test' },
-        deadline: new Date(Date.now() + 10),
+        deadline: Instant.fromEpochMicroseconds(BigInt(Date.now() + 10) * 1_000n),
       },
       async (context) => {
         if (!context.cancellation.aborted) {

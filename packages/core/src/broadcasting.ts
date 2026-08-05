@@ -1,6 +1,7 @@
 import type {
   ActorRef,
   AuthenticationContext,
+  DoxaValue,
   JsonValue,
   RealtimeCommandResult,
   RealtimeCommandThrottle,
@@ -43,7 +44,7 @@ export class PresenceChannel extends Channel {
 export interface ShouldBroadcast {
   broadcastOn(): BroadcastDestination | readonly BroadcastDestination[]
   broadcastAs?(): string
-  broadcastWith?(): JsonValue
+  broadcastWith?(): DoxaValue
 }
 
 export interface ShouldBroadcastNow extends ShouldBroadcast {}

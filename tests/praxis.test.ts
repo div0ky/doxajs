@@ -583,7 +583,7 @@ describe('Praxis command suite', () => {
           schedule: 'doxa schedule',
           'db:studio': 'doxa db:studio',
         }),
-        engines: { node: '>=24.7 <25' },
+        engines: { node: '>=26.6 <27' },
       }),
     )
     expect(await readFile(path.join(destination, 'pnpm-workspace.yaml'), 'utf8')).toBe(
@@ -630,6 +630,7 @@ describe('Praxis command suite', () => {
       },
     })
     const dockerfile = await readFile(path.join(destination, 'Dockerfile'), 'utf8')
+    expect(dockerfile).toContain('ARG NODE_VERSION=26.6.0')
     expect(dockerfile).toContain('FROM node:${NODE_VERSION}-bookworm-slim AS runtime')
     expect(dockerfile).toContain('RUN pnpm build')
     expect(dockerfile).toContain('RUN pnpm prune --prod')
@@ -1107,7 +1108,7 @@ describe('Praxis command suite', () => {
       devDependencies: Record<string, string>
     }
     packageJson.packageManager = 'pnpm@11.18.0'
-    packageJson.engines.node = '>=24.7 <25'
+    packageJson.engines.node = '>=26.6 <27'
     packageJson.dependencies['@doxajs/core'] = '0.1.0-alpha.5'
     packageJson.devDependencies.typescript = '^6.0.0'
     await writeFile(path.join(root, 'package.json'), `${JSON.stringify(packageJson, null, 2)}\n`)
@@ -1572,10 +1573,10 @@ function registryUpgradeTarget(version: string): { code: number; stdout: string;
         channel: 'alpha',
         frameworkPackages: ['@doxajs/core', '@doxajs/praxis', '@doxajs/testing'],
         toolchain: {
-          node: '>=24.7 <25',
+          node: '>=26.6 <27',
           packageManager: 'pnpm@11.18.0',
           devDependencies: {
-            '@types/node': '^24.0.0',
+            '@types/node': '^26.0.0',
             typescript: '^6.0.0',
             vitest: '^4.0.0',
           },

@@ -15,6 +15,12 @@ production warning logs quiet.
 The runtime never compiles source. Ordinary Feature and domain code should import `@doxajs/core`,
 not this package.
 
+Every admitted execution resolves a clock, IANA time zone, and locale for first-party Graphite
+datetimes. Application configuration defaults to `UTC` and `en-US`; an execution seed may override
+the locale or time zone. Clock-relative APIs fail outside admission rather than reading the host
+clock or host time zone implicitly. Durable context carries locale and time zone, never mutable
+clock state.
+
 Authorization resolves an application's selected permission source at most once per admitted
 execution, applies credential constraints first, and permits policies only to narrow source grants.
 Permission results never enter propagated execution context. Runtime-invoked permission sources and

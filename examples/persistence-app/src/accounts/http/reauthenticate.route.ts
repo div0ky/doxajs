@@ -21,6 +21,6 @@ export class ReauthenticateRoute extends Route {
     const authenticatedAt = await this.auth.reauthenticate(identityId, sessionId, body.password, {
       ...(request.header('user-agent') ? { userAgent: request.header('user-agent')! } : {}),
     })
-    return { authenticatedAt: authenticatedAt.toISOString() }
+    return { authenticatedAt: authenticatedAt.toString() }
   }
 }

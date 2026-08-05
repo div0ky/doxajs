@@ -77,8 +77,8 @@ adopt Nitro's application model, routing, plugin lifecycle, or configuration as 
 - Hono upgrades are absorbed through Doxa releases rather than application code.
 - Application code remains portable across future HTTP engines that satisfy the contract.
 - Some useful Hono capabilities may require deliberate Doxa APIs before applications can use them.
-- Node.js 24 is the initial hosting runtime, but the public HTTP model does not unnecessarily depend
-  on Node.js.
+- Node.js 26 is the hosting runtime, but the public HTTP model does not unnecessarily depend on
+  Node.js.
 
 ## Revisit when
 

@@ -55,7 +55,7 @@ rather than racing multiple starting replicas.
 
 `doxa new` generates:
 
-- `Dockerfile`: pinned Node 24, pnpm, multi-stage build, production dependencies, non-root runtime,
+- `Dockerfile`: pinned Node 26, pnpm, multi-stage build, production dependencies, non-root runtime,
   precompiled Doxa artifacts, and a web default command.
 - `.dockerignore`: excludes credentials, local dependencies, generated output, tests, and local
   tooling residue from the build context.

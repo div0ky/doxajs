@@ -1,4 +1,5 @@
 import { currentModelSession } from './model-session-context.js'
+import { Duration, Graphite, Instant, LocalDate } from './graphite.js'
 import {
   ModelNotFoundError,
   StaleModelError,
@@ -10,7 +11,8 @@ import {
 
 export type ModelQueryOperator = '=' | '!=' | '<' | '<=' | '>' | '>=' | 'like' | 'ilike'
 export type ModelQueryDirection = 'asc' | 'desc'
-export type ModelQueryValue = string | number | boolean | Date | null
+export type ModelQueryValue =
+  string | number | boolean | Graphite | Instant | LocalDate | Duration | null
 export const MODEL_QUERY_MAX_PAGE_SIZE = 1_000
 
 export type ModelQueryPredicate =
@@ -171,9 +173,12 @@ type AttributeNameMatching<Attributes, Value> = {
 }[AttributeName<Attributes>]
 type ScalarAttributeName<Attributes> = AttributeNameMatching<
   Attributes,
-  string | number | boolean | Date
+  string | number | boolean | Graphite | Instant | LocalDate | Duration
 >
-type OrderedAttributeName<Attributes> = AttributeNameMatching<Attributes, string | number | Date>
+type OrderedAttributeName<Attributes> = AttributeNameMatching<
+  Attributes,
+  string | number | Graphite | Instant | LocalDate
+>
 type NumericAttributeName<Attributes> = AttributeNameMatching<Attributes, number>
 type AttributeValue<Value> =
   Extract<Value, ModelQueryValue> | (undefined extends Value ? null : never)
@@ -182,7 +187,7 @@ type OrderedOperator = EqualityOperator | '<' | '<=' | '>' | '>='
 type OperatorFor<Value> =
   NonNullable<Value> extends string
     ? ModelQueryOperator
-    : NonNullable<Value> extends number | Date
+    : NonNullable<Value> extends number | Graphite | Instant | LocalDate
       ? OrderedOperator
       : EqualityOperator
 type RelationName<Relations> = Extract<keyof Relations, string>
@@ -328,7 +333,7 @@ export class ModelQuery<
     return this.constraint('and', { kind: 'null', attribute, negate: true })
   }
 
-  whereBetween<Key extends AttributeName<Attributes>>(
+  whereBetween<Key extends OrderedAttributeName<Attributes>>(
     attribute: Key,
     values: readonly [AttributeValue<Attributes[Key]>, AttributeValue<Attributes[Key]>],
   ): ModelQuery<Instance, Attributes, Relations> {
@@ -340,7 +345,7 @@ export class ModelQuery<
     })
   }
 
-  whereNotBetween<Key extends AttributeName<Attributes>>(
+  whereNotBetween<Key extends OrderedAttributeName<Attributes>>(
     attribute: Key,
     values: readonly [AttributeValue<Attributes[Key]>, AttributeValue<Attributes[Key]>],
   ): ModelQuery<Instance, Attributes, Relations> {
@@ -352,9 +357,9 @@ export class ModelQuery<
     })
   }
 
-  whereColumn(
-    attribute: ScalarAttributeName<Attributes>,
-    operator: ModelQueryOperator,
+  whereColumn<Key extends ScalarAttributeName<Attributes>>(
+    attribute: Key,
+    operator: OperatorFor<Attributes[Key]>,
     comparedAttribute: ScalarAttributeName<Attributes>,
   ): ModelQuery<Instance, Attributes, Relations> {
     validOperator(operator)
@@ -362,7 +367,7 @@ export class ModelQuery<
   }
 
   orderBy(
-    attribute: ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes>,
     direction: ModelQueryDirection = 'asc',
   ): ModelQuery<Instance, Attributes, Relations> {
     if (direction !== 'asc' && direction !== 'desc') {
@@ -372,19 +377,19 @@ export class ModelQuery<
   }
 
   orderByDesc(
-    attribute: ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes>,
   ): ModelQuery<Instance, Attributes, Relations> {
     return this.orderBy(attribute, 'desc')
   }
 
   latest(
-    attribute: ScalarAttributeName<Attributes> = 'createdAt' as ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes> = 'createdAt' as OrderedAttributeName<Attributes>,
   ) {
     return this.orderBy(attribute, 'desc')
   }
 
   oldest(
-    attribute: ScalarAttributeName<Attributes> = 'createdAt' as ScalarAttributeName<Attributes>,
+    attribute: OrderedAttributeName<Attributes> = 'createdAt' as OrderedAttributeName<Attributes>,
   ) {
     return this.orderBy(attribute, 'asc')
   }
@@ -748,18 +753,18 @@ function queryValue(value: unknown): ModelQueryValue {
     typeof value === 'string' ||
     typeof value === 'number' ||
     typeof value === 'boolean' ||
-    value instanceof Date
+    value instanceof Graphite ||
+    value instanceof Instant ||
+    value instanceof LocalDate ||
+    value instanceof Duration
   ) {
     if (typeof value === 'number' && !Number.isFinite(value)) {
       throw new ModelQueryError('Model query numbers must be finite.')
     }
-    if (value instanceof Date && Number.isNaN(value.getTime())) {
-      throw new ModelQueryError('Model query dates must be valid.')
-    }
     return value
   }
   throw new ModelQueryError(
-    'Model query values must be strings, numbers, booleans, dates, or null.',
+    'Model query values must be strings, numbers, booleans, Doxa datetime values, or null.',
   )
 }
 
@@ -814,16 +819,18 @@ export function applyModelQueryPlan<State extends Record<string, unknown>>(
 export function validateModelQueryPlan(
   plan: ModelQueryPlan,
   allowedAttributes?: ReadonlySet<string>,
+  attributeTypes?: Readonly<Record<string, { readonly kind: string }>>,
 ): void {
   if (plan.limit !== undefined) positiveInteger(plan.limit, 'Query limit')
   if (plan.offset !== undefined) nonNegativeInteger(plan.offset, 'Query offset')
   for (const order of plan.orders) {
     validateAttribute(order.attribute, allowedAttributes)
+    rejectDurationOperation(attributeTypes?.[order.attribute]?.kind, 'ordering')
     if (order.direction !== 'asc' && order.direction !== 'desc') {
       throw new ModelQueryError(`Unsupported model query direction ${String(order.direction)}.`)
     }
   }
-  validateConstraints(plan.constraints, allowedAttributes)
+  validateConstraints(plan.constraints, allowedAttributes, attributeTypes)
   for (const eagerLoad of plan.eagerLoads) {
     if (!eagerLoad.path.trim()) throw new ModelQueryError('Relationship paths cannot be empty.')
   }
@@ -837,6 +844,7 @@ export function validateModelQueryPlan(
 function validateConstraints(
   constraints: readonly ModelQueryConstraint[],
   allowedAttributes?: ReadonlySet<string>,
+  attributeTypes?: Readonly<Record<string, { readonly kind: string }>>,
 ): void {
   for (const constraint of constraints) {
     if (constraint.boolean !== 'and' && constraint.boolean !== 'or') {
@@ -844,22 +852,37 @@ function validateConstraints(
     }
     const predicate = constraint.predicate
     if (predicate.kind === 'group') {
-      validateConstraints(predicate.predicates, allowedAttributes)
+      validateConstraints(predicate.predicates, allowedAttributes, attributeTypes)
       continue
     }
     validateAttribute(predicate.attribute, allowedAttributes)
+    const kind = attributeTypes?.[predicate.attribute]?.kind
     if (predicate.kind === 'comparison') {
       validOperator(predicate.operator)
+      if (predicate.operator !== '=' && predicate.operator !== '!=') {
+        rejectDurationOperation(kind, 'comparison')
+      }
       queryValue(predicate.value)
     } else if (predicate.kind === 'column') {
       validOperator(predicate.operator)
       validateAttribute(predicate.comparedAttribute, allowedAttributes)
+      if (predicate.operator !== '=' && predicate.operator !== '!=') {
+        rejectDurationOperation(kind, 'comparison')
+        rejectDurationOperation(attributeTypes?.[predicate.comparedAttribute]?.kind, 'comparison')
+      }
     } else if (predicate.kind === 'membership') {
       for (const value of predicate.values) queryValue(value)
     } else if (predicate.kind === 'between') {
+      rejectDurationOperation(kind, 'range queries')
       queryValue(predicate.values[0])
       queryValue(predicate.values[1])
     }
+  }
+}
+
+function rejectDurationOperation(kind: string | undefined, operation: string): void {
+  if (kind === 'duration') {
+    throw new ModelQueryError(`Duration model attributes do not support ${operation}.`)
   }
 }
 
@@ -931,8 +954,8 @@ function comparisonMatches(left: unknown, operator: ModelQueryOperator, right: u
 }
 
 function compare(left: unknown, right: unknown): number {
-  const normalizedLeft = left instanceof Date ? left.getTime() : left
-  const normalizedRight = right instanceof Date ? right.getTime() : right
+  const normalizedLeft = comparableValue(left)
+  const normalizedRight = comparableValue(right)
   if (isDeepEqual(normalizedLeft, normalizedRight)) return 0
   if (normalizedLeft === null || normalizedLeft === undefined) return -1
   if (normalizedRight === null || normalizedRight === undefined) return 1
@@ -941,7 +964,14 @@ function compare(left: unknown, right: unknown): number {
 
 function isDeepEqual(left: unknown, right: unknown): boolean {
   if ((left === null || left === undefined) && (right === null || right === undefined)) return true
-  return JSON.stringify(left) === JSON.stringify(right)
+  return Object.is(comparableValue(left), comparableValue(right))
+}
+
+function comparableValue(value: unknown): unknown {
+  if (value instanceof Graphite) return value.epochMicroseconds
+  if (value instanceof Instant) return value.epochMicroseconds
+  if (value instanceof LocalDate || value instanceof Duration) return value.toString()
+  return value
 }
 
 function freezePlan(plan: ModelQueryPlan): ModelQueryPlan {

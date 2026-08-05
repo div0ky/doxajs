@@ -25,7 +25,8 @@ password-authenticated session issues token once
 Each token owns a stable non-secret ID, name, display prefix, identity owner, sorted constraints,
 creation, absolute expiration, last-used time, revocation time, and a digest. The plaintext is
 returned exactly once as a `SecretString` and never appears in listing APIs, events, audit metadata,
-or database state.
+or database state. Public token timestamps are Doxa `Instant` values and persist as UTC instants;
+PostgreSQL-driver `Date` values do not cross the adapter boundary.
 
 Constraints can only narrow later authorization. They do not grant a permission, role, tenant, or
 actor. Bearer evidence resolves through the same identity-to-actor boundary as browser sessions.

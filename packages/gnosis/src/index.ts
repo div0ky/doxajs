@@ -139,6 +139,7 @@ const applicationInfoSchema = z.object({
   compilerVersion: z.string(),
   manifestFormatVersion: z.number().int(),
   buildHash: z.string(),
+  time: z.object({ timeZone: z.string(), locale: z.string() }),
   plugins: z.array(z.string()),
   gnosisVersion: z.string(),
   protocolAdapterVersion: z.literal(2),

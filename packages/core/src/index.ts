@@ -1,5 +1,25 @@
 export type Class<T = object> = abstract new (...args: never[]) => T
 
+import type { Duration, Graphite, Instant, LocalDate } from './graphite.js'
+
+export {
+  DateTimeError,
+  Duration,
+  Graphite,
+  Instant,
+  LocalDate,
+  type DateTimeDisambiguation,
+  type DateTimeRoundingMode,
+  type DateTimeUnit,
+  type DurationFields,
+  type DurationInput,
+  type GraphiteFields,
+  type GraphiteFormatPreset,
+  type GraphiteFromLocalOptions,
+  type GraphiteLocalFields,
+  type GraphiteRoundOptions,
+} from './graphite.js'
+
 import type { ObservationKind, ObservationPhase } from './observation.js'
 
 export {
@@ -265,6 +285,10 @@ export interface DoxaTheoriaConfiguration {
 }
 
 export interface DoxaFrameworkConfiguration {
+  readonly time?: {
+    readonly timeZone?: string
+    readonly locale?: string
+  }
   readonly database?: {
     readonly applicationName?: string
   }
@@ -507,7 +531,7 @@ export interface DelegationHop {
   readonly to: ActorRef
   readonly grantId: string
   readonly reason: string
-  readonly expiresAt?: Date
+  readonly expiresAt?: Instant
 }
 
 export interface TenantRef {
@@ -519,7 +543,7 @@ export interface AuthenticationContext {
   readonly identityId?: string
   readonly method?: string
   readonly assurance?: 'single-factor' | 'multi-factor' | 'phishing-resistant'
-  readonly authenticatedAt?: Date
+  readonly authenticatedAt?: Instant
   readonly sessionId?: string
   readonly impersonationGrantId?: string
   readonly credentialId?: string
@@ -559,9 +583,9 @@ export interface ExecutionContext {
   readonly authentication: AuthenticationContext
   readonly transport: TransportContext
   readonly trace: TraceContext
-  readonly locale?: string
-  readonly timeZone?: string
-  readonly deadline?: Date
+  readonly locale: string
+  readonly timeZone: string
+  readonly deadline?: Instant
   readonly cancellation: AbortSignal
 }
 
@@ -578,7 +602,7 @@ export interface ExecutionContextSeed {
   readonly trace?: TraceContext
   readonly locale?: string
   readonly timeZone?: string
-  readonly deadline?: Date
+  readonly deadline?: Instant
   readonly cancellation?: AbortSignal
 }
 
@@ -593,6 +617,14 @@ export abstract class CurrentExecution {
 
 export type JsonPrimitive = string | number | boolean | null
 export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: string]: JsonValue }
+export type DoxaValue =
+  | JsonPrimitive
+  | Graphite
+  | Instant
+  | LocalDate
+  | Duration
+  | readonly DoxaValue[]
+  | { readonly [key: string]: DoxaValue }
 
 export interface PersistedEntity<State extends JsonValue = JsonValue> {
   readonly type: string
@@ -607,7 +639,27 @@ export interface TableModelTimestamps {
 }
 
 export type ModelStorage =
-  | { readonly kind: 'entity-state' }
+  | {
+      readonly kind: 'entity-state'
+      readonly attributeTypes?: Readonly<
+        Record<
+          string,
+          {
+            readonly kind:
+              | 'string'
+              | 'number'
+              | 'boolean'
+              | 'graphite'
+              | 'instant'
+              | 'local-date'
+              | 'duration'
+              | 'json'
+            readonly nullable: boolean
+            readonly optional: boolean
+          }
+        >
+      >
+    }
   | {
       readonly kind: 'table'
       readonly table: string
@@ -617,7 +669,15 @@ export type ModelStorage =
         Record<
           string,
           {
-            readonly kind: 'string' | 'number' | 'boolean' | 'date' | 'json'
+            readonly kind:
+              | 'string'
+              | 'number'
+              | 'boolean'
+              | 'graphite'
+              | 'instant'
+              | 'local-date'
+              | 'duration'
+              | 'json'
             readonly nullable: boolean
             readonly optional: boolean
           }
@@ -667,7 +727,7 @@ export interface JournalFact<Payload extends JsonValue = JsonValue> {
 export interface OutboxMessage<Payload extends JsonValue = JsonValue> {
   readonly type: string
   readonly payload: Payload
-  readonly availableAt?: Date
+  readonly availableAt?: Instant
 }
 
 /** Read-only persistence boundary used by model queries in every execution mode. */
@@ -767,7 +827,7 @@ export abstract class TransactionManager {
 
 export interface LifecycleContext {
   readonly signal: AbortSignal
-  readonly deadline: Date
+  readonly deadline: Instant
 }
 
 export interface Starts {

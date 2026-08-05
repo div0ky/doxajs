@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto'
 
 import {
   AfterCommitError,
+  Duration,
+  Graphite,
+  Instant,
+  LocalDate,
   type CompiledModelStorage,
   type Disposes,
   type ExecutionContext,
@@ -30,7 +34,7 @@ import {
 } from '@doxajs/core'
 import { and, DrizzleQueryError, eq, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { DatabaseError, Pool, type PoolClient } from 'pg'
+import { DatabaseError, Pool, types as postgresTypes, type PoolClient } from 'pg'
 
 import {
   entityStates,
@@ -86,6 +90,13 @@ export class PostgresTransactionManager extends TransactionManager implements St
     if (context.signal.aborted) throw context.signal.reason
     const pool = new Pool({
       connectionString: this.#connectionString,
+      options: '-c timezone=UTC',
+      types: {
+        getTypeParser: (id, format) =>
+          format === 'text' && [1082, 1114, 1184].includes(id)
+            ? (value: string) => value
+            : postgresTypes.getTypeParser(id, format),
+      },
       ...(this.#maximumConnections ? { max: this.#maximumConnections } : {}),
       ...(this.#applicationName ? { application_name: this.#applicationName } : {}),
     })
@@ -410,7 +421,7 @@ class PostgresUnitOfWork extends UnitOfWork {
     if (value === null || value === undefined) return undefined
     return operation === 'count' || operation === 'sum' || operation === 'average'
       ? Number(value)
-      : (databaseJsonValue(value) as ModelQueryValue)
+      : (databaseModelValue(value, modelAttributeKind(storage, attribute!)) as ModelQueryValue)
   }
 
   saveEntity<State extends JsonValue>(entity: SaveEntity<State>): Promise<number | SavedEntity> {
@@ -646,7 +657,7 @@ class PostgresUnitOfWork extends UnitOfWork {
       payload: message.payload,
       context: durableContext(this.context),
       status: 'pending',
-      availableAt: message.availableAt ?? now,
+      availableAt: message.availableAt ? sql`${message.availableAt.toString()}::timestamptz` : now,
       createdAt: now,
     })
     return id
@@ -835,10 +846,15 @@ function comparableAttribute(
   value: ModelQueryValue,
 ): SQL {
   if (storage.kind === 'table' || attribute === 'id') return queryAttribute(storage, attribute)
+  const kind = modelAttributeKind(storage, attribute)
+  if (kind === 'graphite')
+    return sql`split_part(${jsonDateTimeValue(attribute)}, '[', 1)::timestamptz`
+  if (kind === 'instant') return sql`(${jsonDateTimeValue(attribute)})::timestamptz`
+  if (kind === 'local-date') return sql`(${jsonDateTimeValue(attribute)})::date`
+  if (kind === 'duration') return jsonDateTimeValue(attribute)
   const field = jsonTextAttribute(attribute)
   if (typeof value === 'number') return sql`(${field})::numeric`
   if (typeof value === 'boolean') return sql`(${field})::boolean`
-  if (value instanceof Date) return sql`(${field})::timestamptz`
   return field
 }
 
@@ -851,6 +867,12 @@ function columnComparisonAttribute(
     return queryAttribute(storage, attribute)
   }
   if (attribute === 'id') return sql`to_jsonb(${queryAttribute(storage, attribute)})`
+  const kind = modelAttributeKind(storage, attribute)
+  if (kind === 'graphite')
+    return sql`split_part(${jsonDateTimeValue(attribute)}, '[', 1)::timestamptz`
+  if (kind === 'instant') return sql`(${jsonDateTimeValue(attribute)})::timestamptz`
+  if (kind === 'local-date') return sql`(${jsonDateTimeValue(attribute)})::date`
+  if (kind === 'duration') return jsonDateTimeValue(attribute)
   return sql`COALESCE(${jsonAttribute(attribute)}, 'null'::jsonb)`
 }
 
@@ -862,6 +884,10 @@ function jsonAttribute(attribute: string): SQL {
   return sql`(${entityStates.state} -> ${attribute})`
 }
 
+function jsonDateTimeValue(attribute: string): SQL {
+  return sql`(${jsonAttribute(attribute)} ->> 'value')`
+}
+
 function nullCondition(storage: ModelStorage, attribute: string): SQL {
   if (storage.kind === 'entity-state' && attribute !== 'id') {
     const json = jsonAttribute(attribute)
@@ -871,17 +897,18 @@ function nullCondition(storage: ModelStorage, attribute: string): SQL {
 }
 
 function databaseQueryValue(value: ModelQueryValue): unknown {
-  return value instanceof Date ? value : value
+  if (value instanceof Graphite) return value.toInstant().toString()
+  if (value instanceof Instant || value instanceof LocalDate || value instanceof Duration) {
+    return value.toString()
+  }
+  return value
 }
 
 function queryOrder(storage: ModelStorage, orders: ModelQueryPlan['orders']): SQL {
   if (orders.length === 0) return sql``
   return sql`ORDER BY ${sql.join(
     orders.flatMap((order) => {
-      const field =
-        storage.kind === 'entity-state' && order.attribute !== 'id'
-          ? jsonAttribute(order.attribute)
-          : queryAttribute(storage, order.attribute)
+      const field = orderedAttribute(storage, order.attribute)
       const nullRank = nullCondition(storage, order.attribute)
       return order.direction === 'desc'
         ? [sql`CASE WHEN ${nullRank} THEN 1 ELSE 0 END ASC`, sql`${field} DESC`]
@@ -889,6 +916,17 @@ function queryOrder(storage: ModelStorage, orders: ModelQueryPlan['orders']): SQ
     }),
     sql`, `,
   )}`
+}
+
+function orderedAttribute(storage: ModelStorage, attribute: string): SQL {
+  if (storage.kind === 'table' || attribute === 'id') return queryAttribute(storage, attribute)
+  const kind = modelAttributeKind(storage, attribute)
+  if (kind === 'graphite')
+    return sql`split_part(${jsonDateTimeValue(attribute)}, '[', 1)::timestamptz`
+  if (kind === 'instant') return sql`(${jsonDateTimeValue(attribute)})::timestamptz`
+  if (kind === 'local-date') return sql`(${jsonDateTimeValue(attribute)})::date`
+  if (kind === 'duration') return jsonDateTimeValue(attribute)
+  return jsonAttribute(attribute)
 }
 
 function queryBounds(plan: ModelQueryPlan): SQL {
@@ -907,7 +945,7 @@ function aggregateExpression(
     storage.kind === 'entity-state'
       ? operation === 'sum' || operation === 'average'
         ? sql`(${jsonTextAttribute(attribute!)})::numeric`
-        : jsonAttribute(attribute!)
+        : orderedAttribute(storage, attribute!)
       : queryAttribute(storage, attribute!)
   if (operation === 'min') return sql`min(${field})`
   if (operation === 'max') return sql`max(${field})`
@@ -996,7 +1034,7 @@ export function hydrateMappedState(
         `Mapped model query returned NULL for required attribute ${attribute}.`,
       )
     }
-    state[attribute] = databaseJsonValue(value)
+    state[attribute] = databaseModelValue(value, storage.attributeTypes?.[attribute]?.kind)
   }
   const id = projection.find((entry) => entry.attribute === 'id')
   if (!id) {
@@ -1030,14 +1068,18 @@ export function mappedModelProjection(
   }))
 }
 
-function dehydrateMappedState(
-  state: Readonly<Record<string, JsonValue>>,
+/** @internal Strict UTC dehydration used by adapter conformance tests. */
+export function dehydrateMappedState(
+  state: Readonly<Record<string, unknown>>,
   storage: Extract<ModelStorage, { readonly kind: 'table' }>,
 ): Map<string, unknown> {
   const values = new Map<string, unknown>()
   for (const [attribute, value] of Object.entries(state)) {
     assertMappedAttribute(attribute, storage)
-    values.set(mappedColumn(attribute, storage), value)
+    values.set(
+      mappedColumn(attribute, storage),
+      databasePersistenceValue(value, storage.attributeTypes?.[attribute]?.kind),
+    )
   }
   return values
 }
@@ -1076,6 +1118,78 @@ function databaseJsonValue(value: unknown): JsonValue {
   throw new PersistenceError(
     `Mapped PostgreSQL value of type ${typeof value} is not JSON-compatible.`,
   )
+}
+
+function databasePersistenceValue(
+  value: unknown,
+  kind:
+    | NonNullable<
+        Extract<ModelStorage, { readonly kind: 'table' }>['attributeTypes']
+      >[string]['kind']
+    | undefined,
+): unknown {
+  if (value === null || value === undefined) return value
+  if (kind === 'graphite') {
+    if (!(value instanceof Graphite))
+      throw new PersistenceError('Graphite model attribute must contain Graphite.')
+    return value.toInstant().toString()
+  }
+  if (kind === 'instant') {
+    if (!(value instanceof Instant))
+      throw new PersistenceError('Instant model attribute must contain Instant.')
+    return value.toString()
+  }
+  if (kind === 'local-date') {
+    if (!(value instanceof LocalDate))
+      throw new PersistenceError('LocalDate model attribute must contain LocalDate.')
+    return value.toString()
+  }
+  if (kind === 'duration') {
+    if (!(value instanceof Duration))
+      throw new PersistenceError('Duration model attribute must contain Duration.')
+    return value.toString()
+  }
+  return value
+}
+
+function databaseModelValue(
+  value: unknown,
+  kind:
+    | NonNullable<
+        Extract<ModelStorage, { readonly kind: 'table' }>['attributeTypes']
+      >[string]['kind']
+    | undefined,
+): JsonValue {
+  if (value === null || value === undefined) return value as JsonValue
+  if (kind === 'graphite') {
+    return Graphite.fromInstant(
+      Instant.parse(databaseInstantString(value)),
+      'UTC',
+    ) as unknown as JsonValue
+  }
+  if (kind === 'instant') return Instant.parse(databaseInstantString(value)) as unknown as JsonValue
+  if (kind === 'local-date') {
+    const text = value instanceof Date ? value.toISOString().slice(0, 10) : String(value)
+    return LocalDate.parse(text) as unknown as JsonValue
+  }
+  if (kind === 'duration') return Duration.parse(String(value)) as unknown as JsonValue
+  return databaseJsonValue(value)
+}
+
+function databaseInstantString(value: unknown): string {
+  if (value instanceof Date) return value.toISOString()
+  let text = String(value).replace(' ', 'T')
+  if (/[+-]\d{2}$/u.test(text)) text = `${text}:00`
+  return /(?:Z|[+-]\d{2}:\d{2})$/u.test(text) ? text : `${text}Z`
+}
+
+function modelAttributeKind(
+  storage: ModelStorage,
+  attribute: string,
+):
+  | NonNullable<Extract<ModelStorage, { readonly kind: 'table' }>['attributeTypes']>[string]['kind']
+  | undefined {
+  return storage.attributeTypes?.[attribute]?.kind
 }
 
 export interface ModelColumnMetadata {
@@ -1263,11 +1377,11 @@ export function validateMappedModelReadiness(
     for (const timestamp of [storage.timestamps.createdAt, storage.timestamps.updatedAt]) {
       const metadata = columns.get(timestamp)!
       if (
-        !compatiblePostgresType('date', metadata) ||
+        !compatiblePostgresType('instant', metadata) ||
         (!storage.readOnly && (metadata.generated || metadata.identity))
       ) {
         throw new PersistenceError(
-          `Writable mapped model ${entityType} timestamp column ${timestamp} must be a writable PostgreSQL date or timestamp column.`,
+          `Writable mapped model ${entityType} timestamp column ${timestamp} must be a writable PostgreSQL timestamp column.`,
         )
       }
     }
@@ -1315,24 +1429,17 @@ function compatiblePostgresType(
   if (kind === 'string' && metadata.typeKind === 'e') return true
   if (kind === 'string')
     return (
-      new Set([
-        'text',
-        'varchar',
-        'bpchar',
-        'citext',
-        'uuid',
-        'name',
-        'inet',
-        'date',
-        'timestamp',
-        'timestamptz',
-      ]).has(type) ||
+      new Set(['text', 'varchar', 'bpchar', 'citext', 'uuid', 'name', 'inet']).has(type) ||
       (allowNumericString && new Set(['numeric', 'int2', 'int4', 'int8']).has(type))
     )
   if (kind === 'number')
     return new Set(['int2', 'int4', 'int8', 'float4', 'float8', 'numeric']).has(type)
   if (kind === 'boolean') return type === 'bool'
-  return new Set(['date', 'timestamp', 'timestamptz']).has(type)
+  if (kind === 'graphite' || kind === 'instant')
+    return new Set(['timestamp', 'timestamptz']).has(type)
+  if (kind === 'local-date') return type === 'date'
+  if (kind === 'duration') return new Set(['text', 'varchar', 'bpchar', 'citext']).has(type)
+  return false
 }
 
 function numberVersion(value: unknown, type: string, id: string): number {
@@ -1360,7 +1467,7 @@ function durableContext(context: ExecutionContext): DurableExecutionEnvelope {
             to: { ...hop.to },
             grantId: hop.grantId,
             reason: hop.reason,
-            ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toISOString() } : {}),
+            ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toString() } : {}),
           })),
         }
       : {}),
@@ -1376,7 +1483,7 @@ function deliveryContext(context: ExecutionContext): DurableExecutionEnvelope {
       to: { ...hop.to },
       grantId: hop.grantId,
       reason: hop.reason,
-      ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toISOString() } : {}),
+      ...(hop.expiresAt ? { expiresAt: hop.expiresAt.toString() } : {}),
     })),
     authentication: {
       state: context.authentication.state,
@@ -1386,7 +1493,7 @@ function deliveryContext(context: ExecutionContext): DurableExecutionEnvelope {
       ...(context.authentication.method ? { method: context.authentication.method } : {}),
       ...(context.authentication.assurance ? { assurance: context.authentication.assurance } : {}),
       ...(context.authentication.authenticatedAt
-        ? { authenticatedAt: context.authentication.authenticatedAt.toISOString() }
+        ? { authenticatedAt: context.authentication.authenticatedAt.toString() }
         : {}),
       ...(context.authentication.credentialId
         ? { credentialId: context.authentication.credentialId }

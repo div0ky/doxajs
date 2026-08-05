@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/div0ky/doxajs/actions/workflows/ci.yml/badge.svg)](https://github.com/div0ky/doxajs/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-24-43853d.svg)](.node-version)
+[![Node](https://img.shields.io/badge/node-26-43853d.svg)](.node-version)
 
 Doxa.js is an opinionated, class-first TypeScript application framework inspired by Laravel's
 coherence and developer experience. It is magical where that magic is safe, deterministic and
@@ -117,7 +117,7 @@ To work on Doxa itself before package publication, follow the
 
 ## Development
 
-Doxa supports Node.js 24.7 or newer within the 24.x line, pnpm 11, and PostgreSQL 16 or 17.
+Doxa supports Node.js 26.6 or newer within the 26.x line, pnpm 11, and PostgreSQL 16 or 17.
 
 ```sh
 corepack enable

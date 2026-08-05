@@ -1,4 +1,4 @@
-import { Auth } from '@doxajs/core'
+import { Auth, Instant } from '@doxajs/core'
 import { KeryxAdmissionTickets } from '@doxajs/keryx'
 import { describe, expect, it } from 'vitest'
 
@@ -19,7 +19,7 @@ describe('native impersonation transport context', () => {
 
   it('preserves impersonator, target, audit delegation, and bounded expiry in Keryx tickets', () => {
     const now = Date.parse('2026-08-05T15:00:00.000Z')
-    const expiresAt = new Date(now + 10_000)
+    const expiresAt = Instant.fromEpochMicroseconds(BigInt(now + 10_000) * 1_000n)
     const tickets = new KeryxAdmissionTickets(
       'impersonation-test',
       'impersonation-ticket-secret-at-least-thirty-two-characters',
@@ -80,7 +80,7 @@ describe('native impersonation transport context', () => {
             to: { kind: 'user', id: 'target' },
             grantId: 'grant-1',
             reason: 'Expired grant',
-            expiresAt: new Date(now),
+            expiresAt: Instant.fromEpochMicroseconds(BigInt(now) * 1_000n),
           },
         ],
         authentication: { state: 'authenticated', identityId: 'admin' },
@@ -88,5 +88,26 @@ describe('native impersonation transport context', () => {
         origin: 'https://app.example.test',
       }),
     ).toThrow('expired delegation')
+
+    const preciseExpiry = Instant.parse('2026-08-05T15:00:10.123456Z')
+    const preciseGrant = tickets.issue({
+      actor: { kind: 'user', id: 'target' },
+      delegation: [
+        {
+          from: { kind: 'user', id: 'admin' },
+          to: { kind: 'user', id: 'target' },
+          grantId: 'grant-2',
+          reason: 'Precise grant',
+          expiresAt: preciseExpiry,
+        },
+      ],
+      authentication: { state: 'authenticated', identityId: 'admin' },
+      correlationId: 'correlation-3',
+      origin: 'https://app.example.test',
+    })
+    expect(preciseGrant.expiresAt.equals(preciseExpiry)).toBe(true)
+    expect(
+      tickets.open(preciseGrant.ticket, 'https://app.example.test').expiresAt.equals(preciseExpiry),
+    ).toBe(true)
   })
 })

@@ -17,12 +17,15 @@ import {
   type ActionClass,
   type DoxaApplication,
   type DeliveryTransition,
+  Duration,
   type ExecutionContext,
   Event,
   FakeBroadcastTransport,
   FakeMailTransport,
   FakeSmsTransport,
   type IssueAccessTokenInput,
+  Graphite,
+  Instant,
   type JournalFact,
   Job,
   type JobConstructor,
@@ -57,7 +60,13 @@ import {
   UnitOfWork,
 } from '@doxajs/core'
 import { HonoHttpEngine } from '@doxajs/http-hono'
-import { Doxa, type BootOptions, type DoxaRuntime, type EventTestHook } from '@doxajs/runtime'
+import {
+  Doxa,
+  type BootOptions,
+  type DoxaClock,
+  type DoxaRuntime,
+  type EventTestHook,
+} from '@doxajs/runtime'
 
 export {
   FakeBroadcastTransport,
@@ -73,6 +82,35 @@ export class TestObservationRecorder extends MemoryObservationRecorder {
   start(): void {}
   drain(): void {}
   dispose(): void {}
+}
+
+const nativeClock: DoxaClock = Object.freeze({
+  now: () => {
+    const nanoseconds = Temporal.Now.instant().epochNanoseconds
+    return (nanoseconds / 1_000n) * 1_000n
+  },
+})
+
+class MutableTestClock implements DoxaClock {
+  #frozen: bigint | undefined
+
+  constructor(private readonly base: DoxaClock = nativeClock) {}
+
+  now(): bigint {
+    return this.#frozen ?? this.base.now()
+  }
+
+  freeze(value: Instant | Graphite): void {
+    this.#frozen = value.epochMicroseconds * 1_000n
+  }
+
+  travel(duration: Duration): void {
+    this.#frozen = Instant.fromEpochNanoseconds(this.now()).add(duration).epochMicroseconds * 1_000n
+  }
+
+  restore(): void {
+    this.#frozen = undefined
+  }
 }
 
 export interface TestEventRecord {
@@ -178,6 +216,7 @@ export class DoxaTestHarness {
   private constructor(
     readonly runtime: DoxaRuntime,
     logs: MemoryLogSink,
+    private readonly clock: MutableTestClock,
     readonly auth?: TestAuth,
     readonly observations?: TestObservationRecorder,
     readonly events: TestEvents = new TestEvents(),
@@ -190,7 +229,8 @@ export class DoxaTestHarness {
     application: abstract new () => DoxaApplication,
     options: BootOptions & { readonly authProviderId?: string } = {},
   ): Promise<DoxaTestHarness> {
-    const auth = options.authProviderId ? new TestAuth() : undefined
+    const clock = new MutableTestClock(options.clock)
+    const auth = options.authProviderId ? new TestAuth(clock) : undefined
     const observation = await testObservationOverride(options.artifactsDirectory)
     const overrides = {
       ...(observation && !(observation.providerId in (options.providerOverrides ?? {}))
@@ -207,13 +247,29 @@ export class DoxaTestHarness {
         : { level: 'debug' as const, ...options.logging, sink: logs }
     const runtime = await Doxa.boot(application, {
       ...options,
+      clock,
       roles: options.roles ?? { web: false, worker: false, scheduler: false },
       providerOverrides: overrides,
       eventTestHook: events,
       logging,
     })
     events.attach(runtime)
-    return new DoxaTestHarness(runtime, logs, auth, observation?.recorder, events)
+    return new DoxaTestHarness(runtime, logs, clock, auth, observation?.recorder, events)
+  }
+
+  freezeTime(value: Instant | Graphite): this {
+    this.clock.freeze(value)
+    return this
+  }
+
+  travel(duration: Duration): this {
+    this.clock.travel(duration)
+    return this
+  }
+
+  restoreTime(): this {
+    this.clock.restore()
+    return this
   }
 
   actingAs(actor: ActorRef, authentication?: AuthenticationContext): this {
@@ -346,6 +402,14 @@ export class TestAuth extends Auth {
     authentication: { state: 'anonymous' },
   }
 
+  constructor(private readonly clock: DoxaClock = nativeClock) {
+    super()
+  }
+
+  #now(): Instant {
+    return Instant.fromEpochNanoseconds(this.clock.now())
+  }
+
   actingAs(actor: ActorRef, authentication?: AuthenticationContext): void {
     if (actor.kind === 'user' && actor.id && !this.#identities.has(actor.id)) {
       this.#identities.set(actor.id, {
@@ -354,7 +418,7 @@ export class TestAuth extends Auth {
         identifierKind: 'email',
         contactEmail: `${actor.id}@doxajs.test`,
         verification: 'verified',
-        createdAt: new Date(),
+        createdAt: this.#now(),
       })
     }
     this.#resolved = {
@@ -369,7 +433,7 @@ export class TestAuth extends Auth {
       identifierKind: 'email' as const,
       contactEmail: input.contactEmail?.toLowerCase() ?? input.identifier.toLowerCase(),
       verification: 'verified' as const,
-      createdAt: new Date(),
+      createdAt: this.#now(),
     }
     this.#identities.set(identity.id, identity)
     return identity
@@ -382,13 +446,13 @@ export class TestAuth extends Auth {
       [...this.#identities.values()].find(
         (value) => value.identifier === input.identifier.toLowerCase(),
       ) ?? (await this.register({ ...input }))
-    const now = new Date()
+    const now = this.#now()
     const session = {
       id: randomUUID(),
       identityId: identity.id,
       createdAt: now,
       authenticatedAt: now,
-      expiresAt: new Date(now.getTime() + 3_600_000),
+      expiresAt: now.add({ hours: 1 }),
     }
     this.#sessions.set(session.id, session)
     return { identity, session, token: SecretString.from(`test-session-${session.id}`) }
@@ -397,7 +461,7 @@ export class TestAuth extends Auth {
     return {
       identityId,
       token: SecretString.from(`test-verify-${identityId}`),
-      expiresAt: new Date(Date.now() + 3_600_000),
+      expiresAt: this.#now().add({ hours: 1 }),
     }
   }
   async verifyEmail(token: string): Promise<AuthIdentity> {
@@ -416,7 +480,7 @@ export class TestAuth extends Auth {
       ? {
           identityId: identity.id,
           token: SecretString.from(`test-reset-${identity.id}`),
-          expiresAt: new Date(Date.now() + 3_600_000),
+          expiresAt: this.#now().add({ hours: 1 }),
         }
       : undefined
   }
@@ -426,8 +490,12 @@ export class TestAuth extends Auth {
     _currentPassword: string,
     _newPassword: string,
   ): Promise<void> {}
-  async reauthenticate(_identityId: string, sessionId: string, _password: string): Promise<Date> {
-    const authenticatedAt = new Date()
+  async reauthenticate(
+    _identityId: string,
+    sessionId: string,
+    _password: string,
+  ): Promise<Instant> {
+    const authenticatedAt = this.#now()
     const session = this.#sessions.get(sessionId)
     if (session) this.#sessions.set(sessionId, { ...session, authenticatedAt })
     return authenticatedAt
@@ -450,8 +518,8 @@ export class TestAuth extends Auth {
         grantId: randomUUID(),
         targetIdentityId,
         reason,
-        startedAt: new Date(),
-        expiresAt: new Date(Date.now() + 3_600_000),
+        startedAt: this.#now(),
+        expiresAt: this.#now().add({ hours: 1 }),
       },
     }
     this.#sessions.set(sessionId, impersonating)
@@ -505,7 +573,7 @@ export class TestAuth extends Auth {
   }
   async revokeSession(id: string): Promise<void> {
     const value = this.#sessions.get(id)
-    if (value) this.#sessions.set(id, { ...value, revokedAt: new Date() })
+    if (value) this.#sessions.set(id, { ...value, revokedAt: this.#now() })
   }
   async listSessions(id: string): Promise<readonly AuthSession[]> {
     return [...this.#sessions.values()].filter((value) => value.identityId === id)
@@ -514,14 +582,15 @@ export class TestAuth extends Auth {
     const active = [...this.#sessions.values()].filter(
       (value) => value.identityId === id && !value.revokedAt,
     )
-    for (const value of active) this.#sessions.set(value.id, { ...value, revokedAt: new Date() })
+    const revokedAt = this.#now()
+    for (const value of active) this.#sessions.set(value.id, { ...value, revokedAt })
     return active.length
   }
   async issueAccessToken(
     identityId: string,
     input: IssueAccessTokenInput,
   ): Promise<AuthAccessTokenGrant> {
-    const now = new Date()
+    const now = this.#now()
     const id = randomUUID()
     const accessToken = {
       id,
@@ -530,7 +599,7 @@ export class TestAuth extends Auth {
       displayPrefix: 'test',
       constraints: input.constraints ?? [],
       createdAt: now,
-      expiresAt: input.expiresAt ?? new Date(now.getTime() + 3_600_000),
+      expiresAt: input.expiresAt ?? now.add({ hours: 1 }),
     }
     this.#accessTokens.set(id, accessToken)
     return { accessToken, token: SecretString.from(`test-token-${id}`) }
@@ -544,7 +613,7 @@ export class TestAuth extends Auth {
   async revokeAccessToken(identityId: string, tokenId: string): Promise<void> {
     const value = this.#accessTokens.get(tokenId)
     if (value?.identityId === identityId)
-      this.#accessTokens.set(tokenId, { ...value, revokedAt: new Date() })
+      this.#accessTokens.set(tokenId, { ...value, revokedAt: this.#now() })
   }
   isSessionRevoked(id: string): boolean {
     return Boolean(this.#sessions.get(id)?.revokedAt)

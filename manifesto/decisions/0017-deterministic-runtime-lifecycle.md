@@ -145,7 +145,7 @@ Lifecycle hooks must not wait indefinitely. Every hook receives a runtime-owned 
 ```ts
 interface LifecycleContext {
   signal: AbortSignal
-  deadline: Date
+  deadline: Instant
 }
 ```
 

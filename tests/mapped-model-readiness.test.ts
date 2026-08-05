@@ -1,7 +1,8 @@
-import type { ModelStorage } from '@doxajs/core'
+import { Duration, Graphite, Instant, LocalDate, type ModelStorage } from '@doxajs/core'
 import { describe, expect, it } from 'vitest'
 
 import {
+  dehydrateMappedState,
   hydrateMappedState,
   mappedModelProjection,
   mappedModelVersionSource,
@@ -122,39 +123,120 @@ describe('mapped-model PostgreSQL readiness contract', () => {
     ).not.toThrow()
   })
 
-  it('accepts timestamp-backed logical strings and hydrates Date values as ISO strings', () => {
-    const timestampStorage: TableStorage = {
+  it('persists datetimes canonically and hydrates UTC-aware values', () => {
+    const datetimeStorage: TableStorage = {
       ...mappedStorage,
-      columns: { ...mappedStorage.columns, createdAt: 'created_at' },
+      columns: {
+        ...mappedStorage.columns,
+        appointmentAt: 'appointment_at',
+        occurredAt: 'occurred_at',
+        serviceDate: 'service_date',
+        elapsed: 'elapsed',
+      },
       attributeTypes: {
         ...mappedStorage.attributeTypes,
-        createdAt: { kind: 'string', nullable: false, optional: false },
+        appointmentAt: { kind: 'graphite', nullable: false, optional: false },
+        occurredAt: { kind: 'instant', nullable: false, optional: false },
+        serviceDate: { kind: 'local-date', nullable: false, optional: false },
+        elapsed: { kind: 'duration', nullable: false, optional: false },
       },
     }
-    for (const type of ['date', 'timestamp', 'timestamptz']) {
-      expect(() =>
-        validateMappedModelReadiness(
-          'model:contacts/contact',
-          timestampStorage,
-          'r',
-          [idColumn, displayNameColumn, column('created_at', type)],
-          ['contact_id'],
-        ),
-      ).not.toThrow()
-    }
-
-    const createdAt = new Date('2026-07-21T12:34:56.789Z')
-    expect(
-      hydrateMappedState(
-        {
-          __doxa_attribute_0: 'contact-1',
-          __doxa_attribute_1: 'Ada',
-          __doxa_attribute_2: createdAt,
-          __doxa_version: 1,
-        },
-        timestampStorage,
+    expect(() =>
+      validateMappedModelReadiness(
+        'model:contacts/contact',
+        datetimeStorage,
+        'r',
+        [
+          idColumn,
+          displayNameColumn,
+          column('appointment_at', 'timestamptz'),
+          column('occurred_at', 'timestamp'),
+          column('service_date', 'date'),
+          column('elapsed', 'text'),
+        ],
+        ['contact_id'],
       ),
-    ).toEqual({ id: 'contact-1', displayName: 'Ada', createdAt: createdAt.toISOString() })
+    ).not.toThrow()
+
+    const instant = Instant.parse('2026-07-21T17:34:56.789123Z')
+    const graphite = Graphite.fromInstant(instant, 'America/Chicago')
+    const duration = Duration.parse('PT90M')
+    expect(
+      dehydrateMappedState(
+        {
+          id: 'contact-1',
+          displayName: 'Ada',
+          appointmentAt: graphite,
+          occurredAt: instant,
+          serviceDate: LocalDate.parse('2026-07-21'),
+          elapsed: duration,
+        },
+        datetimeStorage,
+      ),
+    ).toEqual(
+      new Map([
+        ['contact_id', 'contact-1'],
+        ['display_name', 'Ada'],
+        ['appointment_at', instant.toString()],
+        ['occurred_at', instant.toString()],
+        ['service_date', '2026-07-21'],
+        ['elapsed', duration.toString()],
+      ]),
+    )
+
+    const hydrated = hydrateMappedState(
+      {
+        __doxa_attribute_0: 'contact-1',
+        __doxa_attribute_1: 'Ada',
+        __doxa_attribute_2: '2026-07-21 17:34:56.789123+00',
+        __doxa_attribute_3: '2026-07-21 17:34:56.789123',
+        __doxa_attribute_4: '2026-07-21',
+        __doxa_attribute_5: duration.toString(),
+        __doxa_version: 1,
+      },
+      datetimeStorage,
+    ) as Record<string, unknown>
+    expect(hydrated.appointmentAt).toBeInstanceOf(Graphite)
+    expect((hydrated.appointmentAt as Graphite).timeZone).toBe('UTC')
+    expect((hydrated.appointmentAt as Graphite).toInstant().equals(instant)).toBe(true)
+    expect((hydrated.occurredAt as Instant).equals(instant)).toBe(true)
+    expect(String(hydrated.serviceDate)).toBe('2026-07-21')
+    expect(String(hydrated.elapsed)).toBe(duration.toString())
+  })
+
+  it('rejects legacy string timestamp mappings and incompatible datetime columns', () => {
+    const stringTimestamp: TableStorage = {
+      ...mappedStorage,
+      columns: { ...mappedStorage.columns, occurredAt: 'occurred_at' },
+      attributeTypes: {
+        ...mappedStorage.attributeTypes,
+        occurredAt: { kind: 'string', nullable: false, optional: false },
+      },
+    }
+    expect(() =>
+      validateMappedModelReadiness(
+        'model:contacts/contact',
+        stringTimestamp,
+        'r',
+        [idColumn, displayNameColumn, column('occurred_at', 'timestamptz')],
+        ['contact_id'],
+      ),
+    ).toThrow('incompatible with PostgreSQL type timestamptz')
+    expect(() =>
+      validateMappedModelReadiness(
+        'model:contacts/contact',
+        {
+          ...stringTimestamp,
+          attributeTypes: {
+            ...stringTimestamp.attributeTypes,
+            occurredAt: { kind: 'instant', nullable: false, optional: false },
+          },
+        },
+        'r',
+        [idColumn, displayNameColumn, column('occurred_at', 'date')],
+        ['contact_id'],
+      ),
+    ).toThrow('incompatible with PostgreSQL type date')
   })
 
   it('rejects missing relations, mapped columns, incompatible types, and nullability', () => {

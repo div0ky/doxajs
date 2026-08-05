@@ -26,7 +26,7 @@ export class StartImpersonationRoute extends Route {
       {
         impersonator: { id: grant.identity.id },
         target: { id: grant.target.id },
-        expiresAt: grant.session.impersonation!.expiresAt.toISOString(),
+        expiresAt: grant.session.impersonation!.expiresAt.toString(),
       },
       200,
       { 'set-cookie': this.auth.sessionCookie(grant) },

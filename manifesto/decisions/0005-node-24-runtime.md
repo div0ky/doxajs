@@ -1,17 +1,17 @@
-# 0005: Use Node.js 24 as the Initial Runtime
+# 0005: Use Node.js 26 as the Runtime
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
+- **Amended:** 2026-08-05 — Raised the runtime baseline from Node.js 24 to Node.js 26
 - **Decision owners:** Doxa maintainers
 
 ## Decision
 
-Doxa will target Node.js 24 as its initial application, worker, console, and tooling runtime. The
-initial minimum version is Node.js 24.7 because that release introduces the built-in Argon2
-primitive required by first-party Doxa authentication.
+Doxa will target Node.js 26 as its application, worker, console, and tooling runtime. The minimum
+version is Node.js 26.6.
 
-Doxa packages will express the supported range as Node.js 24.7 or newer within the 24.x release
-line. Doxa releases may raise the minimum 24.x patch when required for correctness or security, but
+Doxa packages will express the supported range as Node.js 26.6 or newer within the 26.x release
+line. Doxa releases may raise the minimum 26.x patch when required for correctness or security, but
 they will document that change explicitly.
 
 ## Context
@@ -21,10 +21,14 @@ cryptography, asynchronous execution context, process signals, diagnostics, work
 Doxa should not weaken its initial programming model to claim portability across runtimes that have
 different process, networking, cryptographic, or lifecycle behavior.
 
-Node.js 24 supplies the stable server runtime Doxa needs while preserving Web Standards `Request`
-and `Response` at the HTTP boundary. Node.js 24.7 adds built-in Argon2 support, allowing the
-first-party authentication subsystem to use a platform cryptographic primitive rather than making an
-authentication framework or native password-hashing package foundational.
+Node.js 26 preserves the Web Standards `Request` and `Response` boundary, built-in Argon2 support,
+and the process and lifecycle primitives Doxa requires. It also makes Temporal available by default,
+allowing Doxa to build first-party datetime semantics on the platform instead of adopting a
+foundational third-party datetime engine.
+
+Node.js 26 is still the Current release when Doxa adopts it and is scheduled to enter Active LTS in
+October 2026. Controlled alpha adoption accepts that short pre-LTS window in exchange for validating
+one runtime baseline before broader production support.
 
 ## Boundary
 
@@ -60,7 +64,7 @@ The runtime conformance suite must cover:
 
 ## Revisit when
 
-- Node.js 24 approaches the end of Doxa's supported maintenance window.
+- Node.js 26 approaches the end of Doxa's supported maintenance window.
 - A newer Node.js line materially improves security or removes required compatibility work.
 - Another runtime can satisfy the full kernel, HTTP, cryptography, worker, CLI, and lifecycle
   conformance suites without weakening the application model.
@@ -69,4 +73,6 @@ The runtime conformance suite must cover:
 
 - [Doxa HTTP engine decision](0001-hono-http-engine.md)
 - [Doxa first-party authentication decision](0003-first-party-authentication.md)
+- [Node.js 26.6.0 release](https://nodejs.org/en/blog/release/v26.6.0)
+- [Node.js release schedule](https://github.com/nodejs/release#release-schedule)
 - [Node.js cryptography documentation](https://nodejs.org/api/crypto.html)

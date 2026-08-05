@@ -53,8 +53,8 @@ once per admitted execution. It does not add permissions to `ExecutionContext`; 
 
 Every admitted request, job, schedule, command, listener, or message receives one execution scope
 with the same actor, authentication, tenant, correlation, causation, trace, cancellation, logging,
-transaction, and disposal semantics. A new scope begins only across an asynchronous admission
-boundary.
+transaction, clock, locale, time zone, and disposal semantics. Application time defaults to UTC and
+`en-US`; a new scope begins only across an asynchronous admission boundary.
 
 The compiler reads declarations without executing application code and emits an inert JSON manifest
 plus a constructor-only registry. Runtime boot fails closed when artifacts, versions, stable IDs,
@@ -134,6 +134,12 @@ making create, save, and delete throw `ReadOnlyModelError` before observers or S
 Doxa selects and hydrates only declared attributes. Additional physical columns remain outside the
 model and Gnosis contracts, and updates write only changed declared fields plus required
 timestamp/version infrastructure.
+
+Datetime attributes use Doxa values from `@doxajs/core`: `Graphite` for an exact instant viewed in
+an IANA zone, `Instant` for a UTC timeline point, `LocalDate` for a calendar date, and `Duration`
+for an ISO duration. Mapped Graphite and Instant values persist their exact UTC instant in one
+PostgreSQL timestamp column. Hydrated Graphite values use UTC; user, branch, or tenant zones remain
+explicit domain fields and are applied with `inTimeZone()` for presentation and calendar logic.
 
 ## Relationships and eager loading
 

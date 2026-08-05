@@ -22,7 +22,7 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=24.7 <25"
+    "node": ">=26.6 <27"
   },
   "publishConfig": {
     "access": "public",
@@ -36,6 +36,10 @@
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "default": "./dist/runtime.js"
+    },
+    "./zod": {
+      "types": "./dist/graphite-zod.d.ts",
+      "default": "./dist/graphite-zod.js"
     }
   },
   "files": [
@@ -45,5 +49,8 @@
   "scripts": {
     "prepack": "node ../../scripts/prepare-package.mjs",
     "postpack": "node ../../scripts/prepare-package.mjs --clean"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
   }
 }

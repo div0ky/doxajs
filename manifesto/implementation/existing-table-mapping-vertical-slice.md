@@ -3,7 +3,7 @@
 - **Status:** Implemented MVP common path
 - **Implemented:** 2026-07-10
 - **Hardened:** 2026-07-23
-- **Manifest format:** 7
+- **Manifest format:** 9
 - **Decision:**
   [Map models and authentication to existing tables](../decisions/0023-existing-table-model-auth-mapping.md)
 
@@ -42,8 +42,10 @@ The PostgreSQL adapter quotes every compiler-validated identifier and retains th
 contract: execution identity, hydration, dirty tracking, observers, journal/outbox staging,
 transactional commit, and optimistic-concurrency failures. It never copies mapped state into
 `doxa_entity_states`. Readiness resolves exact quoted mixed-case and schema-qualified relation
-names, and accepts logical string attributes backed by PostgreSQL date/timestamp types because
-hydration normalizes driver `Date` values to ISO strings.
+names. `Graphite` and `Instant` attributes accept `timestamptz` or `timestamp`; all writes persist
+the exact UTC instant, `timestamp` is interpreted strictly as a UTC wall value, and Graphite
+hydrates in UTC without a zone sidecar. `LocalDate` accepts `date`, `Duration` accepts canonical ISO
+text, and PostgreSQL-driver `Date` values remain private to the adapter.
 
 Every mapped read now uses the explicit physical projection compiled from the full declared logical
 attribute set. Adapter hydration rejects missing and unexpected fields. Runtime attribute access
@@ -131,9 +133,9 @@ The PostgreSQL conformance suite proves:
    physical columns.
 8. Read-only models retain find, query, aggregate, relationship, eager-load, pagination, cursor, and
    refresh behavior while rejecting create, save, and delete before observers and writes.
-9. Mixed-case and schema-qualified mapped relations pass every catalog lookup, timestamp-backed
-   logical strings validate and hydrate consistently, and read-only views use `none` without a
-   writable version column.
+9. Mixed-case and schema-qualified mapped relations pass every catalog lookup, declared Doxa
+   datetime values round-trip through supported PostgreSQL types in UTC, and read-only views use
+   `none` without a writable version column.
 10. Login-only SHA-256 verification works with omitted and explicit `never`, sees external password
     changes immediately, and denies registration, verification, recovery, and password mutation.
 11. In-place bcrypt and SHA-256 upgrades replace only the exact observed authoritative value,
