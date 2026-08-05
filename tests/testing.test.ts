@@ -175,9 +175,10 @@ describe('@doxajs/testing', () => {
       expect(transactions.state.deliveries.get(ids.mailId)?.state).toBe('accepted')
       expect(transactions.state.deliveries.get(ids.smsId)?.state).toBe('accepted')
       expect(telemetry.records.some((record) => record.kind === 'span')).toBe(true)
-      expect(await harness.query(ConcurrentCounterReads, undefined)).toEqual(
-        Array.from({ length: 9 }, () => 1),
-      )
+      expect(await harness.query(ConcurrentCounterReads, undefined)).toEqual({
+        counts: Array.from({ length: 9 }, () => 1),
+        sameIdentity: true,
+      })
       expect(
         harness.logs.records.some((record) =>
           record.message.includes('Promise.all does not add database parallelism'),

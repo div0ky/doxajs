@@ -604,6 +604,8 @@ export class ModelSession {
       this.reader.findEntity(type, id, definition.storage),
     )
     if (!persisted) return undefined
+    const concurrent = this.#identityMap.get(identity)
+    if (concurrent) return concurrent as Instance
     const attributes = this.validatedAttributes<Attributes>(definition, persisted.state)
     const model = new Constructor(attributes)
     model[MODEL_INTERNALS]().attached(this, attributes, persisted.version)

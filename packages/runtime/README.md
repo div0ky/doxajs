@@ -7,9 +7,10 @@
 The artifact-only Doxa runtime. It validates compiled artifacts, constructs the dependency graph,
 admits execution scopes, dispatches framework roles, and owns deterministic lifecycle behavior.
 
-Concurrent model operations retain their owning transaction and snapshot. Runtime records one
-serialization diagnostic per affected model session, warns outside production that `Promise.all`
-adds no database parallelism, and leaves production warning logs quiet.
+For transaction managers that declare shared-client serialization, concurrent model operations
+retain their owning transaction and snapshot. Runtime records one diagnostic per affected model
+session, warns outside production that `Promise.all` adds no database parallelism, and leaves
+production warning logs quiet.
 
 The runtime never compiles source. Ordinary Feature and domain code should import `@doxajs/core`,
 not this package.

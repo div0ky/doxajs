@@ -122,7 +122,7 @@ are acceptable.
     queries are benchmarked with realistic cardinalities and indexes before reconsidering a public
     join projection API.
 13. Concurrent model operations serialize inside one transaction without driver warnings, preserve
-    one snapshot, and cannot outlive transaction cleanup.
+    one snapshot and model identity, and cannot outlive transaction cleanup.
 
 ## Consequences
 

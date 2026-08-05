@@ -52,12 +52,12 @@ retains the admitted trace ID and the SDK supplies the child span ID.
 
 ## Transaction serialization diagnostics
 
-Concurrent model operations inside one Query, Action, Job, or authorization session share one
-transaction client and execute serially. Development and test runtimes warn once per affected model
-session because `Promise.all` cannot add database parallelism there. Production omits that warning
-log but records a `model` observation named `transaction serialization` and increments
-`doxa.persistence.transaction.serialization.total`. Attributes include only model entity types and
-operation names.
+When the active transaction manager declares shared-client serialization, concurrent model
+operations inside one Query, Action, Job, or authorization session execute serially. Development and
+test runtimes warn once per affected model session because `Promise.all` cannot add database
+parallelism there. Production omits that warning log but records a `model` observation named
+`transaction serialization` and increments `doxa.persistence.transaction.serialization.total`.
+Attributes include only model entity types and operation names.
 
 ## Development Theoria
 

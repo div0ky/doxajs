@@ -100,8 +100,9 @@ writes and staged facts commit or roll back together.
 
 A Query's model reads share one read-only repeatable-read transaction so authorization, pagination,
 relationships, aggregates, and handler results describe one database snapshot. Concurrent model
-promises are safe, but Doxa serializes them on that transaction's one PostgreSQL client and warns
-once outside production; `Promise.all` does not make them faster.
+promises are safe with the first-party PostgreSQL adapter, but it serializes them on that
+transaction's one client and Doxa warns once outside production; `Promise.all` does not make them
+faster. Always await every started model operation.
 
 Start with clear sequential reads and measure. Reduce round trips with indexed constraints, eager
 loading, aggregates, and bounded pagination. Use a dedicated read projection when a report needs a

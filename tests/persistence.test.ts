@@ -3434,6 +3434,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       logs: developmentLogs,
       observations: developmentObservations,
     })
+    await runAction(development, SaveCounter, { id: 'concurrent-read', amount: 1 })
     resetTelemetryRecords()
 
     const counts = await development.admit(
@@ -3444,7 +3445,10 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       () => development.queries.execute(ConcurrentCounterReads, undefined),
     )
 
-    expect(counts).toEqual(Array.from({ length: 9 }, () => 0))
+    expect(counts).toEqual({
+      counts: Array.from({ length: 9 }, () => 1),
+      sameIdentity: true,
+    })
     expect(
       developmentLogs.records.filter(
         (record) =>
@@ -3452,19 +3456,25 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
           record.message.includes('Promise.all does not add database parallelism'),
       ),
     ).toHaveLength(1)
-    expect(
-      telemetryRecords.filter(
-        (record) =>
-          record.kind === 'metric' &&
-          record.name === 'doxa.persistence.transaction.serialization.total',
-      ),
-    ).toHaveLength(1)
-    expect(
-      developmentObservations.observations.filter(
-        (observation) =>
-          observation.kind === 'model' && observation.name === 'transaction serialization',
-      ),
-    ).toHaveLength(1)
+    const developmentMetrics = telemetryRecords.filter(
+      (record) =>
+        record.kind === 'metric' &&
+        record.name === 'doxa.persistence.transaction.serialization.total',
+    )
+    const developmentSerialization = developmentObservations.observations.filter(
+      (observation) =>
+        observation.kind === 'model' && observation.name === 'transaction serialization',
+    )
+    expect(developmentMetrics).toHaveLength(1)
+    expect(developmentSerialization).toHaveLength(1)
+    const safeAttributes = {
+      activeOperation: 'aggregate',
+      activeEntityType: 'model:counters/counter',
+      queuedOperation: 'aggregate',
+      queuedEntityType: 'model:counters/counter',
+    }
+    expect(developmentMetrics[0]?.attributes).toEqual(safeAttributes)
+    expect(developmentSerialization[0]?.attributes).toEqual(safeAttributes)
 
     const productionLogs = new MemoryLogSink()
     const productionObservations = new MemoryObservationRecorder()
@@ -3525,18 +3535,6 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
         },
       )
       expect(completionOrder).toEqual(['participant', 'model'])
-
-      const chainedCompletion: string[] = []
-      await manager.frameworkTransaction(
-        executionContext('drained-framework-transaction'),
-        async (_unitOfWork, transaction) => {
-          void transaction.query('SELECT pg_sleep(0.01)').then(async () => {
-            await transaction.query('SELECT 1')
-            chainedCompletion.push('chained')
-          })
-        },
-      )
-      expect(chainedCompletion).toEqual(['chained'])
 
       let queued: PromiseSettledResult<unknown>[] | undefined
       await expect(

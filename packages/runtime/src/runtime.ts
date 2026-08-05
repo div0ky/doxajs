@@ -1796,7 +1796,7 @@ export class DoxaRuntime {
             this.logger
               .channel('persistence')
               .warn(
-                "Concurrent model operations were serialized to preserve this execution's PostgreSQL transaction and snapshot. Promise.all does not add database parallelism here; await sequentially or reduce database round trips.",
+                "Concurrent model operations were serialized to preserve this execution's persistence transaction and snapshot. Promise.all does not add database parallelism here; await sequentially or reduce database round trips.",
                 attributes,
               )
           }
