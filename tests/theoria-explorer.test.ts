@@ -46,12 +46,11 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
       elements.set(id, created)
       return created
     }
-    const deferred = Promise.withResolvers<unknown[]>()
     const delayed: { entries?: PromiseWithResolvers<unknown[]> } = {}
     const requests: string[] = []
     let codeElements: Element[] = []
-    let deferExecutionA = false
-    let failExecutionA = false
+    let delayedTimelineA: PromiseWithResolvers<unknown[]> | undefined
+    const failedExecutions = new Set<string>()
     let entries = [entry('execution-a', 'observation-a')]
     const timelines = new Map([
       [
@@ -83,7 +82,10 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
         requests.push(url)
         return {
           json: async () => {
-            if (url === '/api/timeline/execution-a' && failExecutionA) {
+            if (
+              url.startsWith('/api/timeline/') &&
+              failedExecutions.has(url.slice('/api/timeline/'.length))
+            ) {
               throw new Error('detail failed')
             }
             return {
@@ -92,8 +94,8 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
                 ? delayed.entries
                   ? await delayed.entries.promise
                   : entries
-                : url === '/api/timeline/execution-a' && deferExecutionA
-                  ? await deferred.promise
+                : url === '/api/timeline/execution-a' && delayedTimelineA
+                  ? await delayedTimelineA.promise
                   : url.startsWith('/api/timeline/')
                     ? timelines.get(url.slice('/api/timeline/'.length))
                     : [],
@@ -135,11 +137,12 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
       { scrollLeft: 10, scrollTop: 100 },
     ])
 
-    deferExecutionA = true
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
     const stale = vm.runInContext("chooseExecution('execution-a')", context) as Promise<void>
     await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
-    deferred.resolve(timelines.get('execution-a')!)
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
     await stale
+    delayedTimelineA = undefined
     expect(vm.runInContext('state.execution', context)).toBe('execution-b')
     expect(vm.runInContext('state.observation.id', context)).toBe('observation-b')
 
@@ -159,10 +162,76 @@ it('preserves Theoria navigation and scroll state across polling and stale respo
     expect(requests.filter((url) => url === '/api/entries?kind=event')).toHaveLength(1)
     expect(element('executions').scrollTop).toBe(70)
 
-    failExecutionA = true
     await vm.runInContext("chooseExecution('execution-a')", context)
+    vm.runInContext('state.observation=state.timeline[0];renderInspector()', context)
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
+    const refresh = vm.runInContext(
+      "chooseExecution('execution-a',undefined,true)",
+      context,
+    ) as Promise<void>
+    vm.runInContext('state.observation=state.timeline[1];renderInspector()', context)
+    element('timeline').scrollTo(12, 120)
+    element('inspector').scrollTo(13, 130)
+    codeElements[0]?.scrollTo(14, 140)
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
+    await refresh
+    delayedTimelineA = undefined
+    expect(vm.runInContext('state.observation.id', context)).toBe('observation-a-selected')
+    expect([element('timeline'), element('inspector'), codeElements[0]]).toMatchObject([
+      { scrollLeft: 12, scrollTop: 120 },
+      { scrollLeft: 13, scrollTop: 130 },
+      { scrollLeft: 14, scrollTop: 140 },
+    ])
+
+    delayed.entries = Promise.withResolvers<unknown[]>()
+    const filtering = vm.runInContext('loadExecutions(true)', context) as Promise<void>
+    await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
+    delayed.entries.resolve(entries)
+    await filtering
+    delete delayed.entries
+    expect(vm.runInContext('state.execution', context)).toBe('execution-b')
+
+    delayed.entries = Promise.withResolvers<unknown[]>()
+    const staleListFailure = vm.runInContext('loadExecutions(true)', context) as Promise<void>
+    await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
+    delayed.entries.reject(new Error('stale list failed'))
+    await staleListFailure
+    delete delayed.entries
+    expect(element('error').style.display).toBe('none')
+
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
+    const pendingExecutionA = vm.runInContext(
+      "state.reset=false;chooseExecution('execution-a')",
+      context,
+    ) as Promise<void>
+    failedExecutions.add('execution-b')
+    await vm.runInContext("state.reset=false;chooseExecution('execution-b')", context)
+    failedExecutions.delete('execution-b')
+    expect(vm.runInContext('state.execution', context)).toBe('execution-b')
+    expect(vm.runInContext('state.observation.id', context)).toBe('observation-b')
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
+    await pendingExecutionA
+    delayedTimelineA = undefined
+    expect(vm.runInContext('state.execution', context)).toBe('execution-b')
+
+    failedExecutions.add('execution-a')
+    await vm.runInContext("chooseExecution('execution-a')", context)
+    failedExecutions.delete('execution-a')
     expect(vm.runInContext('state.execution', context)).toBe('execution-b')
     expect(element('error')).toMatchObject({ style: { display: 'block' } })
+
+    delayedTimelineA = Promise.withResolvers<unknown[]>()
+    const staleDetail = vm.runInContext("chooseExecution('execution-a')", context) as Promise<void>
+    entries = []
+    await vm.runInContext('loadExecutions(true)', context)
+    delayedTimelineA.resolve(timelines.get('execution-a')!)
+    await staleDetail
+    delayedTimelineA = undefined
+    expect(vm.runInContext('state.execution', context)).toBe(null)
+    expect(vm.runInContext('state.timeline', context)).toEqual([])
+    expect(element('timeline').innerHTML).toContain('No evidence recorded')
+    expect(element('inspector').innerHTML).toContain('No observation selected')
+    expect(element('correlation').textContent).toBe('')
   } finally {
     await host.shutdown()
   }

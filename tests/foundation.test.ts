@@ -12,8 +12,11 @@ import {
   MemoryCache,
   Model,
   ModelIdentityMutationError,
+  ModelReader,
+  type JsonValue,
   type ModelQuery,
   type ModelQueryPlan,
+  type PersistedEntity,
   RoleInjectionError,
   SecretString,
   StaleModelError,
@@ -732,6 +735,119 @@ describe('foundational compile-to-boot slice', () => {
         },
       ).map((value) => value.id),
     ).toEqual(['same'])
+  })
+
+  it('waits for one retrieved observer across concurrent model hydration', async () => {
+    class HydrationProofModel extends Model<{ id: string; value: number }> {}
+    class HydrationReader extends ModelReader {
+      findCount = 0
+      deleteCount = 0
+
+      async findEntity<State extends JsonValue>(
+        type: string,
+        id: string,
+      ): Promise<PersistedEntity<State>> {
+        this.findCount++
+        return { type, id, version: 1, state: { id, value: 1 } as unknown as State }
+      }
+      async queryEntities<State extends JsonValue>(): Promise<readonly PersistedEntity<State>[]> {
+        return []
+      }
+      async aggregateEntities(): Promise<number> {
+        return 0
+      }
+      async deleteEntity(): Promise<void> {
+        this.deleteCount++
+      }
+    }
+    const definitions = new Map<
+      Function,
+      {
+        entityType: string
+        storage: { kind: 'entity-state' }
+        attributes: Set<string>
+      }
+    >([
+      [
+        HydrationProofModel,
+        {
+          entityType: 'hydration-proof',
+          storage: { kind: 'entity-state' as const },
+          attributes: new Set(['id', 'value']),
+        },
+      ],
+    ])
+    const retrieved = Promise.withResolvers<void>()
+    let retrievedCount = 0
+    let reentrantModel: Model | undefined
+    const reader = new HydrationReader()
+    const session = new ModelSession(reader, definitions, {
+      dispatch: async (phase, model) => {
+        if (phase !== 'retrieved') return
+        retrievedCount++
+        reentrantModel = await session.find(HydrationProofModel, model.id)
+        await retrieved.promise
+      },
+    })
+    const first = session.find(HydrationProofModel, 'shared')
+    while (retrievedCount === 0) await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(() => session.make(HydrationProofModel, { id: 'shared', value: 2 })).toThrow(
+      'already attached',
+    )
+    const second = session.find(HydrationProofModel, 'shared')
+    let secondSettled = false
+    void second.finally(() => {
+      secondSettled = true
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(secondSettled).toBe(false)
+    retrieved.resolve()
+    const [firstModel, secondModel] = await Promise.all([first, second])
+    expect(secondModel).toBe(firstModel)
+    expect(reentrantModel).toBe(firstModel)
+    expect(retrievedCount).toBe(1)
+    expect(reader.findCount).toBe(1)
+    session.close()
+
+    let failedRetrievedCount = 0
+    const failing = new ModelSession(reader, definitions, {
+      dispatch: async (phase) => {
+        if (phase !== 'retrieved') return
+        failedRetrievedCount++
+        throw new Error('retrieved failed')
+      },
+    })
+    const failures = await Promise.allSettled([
+      failing.find(HydrationProofModel, 'failed'),
+      failing.find(HydrationProofModel, 'failed'),
+    ])
+    expect(failures.map((result) => result.status)).toEqual(['rejected', 'rejected'])
+    expect(failedRetrievedCount).toBe(1)
+    failing.close()
+
+    let escapedFind: Promise<HydrationProofModel | undefined> | undefined
+    const deleting = new ModelSession(reader, definitions, {
+      dispatch: async (phase, model) => {
+        if (phase !== 'retrieved') return
+        await model.delete()
+        if (!escapedFind) {
+          escapedFind = new Promise((resolve, reject) => {
+            setImmediate(
+              () => void deleting.find(HydrationProofModel, 'deleted').then(resolve, reject),
+            )
+          })
+        }
+      },
+    })
+    const readsBeforeDeletion = reader.findCount
+    const deletedFirst = await runWithModelSession(deleting, () =>
+      deleting.find(HydrationProofModel, 'deleted'),
+    )
+    const deletedSecond = await escapedFind
+    expect(deletedSecond).not.toBe(deletedFirst)
+    expect(reader.findCount - readsBeforeDeletion).toBe(2)
+    expect(reader.deleteCount).toBe(2)
+    deleting.close()
   })
 
   it('rejects model queries and cursors after their execution session ends', async () => {
