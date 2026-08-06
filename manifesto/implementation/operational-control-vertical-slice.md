@@ -12,7 +12,8 @@ Schedule enablement is durable in `doxa_schedule_controls`. Scheduler startup cr
 controls and reconciles only enabled declarations. `schedule:enable` and `schedule:disable` update
 that state explicitly. `schedule:run` writes the same actor-aware `doxa.queue` outbox envelope as
 framework dispatch, so manual work is durable with or without a live worker and retains schedule
-causation.
+causation. Schedule commands accept a full schedule ID or a unique slash-delimited suffix. Ambiguous
+short IDs fail before any database mutation and report the matching full IDs.
 
 Queue and delivery retries fail closed around eligible terminal states. Session and bearer-token
 revocation plus auth pruning are first-party commands. Cache pruning removes only expired values;

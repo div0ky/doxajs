@@ -897,8 +897,11 @@ function matchesConstraints(
   value: Record<string, unknown>,
   constraints: readonly ModelQueryConstraint[],
 ): boolean {
-  let result = true
-  for (const constraint of constraints) {
+  const first = constraints[0]
+  if (!first) return true
+  let result = matchesPredicate(value, first.predicate)
+  for (let index = 1; index < constraints.length; index++) {
+    const constraint = constraints[index]!
     const matched = matchesPredicate(value, constraint.predicate)
     result = constraint.boolean === 'and' ? result && matched : result || matched
   }

@@ -37,7 +37,9 @@ through `Feature.permissionSources`.
 
 Manifest format 5 records the optional source, its exact abilities, source provenance, execution
 scope, dependencies, and lifecycle metadata. Runtime boot includes the source in manifest/registry
-integrity checks and constructs it only from the generated registry.
+integrity checks and constructs it only from the generated registry. The current compiler and
+artifact boundary reject the framework-owned `accounts.impersonation.stop` ability from application
+source catalogs.
 
 The authorization pipeline now proves:
 

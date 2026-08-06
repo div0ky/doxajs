@@ -101,6 +101,72 @@ describe('Doxa HTTP response envelopes', () => {
     })
   })
 
+  it('rejects invalid HttpError statuses and sanitizes malformed instances', async () => {
+    expect(() => new HttpError(400, 'bad_request', 'Bad request.')).not.toThrow()
+    expect(() => new HttpError(599, 'server_error', 'Server error.')).not.toThrow()
+    for (const status of [399, 600, 400.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => new HttpError(status, 'invalid_status', 'Must not escape.')).toThrow(TypeError)
+    }
+
+    const malformed = new HttpError(500, 'private_code', 'Private message.', { private: true })
+    Object.defineProperty(malformed, 'status', { value: 700 })
+    const runtime = {
+      manifest: { routes: [{ id: 'route:test/malformed-error', method: 'GET', path: '/error' }] },
+      logger: new Logger(),
+      authenticateHttp: () =>
+        Promise.resolve({ actor: { kind: 'anonymous' }, authentication: { state: 'anonymous' } }),
+      admit: async (_seed: unknown, work: (context: object) => Promise<unknown>) =>
+        work({ correlationId: 'malformed-error-test', trace: {} }),
+      dispatchRoute: () => {
+        throw malformed
+      },
+    } as unknown as DoxaRuntime
+
+    const response = await new HonoHttpEngine(runtime).fetch(new Request('http://doxa.test/error'))
+    expect(response.status).toBe(500)
+    expect(response.headers.get('x-correlation-id')).toBe('malformed-error-test')
+    expect(await response.json()).toEqual({
+      ok: false,
+      code: 'internal_error',
+      message: 'The application could not complete the request.',
+      data: null,
+    })
+  })
+
+  it('keeps route cookies authoritative while preserving unrelated renewal cookies', async () => {
+    const runtime = {
+      manifest: {
+        routes: [
+          { id: 'route:test/session', method: 'GET', path: '/session' },
+          { id: 'route:test/preferences', method: 'GET', path: '/preferences' },
+        ],
+      },
+      logger: new Logger(),
+      authenticateHttp: () =>
+        Promise.resolve({
+          actor: { kind: 'user', id: 'user-1' },
+          authentication: { state: 'authenticated', identityId: 'user-1' },
+          responseHeaders: { 'set-cookie': 'doxa_session=renewed; Path=/; HttpOnly' },
+        }),
+      admit: async (_seed: unknown, work: (context: object) => Promise<unknown>) =>
+        work({ correlationId: 'cookie-test', trace: {} }),
+      dispatchRoute: (id: string) =>
+        id === 'route:test/session'
+          ? Http.noContent({ 'set-cookie': 'doxa_session=route-owned; Path=/; HttpOnly' })
+          : Http.noContent({ 'set-cookie': 'preferences=compact; Path=/' }),
+    } as unknown as DoxaRuntime
+    const http = new HonoHttpEngine(runtime)
+
+    const session = await http.fetch(new Request('http://doxa.test/session'))
+    expect(session.headers.getSetCookie()).toEqual(['doxa_session=route-owned; Path=/; HttpOnly'])
+
+    const preferences = await http.fetch(new Request('http://doxa.test/preferences'))
+    expect(preferences.headers.getSetCookie()).toEqual([
+      'preferences=compact; Path=/',
+      'doxa_session=renewed; Path=/; HttpOnly',
+    ])
+  })
+
   it('rejects declared and streamed request bodies above the configured byte limit', async () => {
     const runtime = {
       manifest: { routes: [{ id: 'route:test/body', method: 'POST', path: '/body' }] },

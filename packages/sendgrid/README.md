@@ -7,6 +7,10 @@
 The first-party SendGrid implementation of Doxa's provider-independent mail contracts, including
 request translation, delivery normalization, and signed webhook verification.
 
+`open` and `click` engagement confirms delivered state. Unknown and resubscribe-only webhook events
+are ignored. The shared delivery ledger prevents late provider events from regressing a terminal
+state while still deduplicating every recognized provider event.
+
 ```sh
 pnpm add @doxajs/sendgrid
 ```

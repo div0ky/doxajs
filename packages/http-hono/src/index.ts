@@ -321,7 +321,19 @@ function withAuthenticationHeaders(
 ): Response {
   if (!values) return response
   const headers = new Headers(response.headers)
-  for (const [name, value] of Object.entries(values)) headers.set(name, value)
+  for (const [name, value] of Object.entries(values)) {
+    if (name.toLowerCase() === 'set-cookie') {
+      const authenticationCookie = cookieName(value)
+      if (
+        authenticationCookie &&
+        !headers.getSetCookie().some((existing) => cookieName(existing) === authenticationCookie)
+      ) {
+        headers.append(name, value)
+      }
+    } else if (!headers.has(name)) {
+      headers.set(name, value)
+    }
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -329,8 +341,21 @@ function withAuthenticationHeaders(
   })
 }
 
+function cookieName(value: string): string | undefined {
+  const separator = value.indexOf('=')
+  if (separator <= 0) return undefined
+  const name = value.slice(0, separator).trim()
+  return name || undefined
+}
+
 function errorResponse(error: unknown, correlationId?: string): Response {
   if (error instanceof HttpError) {
+    if (!Number.isInteger(error.status) || error.status < 400 || error.status > 599) {
+      return withCorrelation(
+        errorDocument(500, 'internal_error', 'The application could not complete the request.'),
+        correlationId,
+      )
+    }
     return withCorrelation(
       errorDocument(error.status, error.code, error.message, error.details),
       correlationId,

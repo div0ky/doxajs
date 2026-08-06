@@ -66,6 +66,10 @@ export interface InspectCounterQueriesResult {
   readonly nullMembershipIds: readonly string[]
   readonly nonNullMembershipIds: readonly string[]
   readonly nullOrderedIds: readonly string[]
+  readonly nullableAscendingCursorPages: readonly (readonly string[])[]
+  readonly nullableAscendingBeforeIds: readonly string[]
+  readonly nullableDescendingCursorPages: readonly (readonly string[])[]
+  readonly nullableDescendingBeforeIds: readonly string[]
 }
 
 export class InspectCounterQueries extends Query<
@@ -165,6 +169,49 @@ export class InspectCounterQueries extends Query<
     } catch (error) {
       readOnlyErrors.push(error instanceof Error ? error.name : String(error))
     }
+    const nullableAscending = Counter.query().orderBy('label').orderBy('value').orderBy('id')
+    const nullableAscendingFirst = await nullableAscending.cursorPaginate({ first: 2 })
+    const nullableAscendingSecond = nullableAscendingFirst.nextCursor
+      ? await nullableAscending.cursorPaginate({
+          first: 2,
+          after: nullableAscendingFirst.nextCursor,
+        })
+      : undefined
+    const nullableAscendingThird = nullableAscendingSecond?.nextCursor
+      ? await nullableAscending.cursorPaginate({
+          first: 2,
+          after: nullableAscendingSecond.nextCursor,
+        })
+      : undefined
+    const nullableAscendingBefore = nullableAscendingSecond?.previousCursor
+      ? await nullableAscending.cursorPaginate({
+          first: 2,
+          before: nullableAscendingSecond.previousCursor,
+        })
+      : undefined
+    const nullableDescending = Counter.query()
+      .orderBy('label', 'desc')
+      .orderBy('value', 'desc')
+      .orderBy('id', 'desc')
+    const nullableDescendingFirst = await nullableDescending.cursorPaginate({ first: 2 })
+    const nullableDescendingSecond = nullableDescendingFirst.nextCursor
+      ? await nullableDescending.cursorPaginate({
+          first: 2,
+          after: nullableDescendingFirst.nextCursor,
+        })
+      : undefined
+    const nullableDescendingThird = nullableDescendingSecond?.nextCursor
+      ? await nullableDescending.cursorPaginate({
+          first: 2,
+          after: nullableDescendingSecond.nextCursor,
+        })
+      : undefined
+    const nullableDescendingBefore = nullableDescendingThird?.previousCursor
+      ? await nullableDescending.cursorPaginate({
+          first: 2,
+          before: nullableDescendingThird.previousCursor,
+        })
+      : undefined
     return {
       orderedIds: counters.map((counter) => counter.id),
       firstId: (await base.first())?.id,
@@ -250,6 +297,27 @@ export class InspectCounterQueries extends Query<
         .orderBy('id')
         .pluck('id'),
       nullOrderedIds: await Counter.query().orderBy('label').orderBy('id').pluck('id'),
+      nullableAscendingCursorPages: [
+        nullableAscendingFirst.items.map((counter) => counter.id),
+        ...(nullableAscendingSecond
+          ? [nullableAscendingSecond.items.map((counter) => counter.id)]
+          : []),
+        ...(nullableAscendingThird
+          ? [nullableAscendingThird.items.map((counter) => counter.id)]
+          : []),
+      ],
+      nullableAscendingBeforeIds: nullableAscendingBefore?.items.map((counter) => counter.id) ?? [],
+      nullableDescendingCursorPages: [
+        nullableDescendingFirst.items.map((counter) => counter.id),
+        ...(nullableDescendingSecond
+          ? [nullableDescendingSecond.items.map((counter) => counter.id)]
+          : []),
+        ...(nullableDescendingThird
+          ? [nullableDescendingThird.items.map((counter) => counter.id)]
+          : []),
+      ],
+      nullableDescendingBeforeIds:
+        nullableDescendingBefore?.items.map((counter) => counter.id) ?? [],
     }
   }
 }

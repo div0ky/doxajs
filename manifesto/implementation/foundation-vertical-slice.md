@@ -69,8 +69,8 @@ The compiler:
 - Follows reachable concrete constructor dependencies without provider registration ceremony.
 - Treats Feature-declared provider roots as singleton lifecycle participants and reachable ordinary
   services as transient.
-- Rejects missing required dependencies, undeclared cross-Feature provider access, duplicate IDs,
-  and dependency cycles.
+- Rejects missing required dependencies, undeclared cross-Feature provider access, duplicate IDs
+  including configuration IDs derived from distinct same-named declarations, and dependency cycles.
 - Emits deterministic JSON semantics separately from constructor linkage.
 
 The implementation is pinned to TypeScript 6.0.2. TypeScript 7 exposes its replacement native
@@ -82,14 +82,19 @@ compatibility release and conformance pass.
 The runtime:
 
 - Reads generated artifacts and never imports the compiler or analyzes application source.
-- Fails closed on unsupported formats, stale hashes, and registry ID mismatches.
+- Fails closed on unsupported formats, stale hashes, registry ID mismatches, duplicate configuration
+  IDs, and framework-owned permission-source abilities.
 - Recomputes the canonical semantic manifest hash rather than trusting declared hash fields.
 - Verifies that `Doxa.boot(Application)` receives the exact declaration linked by the registry.
 - Resolves configuration from overrides, environment, an exact `.env` path, then defaults.
 - Aggregates configuration failures before constructing singleton services.
 - Constructs dependencies before dependents and invokes lifecycle startup in that order.
 - Reverses the order for drain, stop, and disposal.
-- Preserves the primary startup failure and records cleanup failures separately.
+- Aborts timed-out startup and uses one shared, configurable cleanup budget for late settlement,
+  reverse-order stop, and disposal. Late completion is unwound, late rejection is secondary, and
+  budget exhaustion reports every unsettled participant/phase pair without blocking boot forever.
+- Preserves a normalized lifecycle timeout as the primary startup failure and records cleanup
+  failures separately.
 - Reaches `ready` only after successful startup.
 - Gives concurrent shutdown callers the same promise.
 - Installs no process-global signal handlers.
@@ -102,7 +107,9 @@ The conformance suite proves:
 2. Registry output contains constructors only, not a second semantic graph.
 3. Configuration conventions, defaults, parsing, aggregation, and freezing work before services.
 4. Boot and shutdown obey dependency order.
-5. Startup failure unwinds successfully started dependencies without masking the cause.
+5. Startup failure and deadline cancellation unwind successfully completed participants within one
+   cleanup budget without racing late resource acquisition, waiting indefinitely, or masking the
+   cause; late rejection and unsettled phases remain inspectable secondary failures.
 6. Manifest-registry divergence and Application identity mismatch fail closed.
 7. Runtime shutdown is idempotent.
 8. Boot does not mutate process signal listeners.

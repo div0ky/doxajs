@@ -5,6 +5,8 @@ export {
   ExecutionAdmissionError,
   ExecutionCleanupError,
   ExecutionFailureError,
+  LifecycleCleanupTimeoutError,
+  LifecycleTimeoutError,
   OperationDispatchError,
   RuntimeBootError,
   RuntimeIntegrityError,
@@ -16,6 +18,7 @@ export {
   type ModelRecordQueryResult,
   type RuntimeProfile,
   type RuntimeState,
+  type UnsettledLifecyclePhase,
 } from './runtime.js'
 
 export { ReadOnlyExecutionError } from '@doxajs/core'

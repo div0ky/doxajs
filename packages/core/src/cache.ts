@@ -42,12 +42,8 @@ export class MemoryCache extends Cache {
   }
 
   async get<Value extends JsonValue>(key: string): Promise<Value | undefined> {
-    const entry = this.#entries.get(key)
+    const entry = this.#liveEntry(key)
     if (!entry) return undefined
-    if (entry.expiresAt !== undefined && entry.expiresAt <= this.now()) {
-      this.#entries.delete(key)
-      return undefined
-    }
     return structuredClone(entry.value) as Value
   }
 
@@ -64,31 +60,40 @@ export class MemoryCache extends Cache {
     value: Value,
     options?: CachePutOptions,
   ): Promise<boolean> {
-    if ((await this.get(key)) !== undefined) return false
-    await this.put(key, value, options)
+    if (this.#liveEntry(key)) return false
+    this.#entries.set(key, { value: structuredClone(value), ...expiry(options, this.now()) })
     return true
   }
 
   async increment(key: string, amount = 1, options?: CachePutOptions): Promise<number> {
-    const current = await this.get<JsonValue>(key)
+    const entry = this.#liveEntry(key)
+    const current = entry?.value
     if (current !== undefined && typeof current !== 'number') {
       throw new TypeError(`Cache value ${key} is not numeric.`)
     }
     const value = (current ?? 0) + amount
-    if (current === undefined) {
-      await this.put(key, value, options)
-    } else {
-      const entry = this.#entries.get(key)!
-      this.#entries.set(key, {
-        value,
-        ...(entry.expiresAt === undefined ? {} : { expiresAt: entry.expiresAt }),
-      })
-    }
+    this.#entries.set(key, {
+      value,
+      ...(entry
+        ? entry.expiresAt === undefined
+          ? {}
+          : { expiresAt: entry.expiresAt }
+        : expiry(options, this.now())),
+    })
     return value
   }
 
   async forget(key: string): Promise<boolean> {
     return this.#entries.delete(key)
+  }
+
+  #liveEntry(key: string): { value: JsonValue; expiresAt?: number } | undefined {
+    const entry = this.#entries.get(key)
+    if (entry?.expiresAt !== undefined && entry.expiresAt <= this.now()) {
+      this.#entries.delete(key)
+      return undefined
+    }
+    return entry
   }
 }
 

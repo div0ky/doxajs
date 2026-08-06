@@ -689,6 +689,8 @@ Stable guide: `module.sendgrid`
 
 Queue mail inside an Action or Job so delivery intent commits atomically with application state.
 
+Open and click engagement confirms delivery. Unknown and resubscribe-only events are ignored, and late provider events cannot regress terminal delivery state.
+
 ### Testing harness
 
 Stable guide: `module.testing`
@@ -707,4 +709,4 @@ Stable guide: `module.twilio-sms`
 
 Queue SMS inside an Action or Job so delivery intent commits atomically with application state.
 
-Configure a Messaging Service for default sender selection, or set SmsMessage.from to an E.164 sticky number selected by the application. An explicit sender wins when both are available; Twilio receives From or MessagingServiceSid, never both. Invalid explicit senders fail permanently with invalid_sender before an HTTP request, and messages with neither sender mode fail permanently with missing_sender. The complete SMS payload survives transactional queueing and delivery redrive.
+Configure a Messaging Service for default sender selection, or set SmsMessage.from to an E.164 sticky number selected by the application. An explicit sender wins when both are available; Twilio receives From or MessagingServiceSid, never both. Invalid explicit senders fail permanently with invalid_sender before an HTTP request, and messages with neither sender mode fail permanently with missing_sender. Error 21610 is opt-out, 30007 is suppression, and only 30001, 30003, 30008, and 30017 are transient provider outcomes. The complete SMS payload survives transactional queueing and delivery redrive.

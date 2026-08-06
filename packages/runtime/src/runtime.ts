@@ -153,6 +153,7 @@ import {
   ExecutionAdmissionError,
   ExecutionCleanupError,
   ExecutionFailureError,
+  LifecycleTimeoutError,
   OperationDispatchError,
   RuntimeBootError,
   RuntimeIntegrityError,
@@ -172,10 +173,13 @@ export {
   ExecutionAdmissionError,
   ExecutionCleanupError,
   ExecutionFailureError,
+  LifecycleCleanupTimeoutError,
+  LifecycleTimeoutError,
   OperationDispatchError,
   RuntimeBootError,
   RuntimeIntegrityError,
   RuntimeShutdownError,
+  type UnsettledLifecyclePhase,
 } from './errors.js'
 
 export type RuntimeState = 'booting' | 'ready' | 'draining' | 'stopping' | 'disposing' | 'stopped'
@@ -257,6 +261,7 @@ const DEFAULT_DEADLINES: LifecycleDeadlines = {
   drain: 10_000,
   stop: 10_000,
   dispose: 10_000,
+  cleanup: 30_000,
 }
 
 interface RuntimeArtifacts {
@@ -679,16 +684,19 @@ export class DoxaRuntime {
         artifacts.manifest.events.some((event) => event.broadcast !== false),
     })
     const started: LifecycleParticipant[] = []
+    let currentStartup: LifecycleParticipant | undefined
     const bootStartedAt = performance.now()
 
     try {
       for (const participant of graph.participants) {
         if (participant.manifest.lifecycle.start) {
+          currentStartup = participant
           await runtime.observeTelemetry(
             'lifecycle.phase',
             { phase: 'start', participant: participant.manifest.id },
             () => invokeLifecycle(participant, 'start', deadlines.start),
           )
+          currentStartup = undefined
         }
         started.push(participant)
       }
@@ -706,7 +714,13 @@ export class DoxaRuntime {
       })
       return runtime
     } catch (primaryError) {
-      const cleanupErrors = await unwindStartup(started, deadlines)
+      const cleanupErrors = await unwindStartup(
+        started,
+        deadlines,
+        currentStartup && primaryError instanceof LifecycleTimeoutError
+          ? { participant: currentStartup, error: primaryError }
+          : undefined,
+      )
       runtime.#state = 'stopped'
       runtime.logger.channel('lifecycle').error('Application boot failed', primaryError, {
         application: artifacts.manifest.applicationId,
@@ -2592,11 +2606,13 @@ export class DoxaRuntime {
     } catch (error) {
       if (!(error instanceof DeliveryError)) throw error
       const state =
-        error.kind === 'suppressed' || error.kind === 'opt-out'
+        error.kind === 'suppressed'
           ? 'suppressed'
-          : error.kind === 'transient'
-            ? 'undelivered'
-            : 'failed'
+          : error.kind === 'opt-out'
+            ? 'failed'
+            : error.kind === 'transient'
+              ? 'undelivered'
+              : 'failed'
       await this.observeObservation(
         'transaction',
         'delivery failure transition',
@@ -2949,9 +2965,33 @@ export class DoxaRuntime {
       this.modelOperationObserver(),
     )
     return await runWithModelSession(models, async () => {
+      if (store.operationStack.at(-1) !== 'job') {
+        try {
+          return await work()
+        } finally {
+          models.close()
+        }
+      }
+      const cancellation = store.context.cancellation
+      let abort: (() => void) | undefined
+      const cancelled = new Promise<never>((_resolve, reject) => {
+        abort = () => {
+          models.close()
+          try {
+            cancellation.throwIfAborted()
+          } catch (error) {
+            reject(error)
+          }
+        }
+        cancellation.addEventListener('abort', abort, { once: true })
+      })
       try {
-        return await work()
+        if (cancellation.aborted) cancellation.throwIfAborted()
+        const pending = Promise.resolve().then(work)
+        void pending.catch(() => undefined)
+        return await Promise.race([pending, cancelled])
       } finally {
+        if (abort) cancellation.removeEventListener('abort', abort)
         models.close()
       }
     })

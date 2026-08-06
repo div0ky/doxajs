@@ -1,5 +1,39 @@
+import type { Instant } from '@doxajs/core'
+
 export class RuntimeIntegrityError extends Error {
   override readonly name = 'RuntimeIntegrityError'
+}
+
+export class LifecycleTimeoutError extends Error {
+  override readonly name = 'LifecycleTimeoutError'
+
+  constructor(
+    readonly participantId: string,
+    readonly phase: 'start' | 'drain' | 'stop' | 'dispose',
+    readonly startedAt: Instant,
+    readonly deadline: Instant,
+    readonly elapsedMs: number,
+  ) {
+    super(`${participantId} exceeded its ${phase} deadline after ${elapsedMs}ms.`)
+  }
+}
+
+export interface UnsettledLifecyclePhase {
+  readonly participantId: string
+  readonly phase: 'start' | 'stop' | 'dispose'
+}
+
+export class LifecycleCleanupTimeoutError extends Error {
+  override readonly name = 'LifecycleCleanupTimeoutError'
+
+  constructor(
+    readonly deadline: Instant,
+    readonly unsettled: readonly UnsettledLifecyclePhase[],
+  ) {
+    super(
+      `Doxa startup cleanup exceeded its deadline with ${unsettled.length} unsettled lifecycle phase(s).`,
+    )
+  }
 }
 
 export class ConfigurationValidationError extends Error {

@@ -8,7 +8,10 @@ The versioned, serializable, inert manifest contract shared by the Doxa compiler
 Ordinary applications should use `@doxajs/core` instead of importing this package.
 
 Manifest formats fail closed when compiler and runtime compatibility do not match. The package has
-no dependency on application code, runtime construction, or TypeScript compilation.
+no dependency on application code, runtime construction, or TypeScript compilation. Boundary
+validation also rejects duplicate configuration IDs and application permission sources that claim
+the framework-owned `accounts.impersonation.stop` ability, including otherwise hash-consistent
+artifacts produced outside the semantic compiler.
 
 Format 6 adds complete declared model attribute type/nullability and physical projection contracts,
 resolved `column`/`xmin`/`none` concurrency sources, plus independent mapped-table `managed` and

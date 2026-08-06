@@ -18,6 +18,7 @@ export interface TwilioSmsOptions {
 }
 
 const E164 = /^\+[1-9]\d{7,14}$/
+const TRANSIENT_ERROR_CODES = new Set(['30001', '30003', '30008', '30017'])
 
 export class TwilioSmsTransport extends SmsTransport {
   constructor(private readonly options: TwilioSmsOptions) {
@@ -67,12 +68,7 @@ export class TwilioSmsTransport extends SmsTransport {
     if (!response.ok || typeof payload.sid !== 'string') {
       const code =
         typeof payload.code === 'number' ? String(payload.code) : `http_${response.status}`
-      const kind =
-        code === '21610'
-          ? 'opt-out'
-          : response.status === 429 || response.status >= 500
-            ? 'transient'
-            : 'permanent'
+      const kind = twilioFailureKind(code, response.status)
       throw new DeliveryError(`Twilio rejected SMS (${code}).`, kind, code)
     }
     return {
@@ -114,22 +110,38 @@ export function normalizeTwilioStatus(
       'invalid_webhook',
     )
   const code = parameters.ErrorCode
-  const kind =
-    code === '21610'
-      ? 'opt-out'
-      : status === 'failed'
-        ? 'permanent'
-        : status === 'undelivered'
-          ? 'transient'
-          : undefined
+  const classified = twilioCallbackState(status, code)
   return {
     messageId,
     providerMessageId,
     eventId: `${providerMessageId}:${status}`,
-    state: normalizeState(status),
-    ...(kind ? { failureKind: kind } : {}),
+    ...classified,
     ...(code ? { code } : {}),
   }
+}
+
+function twilioFailureKind(code: string, httpStatus: number): DeliveryError['kind'] {
+  if (code === '21610') return 'opt-out'
+  if (code === '30007') return 'suppressed'
+  if (TRANSIENT_ERROR_CODES.has(code) || httpStatus === 429 || httpStatus >= 500) {
+    return 'transient'
+  }
+  return 'permanent'
+}
+
+function twilioCallbackState(
+  status: string,
+  code: string | undefined,
+): Pick<DeliveryUpdate, 'state' | 'failureKind'> {
+  if (code === '21610') return { state: 'failed', failureKind: 'opt-out' }
+  if (code === '30007') return { state: 'suppressed', failureKind: 'suppressed' }
+  if (code && TRANSIENT_ERROR_CODES.has(code)) {
+    return { state: 'undelivered', failureKind: 'transient' }
+  }
+  const state = normalizeState(status)
+  return status === 'failed' || status === 'undelivered'
+    ? { state, failureKind: 'permanent' }
+    : { state }
 }
 
 function normalizeState(value: unknown): DeliveryUpdate['state'] {

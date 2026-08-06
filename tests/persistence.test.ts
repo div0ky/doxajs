@@ -82,6 +82,7 @@ import { CreateCounterNote } from '../examples/persistence-app/dist/counters/act
 import { CreateDomainCounter } from '../examples/persistence-app/dist/counters/actions/create-domain-counter.js'
 import { DeleteCounter } from '../examples/persistence-app/dist/counters/actions/delete-counter.js'
 import { DispatchProcessCounter } from '../examples/persistence-app/dist/counters/actions/dispatch-process-counter.js'
+import { DispatchTimeoutCounter } from '../examples/persistence-app/dist/counters/jobs/timeout-counter.job.js'
 import { DispatchCounterSignal } from '../examples/persistence-app/dist/counters/actions/dispatch-counter-signal.js'
 import { ExerciseCache } from '../examples/persistence-app/dist/counters/actions/exercise-cache.js'
 import { ExerciseReadOnlyLegacyCustomer } from '../examples/persistence-app/dist/counters/actions/exercise-read-only-legacy-customer.js'
@@ -164,7 +165,7 @@ const postgresTestImage = process.env.DOXA_TEST_POSTGRES_IMAGE ?? 'postgres:17-a
 const temporaryDirectories: string[] = []
 const runtimes: DoxaRuntime[] = []
 const hosts: HonoHttpHost[] = []
-let container: StartedPostgreSqlContainer
+let container: StartedPostgreSqlContainer | undefined
 let connectionString: string
 let pool: Pool
 let executionSequence = 0
@@ -193,8 +194,11 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       path.join(persistenceApplication, 'dist/application.js'),
       path.join(persistenceApplication, 'dist/app.config.js'),
     )
-    container = await new PostgreSqlContainer(postgresTestImage).start()
-    connectionString = container.getConnectionUri()
+    connectionString = process.env.DOXA_TEST_DATABASE_URL ?? ''
+    if (!connectionString) {
+      container = await new PostgreSqlContainer(postgresTestImage).start()
+      connectionString = container.getConnectionUri()
+    }
     await installPersistenceSchema(connectionString)
     await installCacheSchema(connectionString)
     await installCommunicationsSchema(connectionString)
@@ -640,6 +644,12 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       return rows.rows.length === 2 && rows.rows.every((row) => row.state === 'accepted')
     })
     const http = new HonoHttpEngine(runtime)
+    await pool.query(
+      `UPDATE doxa_delivery_messages
+       SET state = 'undelivered', failure_kind = 'transient', failure_code = 'deferred'
+       WHERE id = $1`,
+      [queued.mailId],
+    )
 
     const timestamp = String(Math.floor(Date.now() / 1_000))
     const mailBody = JSON.stringify([
@@ -667,6 +677,35 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       }),
     )
     expect(sendGridResponse.status).toBe(204)
+
+    const lateMailBody = JSON.stringify(
+      ['processed', 'deferred', 'open', 'future_event'].map((event, index) => ({
+        event,
+        sg_event_id: `sendgrid-late-${index}`,
+        sg_message_id: 'sendgrid-message-1',
+        doxa_message_id: queued.mailId,
+      })),
+    )
+    const lateMailSignature = sign(
+      'sha256',
+      Buffer.from(timestamp + lateMailBody),
+      sendGridPrivateKey,
+    ).toString('base64')
+    expect(
+      (
+        await http.fetch(
+          new Request('http://doxa.test/webhooks/sendgrid', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              'x-twilio-email-event-webhook-timestamp': timestamp,
+              'x-twilio-email-event-webhook-signature': lateMailSignature,
+            },
+            body: lateMailBody,
+          }),
+        )
+      ).status,
+    ).toBe(204)
 
     const twilioUrl = `http://doxa.test/webhooks/twilio/sms?doxa_message_id=${queued.smsId}`
     const form = { MessageSid: 'SM-delivery-1', MessageStatus: 'delivered' }
@@ -704,21 +743,44 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       }),
     )
     expect(duplicate.status).toBe(204)
-    const rows = await pool.query<{ id: string; state: string; provider_message_id: string }>(
+    const rows = await pool.query<{
+      id: string
+      state: string
+      provider_message_id: string
+      failure_kind: string | null
+      failure_code: string | null
+    }>(
       `
-      SELECT id, state, provider_message_id FROM doxa_delivery_messages
+      SELECT id, state, provider_message_id, failure_kind, failure_code
+      FROM doxa_delivery_messages
       WHERE id = ANY($1::uuid[]) ORDER BY channel
     `,
       [[queued.mailId, queued.smsId]],
     )
     expect(rows.rows).toEqual([
-      { id: queued.mailId, state: 'delivered', provider_message_id: 'sendgrid-message-1' },
-      { id: queued.smsId, state: 'delivered', provider_message_id: 'SM-delivery-1' },
+      {
+        id: queued.mailId,
+        state: 'delivered',
+        provider_message_id: 'sendgrid-message-1',
+        failure_kind: null,
+        failure_code: null,
+      },
+      {
+        id: queued.smsId,
+        state: 'delivered',
+        provider_message_id: 'SM-delivery-1',
+        failure_kind: null,
+        failure_code: null,
+      },
     ])
     expect(
       (await pool.query(`SELECT 1 FROM doxa_delivery_events WHERE event_id = 'sendgrid-event-1'`))
         .rowCount,
     ).toBe(1)
+    expect(
+      (await pool.query(`SELECT 1 FROM doxa_delivery_events WHERE event_id LIKE 'sendgrid-late-%'`))
+        .rowCount,
+    ).toBe(3)
 
     const rejected = await http.fetch(
       new Request('http://doxa.test/webhooks/sendgrid', {
@@ -1395,6 +1457,112 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     )
   })
 
+  it('rolls back transactional writes when pg-boss expires a still-running handler', async () => {
+    const runtime = await bootPersistenceRuntime()
+    const counterId = 'expired-handler-counter'
+    const jobId = await runAction(runtime, DispatchTimeoutCounter, {
+      counterId,
+      holdMilliseconds: 1_500,
+    })
+
+    await waitFor(async () => (await inspectQueueJob(connectionString, jobId))?.state === 'failed')
+    await new Promise((resolve) => setTimeout(resolve, 750))
+
+    expect(await inspectQueueJob(connectionString, jobId)).toEqual(
+      expect.objectContaining({ state: 'failed', retryCount: 0, retryLimit: 0 }),
+    )
+    const writes = await pool.query<{
+      entities: string
+      journal: string
+      outbox: string
+    }>(
+      `SELECT
+         (SELECT count(*) FROM doxa_entity_states WHERE entity_id = $1) AS entities,
+         (SELECT count(*) FROM doxa_journal_entries WHERE entity_id = $1) AS journal,
+         (SELECT count(*) FROM doxa_outbox_messages
+          WHERE message_type = 'counter.changed' AND payload->>'counterId' = $1) AS outbox`,
+      [counterId],
+    )
+    expect(writes.rows[0]).toEqual({ entities: '0', journal: '0', outbox: '0' })
+  })
+
+  it('rolls back when pg-boss expires while detached database work is draining', async () => {
+    const runtime = await bootPersistenceRuntime()
+    const counterId = 'expired-draining-counter'
+    const blocker = await pool.connect()
+    try {
+      await blocker.query('BEGIN')
+      await blocker.query('LOCK TABLE doxa_entity_states IN ACCESS EXCLUSIVE MODE')
+      const jobId = await runAction(runtime, DispatchTimeoutCounter, {
+        counterId,
+        holdMilliseconds: 0,
+        detachWrite: true,
+      })
+
+      await waitFor(
+        async () => (await inspectQueueJob(connectionString, jobId))?.state === 'failed',
+      )
+      await blocker.query('COMMIT')
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      expect(await inspectQueueJob(connectionString, jobId)).toEqual(
+        expect.objectContaining({ state: 'failed', retryCount: 0, retryLimit: 0 }),
+      )
+      const writes = await pool.query<{ count: string }>(
+        'SELECT count(*) FROM doxa_entity_states WHERE entity_id = $1',
+        [counterId],
+      )
+      expect(writes.rows[0]?.count).toBe('0')
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined)
+      blocker.release()
+    }
+  })
+
+  it('cancels a PostgreSQL commit that outlives the pg-boss deadline', async () => {
+    const runtime = await bootPersistenceRuntime()
+    const counterId = 'expired-commit-counter'
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION doxa_test_delay_expired_commit()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        PERFORM pg_sleep(2);
+        RETURN NEW;
+      END
+      $function$;
+      CREATE CONSTRAINT TRIGGER doxa_test_delay_expired_commit
+      AFTER INSERT ON doxa_entity_states
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW
+      WHEN (NEW.entity_id = 'expired-commit-counter')
+      EXECUTE FUNCTION doxa_test_delay_expired_commit();
+    `)
+    try {
+      const jobId = await runAction(runtime, DispatchTimeoutCounter, {
+        counterId,
+        holdMilliseconds: 0,
+      })
+
+      await waitFor(
+        async () => (await inspectQueueJob(connectionString, jobId))?.state === 'failed',
+      )
+      await new Promise((resolve) => setTimeout(resolve, 1_250))
+
+      const writes = await pool.query<{ count: string }>(
+        'SELECT count(*) FROM doxa_entity_states WHERE entity_id = $1',
+        [counterId],
+      )
+      expect(writes.rows[0]?.count).toBe('0')
+    } finally {
+      await pool.query(`
+        DROP TRIGGER IF EXISTS doxa_test_delay_expired_commit ON doxa_entity_states;
+        DROP FUNCTION IF EXISTS doxa_test_delay_expired_commit();
+      `)
+    }
+  })
+
   it('reconciles schedules and fires interval work as a causal system job', async () => {
     await bootPersistenceRuntime()
     const schedules = await pool.query<{
@@ -1768,7 +1936,14 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
   })
 
   it('registers, authenticates, resolves, protects, and revokes first-party browser sessions', async () => {
-    const runtime = await bootPersistenceRuntime()
+    const runtime = await bootPersistenceRuntime({
+      authentication: new PostgresAuth({
+        connectionString,
+        secureCookies: false,
+        trustedOrigins: ['http://doxa.test'],
+        sessionRenewalSeconds: 0,
+      }),
+    })
     const http = new HonoHttpEngine(runtime)
 
     const registered = await http.fetch(
@@ -1975,7 +2150,15 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
 
   it('authorizes, audits, restores, expires, and revalidates native impersonation', async () => {
     const broadcasts = new FakeBroadcastTransport()
-    const runtime = await bootPersistenceRuntime({ broadcasts })
+    const runtime = await bootPersistenceRuntime({
+      broadcasts,
+      authentication: new PostgresAuth({
+        connectionString,
+        secureCookies: false,
+        trustedOrigins: ['http://doxa.test'],
+        sessionRenewalSeconds: 0,
+      }),
+    })
     const http = new HonoHttpEngine(runtime)
     const register = async (identifier: string) => {
       const response = await http.fetch(
@@ -3513,6 +3696,7 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       await runAction(runtime, RenameCounter, { id, label: 'query-group' })
     }
     await runAction(runtime, CreateCounter, { id: 'query-unlabeled', value: 0 })
+    await runAction(runtime, CreateCounter, { id: 'query-unlabeled-2', value: 0 })
     await runAction(runtime, SaveLegacyCustomer, {
       id: 'mapped-zed',
       displayName: 'Zed',
@@ -3624,20 +3808,34 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
       missingFindOrFailError: 'Counter missing-counter was not found.',
       booleanIds: ['query-a', 'query-c'],
       patternIds: ['query-a', 'query-b', 'query-c'],
-      nullLabelIds: ['query-unlabeled'],
+      nullLabelIds: ['query-unlabeled', 'query-unlabeled-2'],
       notInIds: ['query-b', 'query-c'],
       columnComparisonCount: 0,
       implicitPageIds: ['query-c'],
-      nullEqualityIds: ['query-unlabeled'],
+      nullEqualityIds: ['query-unlabeled', 'query-unlabeled-2'],
       nullInequalityIds: ['query-a', 'query-b', 'query-c'],
-      nullMembershipIds: ['query-unlabeled'],
+      nullMembershipIds: ['query-unlabeled', 'query-unlabeled-2'],
       nonNullMembershipIds: ['query-a', 'query-b', 'query-c'],
-      nullOrderedIds: ['query-unlabeled', 'query-a', 'query-b', 'query-c'],
+      nullOrderedIds: ['query-unlabeled', 'query-unlabeled-2', 'query-a', 'query-b', 'query-c'],
+      nullableAscendingCursorPages: [
+        ['query-unlabeled', 'query-unlabeled-2'],
+        ['query-a', 'query-b'],
+        ['query-c'],
+      ],
+      nullableAscendingBeforeIds: ['query-unlabeled', 'query-unlabeled-2'],
+      nullableDescendingCursorPages: [
+        ['query-c', 'query-b'],
+        ['query-a', 'query-unlabeled-2'],
+        ['query-unlabeled'],
+      ],
+      nullableDescendingBeforeIds: ['query-a', 'query-unlabeled-2'],
     })
     expect(observerLog).toEqual([
       expect.objectContaining({ phase: 'retrieved', modelId: 'query-a' }),
       expect.objectContaining({ phase: 'retrieved', modelId: 'query-b' }),
       expect.objectContaining({ phase: 'retrieved', modelId: 'query-c' }),
+      expect.objectContaining({ phase: 'retrieved', modelId: 'query-unlabeled' }),
+      expect.objectContaining({ phase: 'retrieved', modelId: 'query-unlabeled-2' }),
     ])
     expect(await runAction(runtime, IncrementMatchingCounters, 'query-group')).toEqual([
       'query-a',
@@ -5471,6 +5669,7 @@ async function bootPersistenceRuntime(
     readonly observations?: ObservationRecorder
     readonly nodeEnvironment?: 'development' | 'production'
     readonly broadcasts?: FakeBroadcastTransport
+    readonly authentication?: PostgresAuth
   } = {},
 ): Promise<DoxaRuntime> {
   const artifactsDirectory = await temporaryDirectory()
@@ -5489,7 +5688,7 @@ async function bootPersistenceRuntime(
             COMMUNICATIONS_TWILIO_AUTH_TOKEN: twilioAuthToken,
           }),
     },
-    ...(options.telemetry || options.observations || options.broadcasts
+    ...(options.telemetry || options.observations || options.broadcasts || options.authentication
       ? {
           providerOverrides: {
             ...(options.telemetry
@@ -5500,6 +5699,9 @@ async function bootPersistenceRuntime(
               : {}),
             ...(options.broadcasts
               ? { 'provider:infrastructure/broadcasting': options.broadcasts }
+              : {}),
+            ...(options.authentication
+              ? { 'provider:infrastructure/auth': options.authentication }
               : {}),
           },
         }

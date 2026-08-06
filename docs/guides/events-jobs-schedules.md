@@ -56,6 +56,14 @@ Doxa guarantees at-least-once execution. Jobs should be idempotent and may decla
 delay, timeout, and overlap behavior. Actor, tenant, authentication, correlation, causation, and
 trace context cross the durable boundary.
 
+If a job expires, Doxa closes its writable model session and rolls back local entity, journal, and
+outbox writes. A handler that settles late cannot use stale models. Provider calls and other
+external effects remain at least once, so idempotency is still required.
+
+Explicit delegated authority is fixed when dispatch is accepted. Each attempt rechecks current
+application permissions, but later impersonation stop or expiry does not change the actor of already
+accepted work; it only prevents future dispatch with that delegation.
+
 Every Job attempt is already a top-level writable execution. A Job must not dispatch an Action to
 reuse mutation behavior. Extract the behavior into an ordinary service and call it from both the
 Action and Job; each boundary supplies its own transaction. Use a queued Listener only when the

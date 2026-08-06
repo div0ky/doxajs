@@ -102,7 +102,11 @@ The adapter returns the stable `{ ok: false, code, message, data: null, details?
 - Draining or stopped runtime: 503 `service_unavailable`.
 - Unexpected application failures: sanitized 500 `internal_error`.
 
-Unexpected error messages and stack traces do not cross the HTTP boundary.
+Unexpected error messages and stack traces do not cross the HTTP boundary. `HttpError` accepts only
+integer statuses from `400` through `599`; malformed or mutated instances are defensively reduced to
+the same sanitized `500 internal_error` response. Authentication renewal headers are merged without
+replacing route-issued cookies, so logout and impersonation cookies stay authoritative while
+unrelated cookies coexist.
 
 ## Executable evidence
 

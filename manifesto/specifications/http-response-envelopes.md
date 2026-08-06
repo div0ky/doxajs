@@ -65,7 +65,9 @@ canonical success envelope automatically.
   declared or streamed over-limit body receives canonical `413 payload_too_large` without running
   application code.
 - Any non-`Response`, non-`undefined` route result becomes `{ ok: true, data: result }`.
-- Framework and application `HttpError` failures become the canonical failure shape.
+- Framework and application `HttpError` failures with an integer `400` through `599` status become
+  the canonical failure shape. Construction rejects other statuses. The Hono boundary defensively
+  sanitizes a malformed or mutated instance to `500 internal_error`.
 - Unknown routes, authentication, authorization, validation, persistence conflicts, lifecycle
   refusal, and sanitized internal errors use the same failure shape.
 - `undefined` and `Http.noContent()` produce a bodyless `204` response.

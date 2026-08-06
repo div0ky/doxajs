@@ -15,7 +15,8 @@ framework = {
 Enabling capability generates `POST /auth/impersonation` and `DELETE /auth/impersonation`.
 Compilation fails closed unless an application Policy or PermissionSource declares
 `accounts.impersonate`. Doxa's account policy owns only `accounts.impersonation.stop`, so an active
-impersonated session can always restore itself.
+impersonated session can always restore itself. Application permission sources cannot declare that
+framework-owned stop ability; compilation and artifact validation both reject the collision.
 
 Start accepts `{ targetIdentityId, reason }`. It requires a live, recent password session. Reason
 must contain 1-500 trimmed characters. Target must be distinct, present, and eligible under the same

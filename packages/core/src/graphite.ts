@@ -309,7 +309,7 @@ export class Graphite {
       assertFractionPrecision(value, 'Local datetime')
     }
     try {
-      const local = temporal().PlainDateTime.from(value)
+      const local = temporal().PlainDateTime.from(value, { overflow: 'reject' })
       return new Graphite(
         temporal().ZonedDateTime.from(
           {
@@ -435,6 +435,7 @@ export class Graphite {
   }
 
   inTimeZone(timeZone: string): Graphite {
+    assertIanaTimeZone(timeZone)
     try {
       return new Graphite(this.value.withTimeZone(timeZone))
     } catch (error) {

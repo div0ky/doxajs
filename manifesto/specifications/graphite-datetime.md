@@ -14,7 +14,9 @@ anchor.
 
 Strict parsing must reject invalid fields, invalid zones, non-canonical values, offset/zone
 mismatches, DST gaps, and ambiguous local times. Local construction may select `earlier`, `later`,
-or `compatible` disambiguation explicitly; rejection is the default.
+or `compatible` disambiguation explicitly; rejection is the default. Object input never normalizes
+overflowing month, day, or clock fields. Zone conversion accepts `UTC` and named IANA zones; a fixed
+offset is not a named zone and is rejected.
 
 ## Context and clock
 

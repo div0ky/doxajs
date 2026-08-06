@@ -28,6 +28,7 @@ import {
   type ModelEagerLoadConstraints,
   type ModelPage,
   type ModelQueryPlan,
+  type ModelQueryPredicate,
   type ModelQueryValue,
   type ModelRelationPath,
   validateModelQueryPlan,
@@ -1490,12 +1491,16 @@ function hydratedState(storage: ModelStorage, value: JsonValue): JsonValue {
 
 function encodeCursor(model: Model, orders: ModelQueryPlan['orders']): string {
   const Constructor = model.constructor as typeof Model
+  const internals = model[MODEL_INTERNALS]()
+  const attributes = (internals.exists ? internals.original : internals.attributes) as Readonly<
+    Record<string, unknown>
+  >
   return Buffer.from(
     JSON.stringify({
       version: 2,
       model: Constructor.id,
       ordering: orders.map((order) => [order.attribute, order.direction]),
-      values: encodeDateTimeValues(orders.map((order) => attribute(model, order.attribute))),
+      values: encodeDateTimeValues(orders.map((order) => attributes[order.attribute] ?? null)),
     }),
   ).toString('base64url')
 }
@@ -1556,16 +1561,16 @@ function addCursorConstraint(
   const alternatives = orders.map((order, index) => {
     const equals = orders.slice(0, index).map((previous, previousIndex) => ({
       boolean: 'and' as const,
-      predicate: {
-        kind: 'comparison' as const,
-        attribute: previous.attribute,
-        operator: '=' as const,
-        value: values[previousIndex]!,
-      },
+      predicate:
+        values[previousIndex] === null
+          ? ({ kind: 'null', attribute: previous.attribute, negate: false } as const)
+          : ({
+              kind: 'comparison',
+              attribute: previous.attribute,
+              operator: '=',
+              value: values[previousIndex]!,
+            } as const),
     }))
-    const forward = order.direction === 'asc' ? '>' : '<'
-    const operator: import('./model-query.js').ModelQueryOperator =
-      position === 'after' ? forward : forward === '>' ? '<' : '>'
     return {
       boolean: index === 0 ? ('and' as const) : ('or' as const),
       predicate: {
@@ -1574,12 +1579,7 @@ function addCursorConstraint(
           ...equals,
           {
             boolean: 'and' as const,
-            predicate: {
-              kind: 'comparison' as const,
-              attribute: order.attribute,
-              operator,
-              value: values[index]!,
-            },
+            predicate: cursorPositionPredicate(order, values[index]!, position),
           },
         ],
       },
@@ -1592,4 +1592,41 @@ function addCursorConstraint(
       { boolean: 'and', predicate: { kind: 'group', predicates: alternatives } },
     ],
   }
+}
+
+function cursorPositionPredicate(
+  order: ModelQueryPlan['orders'][number],
+  value: ModelQueryValue,
+  position: 'after' | 'before',
+): ModelQueryPredicate {
+  if (value === null) {
+    const matchesNonNull =
+      (order.direction === 'asc' && position === 'after') ||
+      (order.direction === 'desc' && position === 'before')
+    return matchesNonNull
+      ? { kind: 'null', attribute: order.attribute, negate: true }
+      : { kind: 'membership', attribute: order.attribute, values: [], negate: false }
+  }
+  const forward = order.direction === 'asc' ? '>' : '<'
+  const comparison: ModelQueryPredicate = {
+    kind: 'comparison',
+    attribute: order.attribute,
+    operator: position === 'after' ? forward : forward === '>' ? '<' : '>',
+    value,
+  }
+  const includesNull =
+    (order.direction === 'asc' && position === 'before') ||
+    (order.direction === 'desc' && position === 'after')
+  return includesNull
+    ? {
+        kind: 'group',
+        predicates: [
+          { boolean: 'and', predicate: comparison },
+          {
+            boolean: 'or',
+            predicate: { kind: 'null', attribute: order.attribute, negate: false },
+          },
+        ],
+      }
+    : comparison
 }

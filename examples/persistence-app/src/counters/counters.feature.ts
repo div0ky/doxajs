@@ -36,6 +36,7 @@ import { DeleteCounterRoute } from './http/delete-counter.route.js'
 import { IncrementCounterRoute } from './http/increment-counter.route.js'
 import { SecureIncrementCounterRoute } from './http/secure-increment-counter.route.js'
 import { ProcessCounterJob } from './jobs/process-counter.job.js'
+import { DispatchTimeoutCounter, TimeoutCounterJob } from './jobs/timeout-counter.job.js'
 import { RecordCounterNotification } from './listeners/record-counter-notification.js'
 import { RecordCounterIncremented } from './listeners/record-counter-incremented.js'
 import { RecordCounterCreated } from './listeners/record-counter-created.js'
@@ -86,6 +87,7 @@ export class CountersFeature extends Feature {
     CaptureCounter,
     RenameCounter,
     DispatchProcessCounter,
+    DispatchTimeoutCounter,
     DispatchCounterSignal,
     ExerciseCache,
     ExerciseReadOnlyLegacyCustomer,
@@ -121,7 +123,7 @@ export class CountersFeature extends Feature {
     RecordCounterSaved,
     RecordCounterNotification,
   ]
-  jobs = [ProcessCounterJob]
+  jobs = [ProcessCounterJob, TimeoutCounterJob]
   schedules = [ProcessCountersSchedule]
   policies = [CounterPolicy]
   signals = [CounterTouched]

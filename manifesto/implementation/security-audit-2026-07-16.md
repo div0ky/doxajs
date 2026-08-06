@@ -32,19 +32,6 @@ Ordinary redaction or hashing cannot work because the provider eventually needs 
 message. No local implementation change is made until that public durability and key-management
 decision is accepted.
 
-### High — queued work resumes serialized user authority
-
-The accepted actor specification says a worker or named system capability is the current actor, the
-original user is the initiator, and any delegated user authority is explicitly granted and
-re-evaluated. The implementation instead serializes the producer's actor and authentication fields
-and restores them as the worker execution's current authority. Long-delayed or retried work can
-therefore run with an authority snapshot that the accepted contract declares insufficient.
-
-This audit added strict version-1 context validation before job admission, which prevents malformed
-or credential-shaped queue metadata from reaching application code. It does not resolve the
-well-formed but stale-authority model. The actor decision, queue proof, runtime, policy
-expectations, and migration behavior must be reconciled together before release.
-
 ## Open hardening risk
 
 ### Medium — generated auth routes do not provide a trustworthy client-IP bucket
@@ -61,6 +48,10 @@ bypass.
 - **Queue admission:** Added a required context version and strict validation of actors, delegation,
   tenant, authentication metadata, constraints, dates, locale, trace identifiers, and bounded span
   links before tracing or application execution.
+- **Queued delegated authority (resolved 2026-08-06):** The accepted actor and queue contracts now
+  make dispatch-time authority snapshots explicit. Each attempt re-evaluates current application
+  permissions, while stop or expiry blocks future dispatch without rewriting already-accepted work.
+  The existing runtime and durable-context regression match that contract.
 - **HTTP denial of service:** Added byte-counted request-body admission with a 1 MiB default,
   configurable maximum, and canonical `400`/`413` failures for malformed lengths and over-limit
   streams.
@@ -84,6 +75,6 @@ bypass.
   builds, 183 coverage tests, architecture boundaries, documentation links, Changesets status,
   package archives, and the production dependency security audit.
 
-The two release blockers remain intentionally visible. Passing automated verification confirms the
-implemented hardening and documentation consistency; it does not convert those architectural
-findings into an acceptable security posture.
+The remaining critical release blocker stays intentionally visible. Passing automated verification
+confirms the implemented hardening and documentation consistency; it does not convert those
+architectural findings into an acceptable security posture.
