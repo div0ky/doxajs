@@ -55,13 +55,13 @@ applications and tools do not depend on undocumented behavior.
 
 ## Reactive and asynchronous model
 
-| Capability                 | State    | Acceptance evidence                                                                                                        |
-| -------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Class events and listeners | Complete | Local, after-commit, queued, and queued-after-commit semantics and fakes are proven.                                       |
-| Signals                    | Complete | Immediate non-durable semantics, failure behavior, diagnostics, and test API are proven.                                   |
-| Model observers            | Complete | Persistence and committed phases, rollback behavior, diagnostics, and memory conformance are proven.                       |
-| Jobs and workers           | Complete | Durability, delay, retry, backoff, timeout, idempotency, failure, recovery, causation, and drain are proven.               |
-| Scheduling                 | Complete | Cron/interval reconciliation, overlap, misfire, enable/disable, manual fire, system causation, and test firing are proven. |
+| Capability                 | State    | Acceptance evidence                                                                                                                               |
+| -------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Class events and listeners | Complete | Local, after-commit, queued, and queued-after-commit semantics and fakes are proven.                                                              |
+| Signals                    | Complete | Immediate non-durable semantics, failure behavior, diagnostics, and test API are proven.                                                          |
+| Model observers            | Complete | Persistence and committed phases, rollback behavior, diagnostics, and memory conformance are proven.                                              |
+| Jobs and workers           | Complete | Durability, delay, retry, backoff, timeout rollback, stale late-handler refusal, idempotency, failure, recovery, causation, and drain are proven. |
+| Scheduling                 | Complete | Cron/interval reconciliation, overlap, misfire, enable/disable, manual fire, system causation, and test firing are proven.                        |
 
 ## Security
 
@@ -78,13 +78,13 @@ applications and tools do not depend on undocumented behavior.
 
 ## Communications and infrastructure
 
-| Capability         | State    | Acceptance evidence                                                                                                                                                              |
-| ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Doxa mail contract | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                           |
-| SendGrid adapter   | Complete | Request translation, failure classes, signed timestamp-bounded webhooks, deduplication, and conformance fixtures are proven.                                                     |
-| Doxa SMS contract  | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                           |
-| Twilio adapter     | Complete | Messaging Service and explicit E.164 sender translation, precedence, permanent sender validation, signed callbacks, opt-out classification, and conformance fixtures are proven. |
-| Cache              | Complete | Doxa port, memory/PostgreSQL adapters, TTL, atomic operations, injection, inspection, forget, and prune are proven.                                                              |
+| Capability         | State    | Acceptance evidence                                                                                                                                                                                                 |
+| ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Doxa mail contract | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                                                              |
+| SendGrid adapter   | Complete | Request translation, failure classes, signed timestamp-bounded webhooks, monotonic delivery reconciliation, engagement mapping, deduplication, and conformance fixtures are proven.                                 |
+| Doxa SMS contract  | Complete | Transactional outbox delivery, normalized state, fakes, telemetry, inspection, and redrive are proven.                                                                                                              |
+| Twilio adapter     | Complete | Messaging Service and explicit E.164 sender translation, precedence, sender validation, signed callbacks, conservative opt-out/suppression/transient/permanent classification, and conformance fixtures are proven. |
+| Cache              | Complete | Doxa port, memory/PostgreSQL adapters, TTL, atomic operations, injection, inspection, forget, and prune are proven.                                                                                                 |
 
 ## Observability and operability
 
@@ -108,7 +108,7 @@ applications and tools do not depend on undocumented behavior.
 | Database commands           | Complete | Forward migration, status, batching, checksums, advisory lock, and drift refusal are proven; destructive rollback is intentionally excluded.                                                                                                                      |
 | Runtime commands            | Complete | `serve`, default combined `work`, advanced isolated `work --without-scheduler`/`schedule`, combined dev, and fail-safe fresh-runtime hot reload are proven.                                                                                                       |
 | Inspection commands         | Complete | Graph, routes, reactive roles, permission sources, policies, commands, queues, deliveries, infrastructure, auth, and schedules are proven.                                                                                                                        |
-| Testing package and fakes   | Complete | HTTP/auth/persistence/queue/comms/cache/telemetry plus direct event, signal, job, and schedule APIs are proven against real manifests.                                                                                                                            |
+| Testing package and fakes   | Complete | HTTP/auth/write-set persistence/Doxa datetime cloning/queue/comms/atomic cache/telemetry plus direct event, signal, job, and schedule APIs are proven against real manifests.                                                                                     |
 | Gnosis integration          | Complete | Shared typed introspection, comprehensive packaged handbook, automatic programming-model instructions, component and consistency explanations, architecture diagnostics, bounded read-only MCP tools/resources, stdio launch, and generated knowledge are proven. |
 | Compatibility and upgrades  | Complete | Release metadata aligns the framework package and toolchain matrix; safe planning, built-in recipes, installation handoff, build, migration-status, and optional test validation are proven.                                                                      |
 

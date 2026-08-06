@@ -32,7 +32,8 @@ import {
   TransactionManager,
   UnitOfWork,
 } from '@doxajs/core'
-import { and, DrizzleQueryError, eq, sql, type SQL } from 'drizzle-orm'
+import { allowedDeliveryPreviousStates } from '@doxajs/core/runtime'
+import { and, DrizzleQueryError, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
 import { DatabaseError, Pool, types as postgresTypes, type PoolClient } from 'pg'
 
@@ -706,11 +707,16 @@ class PostgresUnitOfWork extends UnitOfWork {
         ...(transition.providerMessageId
           ? { providerMessageId: transition.providerMessageId }
           : {}),
-        ...(transition.failureKind ? { failureKind: transition.failureKind } : {}),
-        ...(transition.code ? { failureCode: transition.code } : {}),
+        failureKind: transition.failureKind ?? null,
+        failureCode: transition.code ?? null,
         updatedAt: new Date(),
       })
-      .where(eq(deliveryMessages.id, transition.messageId))
+      .where(
+        and(
+          eq(deliveryMessages.id, transition.messageId),
+          inArray(deliveryMessages.state, allowedDeliveryPreviousStates(transition.state)),
+        ),
+      )
   }
 
   afterCommit(callback: () => void | Promise<void>): void {

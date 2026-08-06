@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 
 import {
   Auth,
@@ -17,6 +18,8 @@ import {
   type ActionClass,
   type DoxaApplication,
   type DeliveryTransition,
+  type DeliveryFailureKind,
+  type DeliveryState,
   Duration,
   type ExecutionContext,
   Event,
@@ -40,6 +43,7 @@ import {
   type ModelQueryPlan,
   type ModelQueryValue,
   type OutboxMessage,
+  OptimisticConcurrencyError,
   type PersistedEntity,
   type PolicyDecision,
   type QueryClass,
@@ -59,6 +63,11 @@ import {
   TransactionManager,
   UnitOfWork,
 } from '@doxajs/core'
+import {
+  canApplyDeliveryTransition,
+  decodeDateTimeValues,
+  encodeDateTimeValues,
+} from '@doxajs/core/runtime'
 import { HonoHttpEngine } from '@doxajs/http-hono'
 import {
   Doxa,
@@ -727,7 +736,15 @@ interface MemoryState {
   readonly entities: Map<string, PersistedEntity>
   readonly journal: JournalFact[]
   readonly outbox: OutboxMessage[]
-  readonly deliveries: Map<string, StagedDelivery & { state: string }>
+  readonly deliveries: Map<string, MemoryDeliveryState>
+}
+
+interface MemoryDeliveryState extends StagedDelivery {
+  readonly state: DeliveryState
+  readonly providerMessageId?: string
+  readonly eventId?: string
+  readonly failureKind?: DeliveryFailureKind
+  readonly code?: string
 }
 
 export class MemoryTransactionManager extends TransactionManager {
@@ -751,13 +768,12 @@ export class MemoryTransactionManager extends TransactionManager {
     work: (unitOfWork: UnitOfWork) => Promise<Output>,
   ): Promise<Output> {
     const draft = cloneState(this.state)
-    const outboxStart = draft.outbox.length
     const unit = new MemoryUnitOfWork(draft)
     const output = await work(unit)
-    replaceState(this.state, draft)
+    const committedOutbox = unit.applyTo(this.state)
     await unit.commit()
     if (this.queue) {
-      for (const message of draft.outbox.slice(outboxStart)) {
+      for (const message of committedOutbox) {
         if (message.type === 'doxa.queue')
           await this.queue.enqueue(message.payload as unknown as QueueEnvelope)
       }
@@ -768,6 +784,14 @@ export class MemoryTransactionManager extends TransactionManager {
 
 class MemoryUnitOfWork extends UnitOfWork {
   readonly #afterCommit: Array<() => void | Promise<void>> = []
+  readonly #entityBaselines = new Map<
+    string,
+    { readonly type: string; readonly id: string; readonly version: number | undefined }
+  >()
+  readonly #journalWrites: JournalFact[] = []
+  readonly #outboxWrites: OutboxMessage[] = []
+  readonly #deliveryWrites = new Set<string>()
+  readonly #deliveryBaselines = new Map<string, MemoryDeliveryState | undefined>()
   constructor(private readonly state: MemoryState) {
     super()
   }
@@ -846,7 +870,8 @@ class MemoryUnitOfWork extends UnitOfWork {
     const key = `${entity.type}/${entity.id}`
     const current = this.state.entities.get(key)
     if (current?.version !== entity.expectedVersion)
-      throw new Error(`Optimistic concurrency conflict for ${key}.`)
+      throw new OptimisticConcurrencyError(entity.type, entity.id, entity.expectedVersion)
+    this.trackEntity(key, entity.type, entity.id, current?.version)
     const version = (current?.version ?? 0) + 1
     const state: Record<string, JsonValue> =
       current && entity.storage?.kind === 'table'
@@ -854,7 +879,7 @@ class MemoryUnitOfWork extends UnitOfWork {
             ...(current.state as Record<string, JsonValue>),
             ...(entity.patch ?? {}),
           }
-        : (structuredClone(entity.state) as Record<string, JsonValue>)
+        : (cloneDoxaValue(entity.state) as Record<string, JsonValue>)
     for (const attribute of entity.removedAttributes ?? []) delete state[attribute]
     this.state.entities.set(key, {
       type: entity.type,
@@ -874,31 +899,87 @@ class MemoryUnitOfWork extends UnitOfWork {
       throw new Error(`Mapped model ${type} is read-only.`)
     }
     const key = `${type}/${id}`
-    if (this.state.entities.get(key)?.version !== expectedVersion)
-      throw new Error(`Optimistic concurrency conflict for ${key}.`)
+    const current = this.state.entities.get(key)
+    if (current?.version !== expectedVersion)
+      throw new OptimisticConcurrencyError(type, id, expectedVersion)
+    this.trackEntity(key, type, id, current.version)
     this.state.entities.delete(key)
   }
   async record<Payload extends JsonValue>(fact: JournalFact<Payload>): Promise<string> {
-    this.state.journal.push(structuredClone(fact))
+    const cloned = cloneJournalFact(fact)
+    this.state.journal.push(cloned)
+    this.#journalWrites.push(cloned)
     return randomUUID()
   }
   async enqueue<Payload extends JsonValue>(message: OutboxMessage<Payload>): Promise<string> {
-    this.state.outbox.push(structuredClone(message))
+    const cloned = cloneOutboxMessage(message)
+    this.state.outbox.push(cloned)
+    this.#outboxWrites.push(cloned)
     return randomUUID()
   }
   async stageDelivery(delivery: StagedDelivery): Promise<void> {
-    this.state.deliveries.set(delivery.id, { ...structuredClone(delivery), state: 'pending' })
+    this.trackDelivery(delivery.id, this.state.deliveries.get(delivery.id))
+    this.state.deliveries.set(delivery.id, { ...cloneDelivery(delivery), state: 'pending' })
+    this.#deliveryWrites.add(delivery.id)
   }
   async transitionDelivery(transition: DeliveryTransition): Promise<void> {
     const value = this.state.deliveries.get(transition.messageId)
-    if (value)
-      this.state.deliveries.set(transition.messageId, { ...value, state: transition.state })
+    if (value && canApplyDeliveryTransition(value.state, transition.state)) {
+      this.trackDelivery(transition.messageId, value)
+      const { failureKind: _failureKind, code: _code, ...retained } = value
+      this.state.deliveries.set(transition.messageId, {
+        ...retained,
+        state: transition.state,
+        ...(transition.providerMessageId !== undefined
+          ? { providerMessageId: transition.providerMessageId }
+          : {}),
+        ...(transition.eventId !== undefined ? { eventId: transition.eventId } : {}),
+        ...(transition.failureKind !== undefined ? { failureKind: transition.failureKind } : {}),
+        ...(transition.code !== undefined ? { code: transition.code } : {}),
+      })
+      this.#deliveryWrites.add(transition.messageId)
+    }
   }
   afterCommit(callback: () => void | Promise<void>): void {
     this.#afterCommit.push(callback)
   }
   async commit(): Promise<void> {
     for (const callback of this.#afterCommit) await callback()
+  }
+
+  applyTo(target: MemoryState): readonly OutboxMessage[] {
+    for (const [key, baseline] of this.#entityBaselines) {
+      if (target.entities.get(key)?.version !== baseline.version) {
+        throw new OptimisticConcurrencyError(baseline.type, baseline.id, baseline.version)
+      }
+    }
+    for (const [id, baseline] of this.#deliveryBaselines) {
+      if (!sameDeliveryState(target.deliveries.get(id), baseline)) {
+        throw new OptimisticConcurrencyError('delivery', id, undefined)
+      }
+    }
+    for (const key of this.#entityBaselines.keys()) {
+      const entity = this.state.entities.get(key)
+      if (entity) target.entities.set(key, clonePersistedEntity(entity))
+      else target.entities.delete(key)
+    }
+    target.journal.push(...this.#journalWrites.map(cloneJournalFact))
+    target.outbox.push(...this.#outboxWrites.map(cloneOutboxMessage))
+    for (const id of this.#deliveryWrites) {
+      const delivery = this.state.deliveries.get(id)
+      if (delivery) target.deliveries.set(id, cloneDeliveryState(delivery))
+    }
+    return this.#outboxWrites.map(cloneOutboxMessage)
+  }
+
+  private trackEntity(key: string, type: string, id: string, version: number | undefined): void {
+    if (!this.#entityBaselines.has(key)) this.#entityBaselines.set(key, { type, id, version })
+  }
+
+  private trackDelivery(id: string, delivery: MemoryDeliveryState | undefined): void {
+    if (!this.#deliveryBaselines.has(id)) {
+      this.#deliveryBaselines.set(id, delivery ? cloneDeliveryState(delivery) : undefined)
+    }
   }
 }
 
@@ -913,26 +994,75 @@ function projectMemoryEntity(
     state: Object.fromEntries(
       Object.keys(storage.columns)
         .filter((attribute) => Object.hasOwn(state, attribute))
-        .map((attribute) => [attribute, structuredClone(state[attribute]!)]),
+        .map((attribute) => [attribute, cloneDoxaValue(state[attribute]!)]),
     ) as Record<string, JsonValue>,
   }
 }
 
 function cloneState(state: MemoryState): MemoryState {
   return {
-    entities: new Map(structuredClone([...state.entities])),
-    journal: structuredClone(state.journal),
-    outbox: structuredClone(state.outbox),
-    deliveries: new Map(structuredClone([...state.deliveries])),
+    entities: new Map(
+      [...state.entities].map(([key, entity]) => [key, clonePersistedEntity(entity)]),
+    ),
+    journal: state.journal.map(cloneJournalFact),
+    outbox: state.outbox.map(cloneOutboxMessage),
+    deliveries: new Map(
+      [...state.deliveries].map(([key, delivery]) => [key, cloneDeliveryState(delivery)]),
+    ),
   }
 }
-function replaceState(target: MemoryState, source: MemoryState): void {
-  target.entities.clear()
-  for (const [key, value] of source.entities) target.entities.set(key, value)
-  target.journal.splice(0, target.journal.length, ...source.journal)
-  target.outbox.splice(0, target.outbox.length, ...source.outbox)
-  target.deliveries.clear()
-  for (const [key, value] of source.deliveries) target.deliveries.set(key, value)
+
+function cloneDoxaValue<Value>(value: Value): Value {
+  return decodeDateTimeValues(encodeDateTimeValues(value)) as Value
+}
+
+function clonePersistedEntity(entity: PersistedEntity): PersistedEntity {
+  return { ...entity, state: cloneDoxaValue(entity.state) }
+}
+
+function cloneJournalFact<Payload extends JsonValue>(
+  fact: JournalFact<Payload>,
+): JournalFact<Payload> {
+  return { ...fact, payload: cloneDoxaValue(fact.payload) }
+}
+
+function cloneOutboxMessage<Payload extends JsonValue>(
+  message: OutboxMessage<Payload>,
+): OutboxMessage<Payload> {
+  return {
+    ...message,
+    payload: cloneDoxaValue(message.payload),
+    ...(message.availableAt ? { availableAt: cloneDoxaValue(message.availableAt) } : {}),
+  }
+}
+
+function cloneDelivery(delivery: StagedDelivery): StagedDelivery {
+  return {
+    ...delivery,
+    recipients: [...delivery.recipients],
+    payload: cloneDoxaValue(delivery.payload),
+  }
+}
+
+function cloneDeliveryState(delivery: MemoryDeliveryState): MemoryDeliveryState {
+  return {
+    ...cloneDelivery(delivery),
+    state: delivery.state,
+    ...(delivery.providerMessageId !== undefined
+      ? { providerMessageId: delivery.providerMessageId }
+      : {}),
+    ...(delivery.eventId !== undefined ? { eventId: delivery.eventId } : {}),
+    ...(delivery.failureKind !== undefined ? { failureKind: delivery.failureKind } : {}),
+    ...(delivery.code !== undefined ? { code: delivery.code } : {}),
+  }
+}
+
+function sameDeliveryState(
+  left: MemoryDeliveryState | undefined,
+  right: MemoryDeliveryState | undefined,
+): boolean {
+  if (!left || !right) return left === right
+  return isDeepStrictEqual(encodeDateTimeValues(left), encodeDateTimeValues(right))
 }
 
 function authenticationFor(actor: ActorRef): AuthenticationContext {

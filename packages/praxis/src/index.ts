@@ -982,10 +982,7 @@ async function operateSchedule(
     command === 'schedule:status'
       ? undefined
       : required(args[0], `${command} requires a schedule ID.`)
-  const schedule = requested
-    ? schedules.find((entry) => entry.id === requested || entry.id.endsWith(`/${requested}`))
-    : undefined
-  if (requested && !schedule) throw new PraxisCommandError(`Schedule ${requested} is not declared.`)
+  const schedule = requested ? resolveSchedule(schedules, requested) : undefined
   await withDatabase(cwd, requested ? args.slice(1) : args, async (pool) => {
     for (const entry of schedules)
       await pool.query(
@@ -1054,6 +1051,24 @@ async function operateSchedule(
     )
     io.out(`Fired schedule ${schedule!.id} as queue job ${envelopeId}.`)
   })
+}
+
+function resolveSchedule<Schedule extends { readonly id: string }>(
+  schedules: readonly Schedule[],
+  requested: string,
+): Schedule {
+  const exact = schedules.find((entry) => entry.id === requested)
+  if (exact) return exact
+  const matches = schedules
+    .filter((entry) => entry.id.endsWith(`/${requested}`))
+    .sort((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+  if (matches.length === 0) throw new PraxisCommandError(`Schedule ${requested} is not declared.`)
+  if (matches.length > 1) {
+    throw new PraxisCommandError(
+      `Schedule ${requested} is ambiguous. Use a full schedule ID: ${matches.map((entry) => entry.id).join(', ')}.`,
+    )
+  }
+  return matches[0]!
 }
 
 async function dotenvValue(cwd: string, key: string): Promise<string | undefined> {

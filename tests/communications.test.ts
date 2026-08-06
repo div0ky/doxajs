@@ -94,6 +94,39 @@ describe('communications adapters', () => {
     ])
   })
 
+  it('keeps SendGrid engagement delivered and ignores unknown state events', () => {
+    const event = (name: string, id: string) => ({
+      event: name,
+      sg_event_id: id,
+      sg_message_id: 'provider-engagement',
+      doxa_message_id: 'mail-engagement',
+    })
+
+    expect(
+      normalizeSendGridEvents(
+        JSON.stringify([
+          event('open', 'open-1'),
+          event('click', 'click-1'),
+          event('group_resubscribe', 'resubscribe-1'),
+          event('future_event', 'future-1'),
+        ]),
+      ),
+    ).toEqual([
+      {
+        messageId: 'mail-engagement',
+        eventId: 'open-1',
+        providerMessageId: 'provider-engagement',
+        state: 'delivered',
+      },
+      {
+        messageId: 'mail-engagement',
+        eventId: 'click-1',
+        providerMessageId: 'provider-engagement',
+        state: 'delivered',
+      },
+    ])
+  })
+
   it('uses Twilio Messaging Services without sending From', async () => {
     const request = vi
       .fn<typeof fetch>()
@@ -224,5 +257,54 @@ describe('communications adapters', () => {
     await expect(
       transport.send({ id: 'sms-3', to: '+13125551212', text: 'Hello' }),
     ).rejects.toMatchObject({ kind: 'opt-out', code: '21610' })
+  })
+
+  it('classifies Twilio terminal callbacks by documented error code', () => {
+    const update = (status: 'failed' | 'undelivered', code: string) =>
+      normalizeTwilioStatus({
+        DoxaMessageId: `sms-${code}`,
+        MessageSid: `SM${code}`,
+        MessageStatus: status,
+        ErrorCode: code,
+      })
+
+    expect(update('undelivered', '30007')).toMatchObject({
+      state: 'suppressed',
+      failureKind: 'suppressed',
+    })
+    for (const code of ['30001', '30003', '30008', '30017']) {
+      expect(update('failed', code)).toMatchObject({
+        state: 'undelivered',
+        failureKind: 'transient',
+      })
+    }
+    expect(update('undelivered', '30006')).toMatchObject({
+      state: 'undelivered',
+      failureKind: 'permanent',
+    })
+    expect(update('failed', '39999')).toMatchObject({
+      state: 'failed',
+      failureKind: 'permanent',
+    })
+  })
+
+  it('uses the same Twilio code classifier for synchronous rejections', async () => {
+    for (const [code, kind] of [
+      [30001, 'transient'],
+      [30007, 'suppressed'],
+      [30006, 'permanent'],
+    ] as const) {
+      const transport = new TwilioSmsTransport({
+        accountSid: 'AC123',
+        authToken: 'secret',
+        messagingServiceSid: 'MG123',
+        statusCallback: 'https://example.test/status',
+        fetch: vi.fn<typeof fetch>().mockResolvedValue(Response.json({ code }, { status: 400 })),
+      })
+      await expect(transport.send(messageWithoutSender)).rejects.toMatchObject({
+        kind,
+        code: String(code),
+      })
+    }
   })
 })

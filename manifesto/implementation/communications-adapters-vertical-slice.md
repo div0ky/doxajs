@@ -10,15 +10,18 @@ objects.
 The SendGrid adapter uses `POST /v3/mail/send`, isolates recipients into separate personalizations,
 correlates `doxa_message_id` through custom arguments, treats `202` as accepted rather than
 delivered, classifies HTTP retry behavior, verifies ECDSA P-256 signed event webhooks, requires
-batched arrays and stable event IDs, and normalizes delivery, bounce, deferral, suppression, spam,
-and unsubscribe outcomes.
+batched arrays and stable event IDs, maps `open` and `click` engagement to delivered, ignores
+unknown and resubscribe-only events, and normalizes bounce, deferral, suppression, spam, and
+unsubscribe outcomes.
 
 The Twilio SMS adapter uses either a configured Messaging Service or an explicit per-message E.164
 sender, E.164 destinations, Basic authentication, status callbacks, and normalized
 acceptance/delivery outcomes. Explicit senders take precedence, the adapter never sends both `From`
 and `MessagingServiceSid`, and missing or invalid senders fail permanently before an HTTP request.
-It validates `X-Twilio-Signature` using the canonical URL-plus-sorted-parameters HMAC, and treats
-error `21610` as a non-retryable opt-out.
+It validates `X-Twilio-Signature` using the canonical URL-plus-sorted-parameters HMAC. Error `21610`
+is opt-out, `30007` is suppression, `30001`, `30003`, `30008`, and `30017` are transient, and other
+failed or undelivered provider codes are permanent. Network failures, HTTP `429`, and HTTP `5xx`
+remain transient.
 
 First-party fakes capture Doxa messages and return provider-independent acceptances. Adapter tests
 use injected fetch implementations and generated signatures; they never contact providers.
@@ -39,12 +42,18 @@ against the untouched body and bounded to a five-minute timestamp window. Twilio
 the exact callback URL and sorted form fields. Both normalize into a transactional `DeliveryLedger`
 action. Provider event IDs are unique and duplicate callbacks are harmless.
 
+The PostgreSQL and memory ledgers share one monotonic transition rule. Delivered, failed, cancelled,
+and suppressed outcomes cannot regress, except that any state may become suppressed; transient
+undelivered outcomes may recover to delivered. Unique known provider events remain recorded when
+their transition is ignored, and successful transitions clear stale failure metadata.
+
 Praxis provides `delivery:list` and `delivery:retry`. Redrive is limited to failed or undelivered
 messages, rebuilds a version-1 queue envelope with the original actor, authentication, correlation,
-and trace context, and atomically resets delivery state with its outbox handoff. Preserving that
-authority conflicts with the accepted worker model and is tracked by the
-[2026-07-16 framework security audit](security-audit-2026-07-16.md). Configuration is read from an
-explicit option, the environment, or the repository `.env` file.
+and trace context, and atomically resets delivery state with its outbox handoff. That explicit
+delegated authority remains the dispatch-time snapshot already accepted for the durable delivery;
+each attempt rechecks current application permissions without revalidating the originating browser
+activation. Configuration is read from an explicit option, the environment, or the repository `.env`
+file.
 
 The required communications behavior is proven. Queue and channel telemetry is emitted through the
 Doxa telemetry port. Retention policy and live provider sandbox checks are release gates rather than

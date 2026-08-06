@@ -31,7 +31,10 @@ operations require a fresh password-authenticated session through the default-de
 Active browser sessions rotate their 256-bit opaque token after the renewal interval. The database
 atomically moves the former digest into a bounded previous-token slot and returns the replacement
 cookie through Doxa's authentication result. Concurrent in-flight requests may use the former digest
-during grace; it is rejected afterward. Raw current and previous tokens are never stored.
+during grace; it is rejected afterward. Raw current and previous tokens are never stored. When a
+route deliberately issues the same cookie, including impersonation start, impersonation stop, or
+logout, that route cookie wins over pre-route automatic renewal. Unrelated renewal and route cookies
+are preserved together.
 
 Praxis lists identities, sessions, and bearer tokens without hashes or raw material, revokes
 sessions/tokens with audit records, and prunes expired challenges, rate buckets, and old sessions.

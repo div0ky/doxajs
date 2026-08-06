@@ -73,7 +73,7 @@ export function normalizeSendGridEvents(rawBody: string): readonly DeliveryUpdat
       'permanent',
       'invalid_webhook',
     )
-  return parsed.map((value) => {
+  return parsed.flatMap((value): readonly DeliveryUpdate[] => {
     if (
       !record(value) ||
       typeof value.event !== 'string' ||
@@ -87,14 +87,17 @@ export function normalizeSendGridEvents(rawBody: string): readonly DeliveryUpdat
       )
     }
     const mapped = sendGridState(value.event)
-    return {
-      messageId: value.doxa_message_id,
-      eventId: value.sg_event_id,
-      ...(typeof value.sg_message_id === 'string'
-        ? { providerMessageId: value.sg_message_id }
-        : {}),
-      ...mapped,
-    }
+    if (!mapped) return []
+    return [
+      {
+        messageId: value.doxa_message_id,
+        eventId: value.sg_event_id,
+        ...(typeof value.sg_message_id === 'string'
+          ? { providerMessageId: value.sg_message_id }
+          : {}),
+        ...mapped,
+      } satisfies DeliveryUpdate,
+    ]
   })
 }
 
@@ -144,15 +147,24 @@ function validate(message: MailMessage): void {
     )
 }
 
-function sendGridState(event: string): Pick<DeliveryUpdate, 'state' | 'failureKind' | 'code'> {
+function sendGridState(
+  event: string,
+): Pick<DeliveryUpdate, 'state' | 'failureKind' | 'code'> | undefined {
   if (event === 'processed') return { state: 'accepted' }
-  if (event === 'delivered') return { state: 'delivered' }
+  if (event === 'delivered' || event === 'open' || event === 'click') {
+    return { state: 'delivered' }
+  }
   if (event === 'deferred')
     return { state: 'undelivered', failureKind: 'transient', code: 'deferred' }
   if (event === 'bounce') return { state: 'failed', failureKind: 'permanent', code: 'bounce' }
-  if (event === 'dropped' || event === 'spamreport' || event.includes('unsubscribe'))
+  if (
+    event === 'dropped' ||
+    event === 'spamreport' ||
+    event === 'unsubscribe' ||
+    event === 'group_unsubscribe'
+  )
     return { state: 'suppressed', failureKind: 'suppressed', code: event }
-  return { state: 'sent' }
+  return undefined
 }
 
 function record(value: unknown): value is Record<string, unknown> {

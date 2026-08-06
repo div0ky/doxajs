@@ -4,11 +4,14 @@ import path from 'node:path'
 
 import { compileApplication } from '@doxajs/compiler'
 import {
+  DeliveryError,
   Duration,
   Graphite,
   Instant,
   ReadOnlyExecutionError,
   ReadOnlyModelError,
+  type SmsMessage,
+  SmsTransport,
   StaleModelError,
   UnknownModelAttributeError,
 } from '@doxajs/core'
@@ -63,6 +66,7 @@ import {
   policyWriteError,
   resetPolicyProof,
 } from '../examples/persistence-app/dist/authorization/application-policy.js'
+
 import {
   authorizationEntrypointLog,
   AuthorizationModelSessionCommand,
@@ -84,6 +88,12 @@ import {
   recordedJobAttempts,
   resetRecordedJobAttempts,
 } from '../examples/persistence-app/dist/support/job-attempts.js'
+
+class OptOutSmsTransport extends SmsTransport {
+  async send(_message: SmsMessage): Promise<never> {
+    throw new DeliveryError('Twilio rejected SMS (21610).', 'opt-out', '21610')
+  }
+}
 
 const workspace = path.resolve(import.meta.dirname, '..')
 const applicationRoot = path.join(workspace, 'examples/persistence-app')
@@ -234,6 +244,35 @@ describe('@doxajs/testing', () => {
           expect.objectContaining({ kind: 'action', phase: 'completed' }),
           expect.objectContaining({ kind: 'log', name: 'Doxa home visited' }),
         ]),
+      )
+    } finally {
+      await harness.shutdown()
+    }
+  })
+
+  it('records synchronous SMS opt-out rejection as failed', async () => {
+    const queue = new FakeQueueManager()
+    const transactions = new MemoryTransactionManager(queue)
+    const harness = await DoxaTestHarness.boot(Application, {
+      artifactsDirectory: artifacts,
+      dotenvPath: false,
+      environment: { DATABASE_CONNECTION_STRING: 'test-memory-database' },
+      authProviderId: 'provider:infrastructure/auth',
+      providerOverrides: {
+        'provider:infrastructure/transactions': transactions,
+        'provider:infrastructure/queues': queue,
+        'provider:infrastructure/cache': new MemoryCache(),
+        'provider:infrastructure/mail': new FakeMailTransport(),
+        'provider:infrastructure/sms': new OptOutSmsTransport(),
+        'provider:infrastructure/telemetry': new MemoryTelemetry(),
+      },
+    })
+    try {
+      const { smsId } = await harness.action(QueueNotifications, undefined)
+      await queue.runNext()
+      await queue.runNext()
+      expect(transactions.state.deliveries.get(smsId)).toEqual(
+        expect.objectContaining({ state: 'failed', failureKind: 'opt-out', code: '21610' }),
       )
     } finally {
       await harness.shutdown()
@@ -414,6 +453,7 @@ describe('@doxajs/testing', () => {
         await harness.action(RenameCounter, { id, label: 'memory-group' })
       }
       await harness.action(CreateCounter, { id: 'memory-unlabeled', value: 0 })
+      await harness.action(CreateCounter, { id: 'memory-unlabeled-2', value: 0 })
       await harness.action(SaveLegacyCustomer, { id: 'memory-zed', displayName: 'Zed' })
       await harness.action(SaveLegacyCustomer, { id: 'memory-ada', displayName: 'Ada' })
       await harness.action(CreateCounterNote, {
@@ -510,15 +550,33 @@ describe('@doxajs/testing', () => {
           missingFindOrFailError: 'Counter missing-counter was not found.',
           booleanIds: ['memory-a', 'memory-c'],
           patternIds: ['memory-a', 'memory-b', 'memory-c'],
-          nullLabelIds: ['memory-unlabeled'],
+          nullLabelIds: ['memory-unlabeled', 'memory-unlabeled-2'],
           notInIds: ['memory-b', 'memory-c'],
           columnComparisonCount: 0,
           implicitPageIds: ['memory-c'],
-          nullEqualityIds: ['memory-unlabeled'],
+          nullEqualityIds: ['memory-unlabeled', 'memory-unlabeled-2'],
           nullInequalityIds: ['memory-a', 'memory-b', 'memory-c'],
-          nullMembershipIds: ['memory-unlabeled'],
+          nullMembershipIds: ['memory-unlabeled', 'memory-unlabeled-2'],
           nonNullMembershipIds: ['memory-a', 'memory-b', 'memory-c'],
-          nullOrderedIds: ['memory-unlabeled', 'memory-a', 'memory-b', 'memory-c'],
+          nullOrderedIds: [
+            'memory-unlabeled',
+            'memory-unlabeled-2',
+            'memory-a',
+            'memory-b',
+            'memory-c',
+          ],
+          nullableAscendingCursorPages: [
+            ['memory-unlabeled', 'memory-unlabeled-2'],
+            ['memory-a', 'memory-b'],
+            ['memory-c'],
+          ],
+          nullableAscendingBeforeIds: ['memory-unlabeled', 'memory-unlabeled-2'],
+          nullableDescendingCursorPages: [
+            ['memory-c', 'memory-b'],
+            ['memory-a', 'memory-unlabeled-2'],
+            ['memory-unlabeled'],
+          ],
+          nullableDescendingBeforeIds: ['memory-a', 'memory-unlabeled-2'],
         }),
       )
       expect(harness.observations?.observations).toEqual(

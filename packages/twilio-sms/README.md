@@ -47,3 +47,7 @@ Both `from` and `to` must be E.164 strings. An invalid explicit sender fails per
 Service SID is available, delivery fails permanently with `missing_sender`. Callback correlation,
 webhook verification, delivery status normalization, and Twilio `21610` opt-out handling are the
 same in both delivery modes.
+
+Failure classification is conservative: `21610` is opt-out, `30007` is suppression, and only
+`30001`, `30003`, `30008`, and `30017` are transient provider outcomes. Other failed or undelivered
+provider codes are permanent. Network failures, HTTP `429`, and HTTP `5xx` remain transient.

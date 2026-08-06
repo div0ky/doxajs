@@ -13,11 +13,13 @@ actions, queries, and console commands through normal runtime admission. `TestAu
 actors and captures authorization decisions. Memory implementations cover transactions, models,
 journal, outbox, delivery state, queues, cache, mail, SMS, and telemetry.
 
-The memory transaction manager copies state per transaction, commits atomically, releases
-after-commit callbacks only after success, and hands `doxa.queue` outbox messages to the fake queue
-only after commit. Tests prove Eloquent-style persistence, rollback, authenticated HTTP, queued
-mail/SMS worker execution, durable delivery transitions, and telemetry without PostgreSQL or
-provider APIs.
+The memory transaction manager copies state per transaction, validates touched entity versions and
+delivery baselines before a synchronous write-set merge, appends only transaction-local journal and
+outbox records, releases after-commit callbacks only after success, and hands `doxa.queue` outbox
+messages to the fake queue only after commit. Its one durable clone boundary preserves Doxa datetime
+values and escapes ordinary `$doxa` objects. Tests prove conflicts, disjoint concurrent commits,
+Eloquent-style persistence, rollback, authenticated HTTP, queued mail/SMS worker execution, durable
+delivery transitions, and telemetry without PostgreSQL or provider APIs.
 
 Later slices complete event fakes, direct signal/job/schedule APIs, auth and revocation helpers,
 observer evidence, and matching model behavior across the memory and PostgreSQL adapters. Reusable

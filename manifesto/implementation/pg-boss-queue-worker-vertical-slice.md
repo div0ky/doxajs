@@ -121,10 +121,11 @@ malformed actors or delegation, raw session-shaped authentication fields, invali
 metadata, excessive constraints or span links, invalid dates, and malformed W3C trace identifiers.
 Rejection occurs before tracing, authorization, or application handler code runs.
 
-This proof still preserves the original actor and authentication metadata as the worker's current
-execution authority. That behavior conflicts with the accepted actor specification's system-worker
-default and is tracked as a high-severity release blocker in the
-[2026-07-16 framework security audit](security-audit-2026-07-16.md).
+Worker delivery preserves the actor, initiator, delegation, and bounded authentication attribution
+accepted at dispatch; schedules and named system dispatches carry their system actor. Each attempt
+re-evaluates current application permissions without revalidating the originating browser
+activation, so a later impersonation stop or expiry blocks new dispatch but does not rewrite durable
+work already accepted. This matches the accepted actor and queue contracts.
 
 `CurrentJob` exposes the stable ID, one-based attempt, maximum attempts, and optional idempotency
 key through constructor injection.
@@ -134,6 +135,12 @@ Protected jobs first authorize through a separate read-only session over the sam
 Handlers therefore use the same hydrated model, dirty tracking, journal, outbox, and
 optimistic-concurrency APIs as actions. A failed attempt rolls its local mutation back before
 pg-boss applies retry policy.
+
+pg-boss expiration aborts inside that writable session. Doxa closes the model session immediately,
+rejects the transaction, drains already-started database operations, and catches the handler's late
+settlement. Entity, journal, and outbox writes therefore cannot commit after pg-boss has declared
+the attempt failed, and later model access fails stale. Provider calls and other external effects
+remain at least once and require application idempotency.
 
 ## Retries, failure, delay, and idempotency
 
@@ -190,7 +197,9 @@ PostgreSQL conformance proves:
 7. Repeated idempotent dispatch returns one stable job and executes it once.
 8. Delayed jobs do not execute before their availability boundary.
 9. A queued event listener runs in a fresh injected job execution.
-10. Shutdown waits for active worker completion before stopping the runtime.
+10. A one-second zero-retry job that ignores cancellation cannot commit entity, journal, or outbox
+    writes after pg-boss expires it; later model access is stale.
+11. Shutdown waits for active worker completion before stopping the runtime.
 
 ## Deliberate boundary
 

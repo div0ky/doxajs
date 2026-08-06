@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
+- **Amended:** 2026-08-06 — Serialize late-settled startup with bounded timeout unwind.
 - **Scope:** MVP
 - **Decision owners:** Doxa maintainers
 
@@ -88,7 +89,8 @@ Runtime startup proceeds through these phases:
 before the runtime reaches `ready`.
 
 If validation, construction, startup, or readiness fails, the runtime must not enter `ready` and
-must unwind every lifecycle participant that successfully started.
+must unwind every lifecycle participant that successfully started. A deadline-aborted startup hook
+that completes during its bounded settlement window also becomes cleanup-owned before unwind.
 
 ## Dependency-derived ordering
 
@@ -149,10 +151,16 @@ interface LifecycleContext {
 }
 ```
 
-Runtime configuration owns startup, drain, stop, disposal, and total-shutdown deadlines. Hooks must
-observe cancellation and settle promptly after their signal is aborted. Deadline exhaustion produces
-a normalized lifecycle timeout containing the participant, phase, start time, deadline, and elapsed
-duration.
+Runtime configuration owns startup, drain, stop, disposal, startup-cleanup, and total-shutdown
+deadlines. Startup cleanup has one shared 30-second default budget, configurable through
+`deadlines.cleanup`; the remaining shared budget caps every stop and disposal phase deadline. Hooks
+must observe cancellation and settle promptly after their signal is aborted. Deadline exhaustion
+produces a normalized lifecycle timeout containing the participant, phase, start time, deadline, and
+elapsed duration. When startup exceeds its deadline, Doxa aborts the hook and gives that
+already-running invocation the remaining shared cleanup budget to settle. A hook that completes is
+stopped and disposed; a late rejection becomes a secondary cleanup failure. A non-cooperative hook
+produces `LifecycleCleanupTimeoutError` with the cleanup deadline and every unsettled
+participant/phase pair, without blocking boot failure forever or racing cleanup against it.
 
 A drain timeout advances shutdown into forced stop. Later phase behavior must preserve the global
 shutdown deadline and report participants that do not cooperate with cancellation. The Doxa kernel
@@ -166,8 +174,9 @@ outcome, and normalized failure. Cleanup failures must be reported without hidin
 startup or runtime failure that caused the unwind.
 
 Startup and readiness failure trigger a full unwind of every participant that successfully started.
-The runtime waits for already-starting lifecycle work to settle, then stops and disposes successful
-participants in reverse dependency order. The runtime never transitions to `ready`.
+The runtime gives already-starting lifecycle work one bounded settlement window, then stops and
+disposes completed participants in reverse dependency order. The runtime never transitions to
+`ready`.
 
 The initiating startup or readiness failure remains the primary error returned by boot. Stop and
 dispose failures are preserved as ordered secondary cleanup errors and emitted individually through
@@ -203,7 +212,9 @@ The MVP must prove:
 8. Successful startup reaches readiness only after all required starts and checks succeed.
 9. Dependencies start before dependents and shut down after dependents.
 10. Reordering arrays, imports, and files does not change lifecycle ordering.
-11. Startup failure never reaches readiness and fully unwinds successfully started participants.
+11. Startup failure never reaches readiness and fully unwinds successfully started participants,
+    including a hook that settles after deadline cancellation; a non-settling hook cannot block boot
+    failure indefinitely.
 12. The initiating failure remains primary while every cleanup failure remains inspectable.
 13. Boot rejects only after unwind completion or cleanup deadline exhaustion.
 14. Every lifecycle hook receives an abort signal and deadline.
@@ -214,6 +225,8 @@ The MVP must prove:
 19. Disposal releases execution and singleton resources in the required order.
 20. Repeated shutdown and partial-startup cleanup do not double-release resources incorrectly.
 21. Diagnostics identify every lifecycle participant, phase, duration, and failure.
+22. Startup cleanup uses one shared configurable budget, reports late startup rejection as
+    secondary, and identifies every phase left unsettled when that budget expires.
 
 ## References
 

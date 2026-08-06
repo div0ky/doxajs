@@ -14,6 +14,10 @@ rejects direct and transitive `ActionBus` reachability from Actions, Queries, an
 `DOXA-COMPILER-ARCH-001`; reusable mutation behavior belongs in an ordinary service called by each
 top-level boundary.
 
+Stable IDs remain unique even when distinct declarations have the same class name. Compilation also
+rejects `accounts.impersonation.stop` in an application permission-source catalog because Doxa owns
+that restoration ability.
+
 Successful compilation also returns handbook-linked advisory warnings for misleading
 provider/service names and unambiguous canonical-folder deviations. Praxis prints them during
 human-facing builds; they never change registration or runtime behavior.

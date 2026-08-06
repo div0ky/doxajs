@@ -77,6 +77,9 @@ export class HttpError extends Error {
     options?: ErrorOptions,
   ) {
     super(message, options)
+    if (!Number.isInteger(status) || status < 400 || status > 599) {
+      throw new TypeError('HttpError status must be an integer from 400 through 599.')
+    }
   }
 }
 

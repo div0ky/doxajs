@@ -5,7 +5,12 @@
 > support, warranty, roadmap, or production-readiness commitments.
 
 The artifact-only Doxa runtime. It validates compiled artifacts, constructs the dependency graph,
-admits execution scopes, dispatches framework roles, and owns deterministic lifecycle behavior.
+admits execution scopes, dispatches framework roles, and owns deterministic lifecycle behavior. If a
+startup hook exceeds its deadline, Doxa aborts it and gives it one bounded settlement window. A
+late-completing hook joins reverse-order stop and disposal; a non-settling hook cannot block boot
+failure forever or race cleanup. Settlement, stop, and disposal share `deadlines.cleanup`, which
+defaults to 30 seconds and caps their individual phase deadlines. Late rejection and
+`LifecycleCleanupTimeoutError` remain secondary; the normalized startup timeout stays primary.
 
 For transaction managers that declare shared-client serialization, concurrent model operations
 retain their owning transaction and snapshot. Runtime records one diagnostic per affected model
@@ -27,6 +32,15 @@ Permission results never enter propagated execution context. Runtime-invoked per
 policies receive ambient read-only model access: queries share their read session, actions and jobs
 use an isolated read-only identity map over the owning Unit of Work, and standalone authorization
 opens a bounded read transaction only when application evaluation is required.
+
+Queued work gets a fresh execution and re-evaluates current application permissions. When dispatch
+explicitly carries delegated user authority, the accepted actor, initiator, delegation, and bounded
+authentication attribution remain fixed across attempts; later impersonation stop or expiry prevents
+new dispatch without rewriting already-durable work.
+
+Job cancellation closes the writable model session and rejects its transaction before a late handler
+can commit. Already-started database operations drain into rollback; later model access is stale.
+External effects remain at least once and require idempotency.
 
 Praxis may boot the named `model-reader` profile for Gnosis. That profile validates the same
 artifacts but starts only the transaction provider's declared dependency closure and admits only the

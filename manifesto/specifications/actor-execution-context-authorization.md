@@ -214,22 +214,15 @@ to untrusted external services by default.
 
 ## Asynchronous authority
 
-A job does not automatically inherit the original user's authority merely because that user caused
-it.
+A job runs with the authority accepted at dispatch. Work dispatched from an admitted execution
+snapshots its actor, initiator, and delegation attribution; schedules and named system dispatches
+therefore carry their system actor. The original correlation ID is preserved, and the message or
+event ID becomes causation.
 
-The default model should be:
-
-- The worker or named system capability is the current actor.
-- The original actor remains the initiator for attribution.
-- The original correlation ID is preserved.
-- The message or event ID becomes causation.
-- Authorization uses the worker's explicit capability and current application state.
-
-A job that truly needs delegated user authority must declare that requirement and carry the
-dispatch-time actor, initiator, and delegation attribution. Delivery re-evaluates the operation's
-current application permissions, but does not revalidate the originating browser activation:
-accepted durable work survives that activation's stop or expiry. A serialized session or prior
-authorization result is never sufficient.
+Delivery re-evaluates the operation's current application permissions, but does not revalidate the
+originating browser activation: accepted durable work survives that activation's stop or expiry. A
+serialized session, credential, permission-source result, or prior authorization decision is never
+sufficient authority.
 
 Retries create a new execution ID and span while preserving correlation, causation, actor,
 initiator, and job identity. Retry attempt is execution metadata, not a new business cause.
@@ -292,10 +285,12 @@ export abstract class PermissionSource {
 }
 ```
 
-The static catalog is literal, unique, uses stable ability names, and is recorded in the manifest.
-The source result must contain only declared abilities. Returning an undeclared ability is a runtime
-integrity failure. Loading failure propagates as an authorization infrastructure failure; neither
-case becomes an empty grant or a policy allow.
+The static catalog is literal, unique, uses stable ability names, excludes framework-owned
+abilities, and is recorded in the manifest. `accounts.impersonation.stop` remains Doxa-owned so an
+application source cannot strand an active impersonated session. The source result must contain only
+declared abilities. Returning an undeclared ability is a runtime integrity failure. Loading failure
+propagates as an authorization infrastructure failure; neither case becomes an empty grant or a
+policy allow.
 
 Doxa resolves the source lazily on the first source-managed authorization in an execution and caches
 the resulting set for the remainder of that execution. The source may inject ordinary services,
@@ -354,8 +349,9 @@ Authorization composition is normative:
 6. The final structured allow or deny is recorded once through authorization audit and telemetry.
 
 The compiler rejects a protected entry ability absent from both the source catalog and the selected
-policies. It also rejects multiple sources, invalid or duplicate source abilities, non-source
-classes, invalid source lifecycle, and unresolved source dependencies.
+policies. It also rejects multiple sources, invalid, duplicate, or framework-owned source abilities,
+non-source classes, invalid source lifecycle, and unresolved source dependencies. Artifact boundary
+validation repeats the framework-owned catalog check before runtime boot.
 
 Source results are current application facts rather than causal context. They are not attached to
 `ExecutionContext` and are never serialized into jobs, events, telemetry baggage, or other

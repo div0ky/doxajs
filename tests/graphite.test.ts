@@ -60,6 +60,41 @@ describe('Graphite datetimes', () => {
     expect(later.offset).toBe('-06:00')
   })
 
+  it('rejects invalid local datetime fields instead of constraining them', () => {
+    expect(() =>
+      Graphite.fromLocal({ year: 2026, month: 13, day: 1 }, { timeZone: 'UTC' }),
+    ).toThrow(DateTimeError)
+    expect(() =>
+      Graphite.fromLocal({ year: 2025, month: 2, day: 29 }, { timeZone: 'UTC' }),
+    ).toThrow(DateTimeError)
+    expect(() =>
+      Graphite.fromLocal({ year: 2026, month: 12, day: 31, hour: 24 }, { timeZone: 'UTC' }),
+    ).toThrow(DateTimeError)
+
+    expect(
+      Graphite.fromLocal(
+        {
+          year: 2024,
+          month: 2,
+          day: 29,
+          hour: 23,
+          minute: 59,
+          second: 59,
+          millisecond: 999,
+          microsecond: 999,
+        },
+        { timeZone: 'UTC' },
+      ).toString(),
+    ).toBe('2024-02-29T23:59:59.999999+00:00[UTC]')
+  })
+
+  it('rejects fixed-offset zones when converting an existing value', () => {
+    const value = Graphite.parse('2026-08-05T09:00:00-05:00[America/Chicago]')
+
+    expect(() => value.inTimeZone('+05:00')).toThrow(DateTimeError)
+    expect(value.inTimeZone('Asia/Tokyo').sameInstant(value)).toBe(true)
+  })
+
   it('provides immutable calendar arithmetic and useful comparisons', () => {
     const value = Graphite.parse('2024-02-29T12:45:30.000001-06:00[America/Chicago]')
     const next = value.add({ days: 1, hours: 2 })

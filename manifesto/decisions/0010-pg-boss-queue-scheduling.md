@@ -2,6 +2,7 @@
 
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
+- **Amended:** 2026-08-06 — Define dispatch-time authority snapshots for accepted durable work.
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -70,6 +71,23 @@ The framework contract therefore requires:
 Deduplication and uniqueness reduce duplicate admission or concurrency. They do not replace
 idempotent handlers.
 
+### Accepted durable authority
+
+Queue dispatch from an admitted execution snapshots its authorized actor, initiator, delegation, and
+bounded authentication attribution at acceptance. Schedules and named system dispatches carry their
+system actor. Raw session IDs, credentials, and permission results never cross the durable boundary.
+
+Each attempt creates a fresh execution and re-evaluates the operation's current application
+PermissionSource and Policy rules. It does not revalidate the browser activation that authorized the
+already-accepted dispatch. Impersonation stop, expiry, target ineligibility, or session revocation
+prevents future delegated dispatch but does not rewrite or cancel durable work already accepted.
+
+If pg-boss expires an active attempt, Doxa races that cancellation inside the attempt's writable
+model session. Cancellation closes the session, rejects the local transaction, drains
+already-started database operations, and rolls back before the late handler can commit. A handler
+that continues settling cannot use stale models. External effects remain at least once and still
+require idempotency because they cannot be rolled back with local state.
+
 ## Scheduling model
 
 Doxa schedule declarations live in the application manifest. At startup or through an explicit
@@ -108,6 +126,8 @@ The first-party job and schedule fakes must support assertions for:
 
 - Enqueued job type, payload, delay, and idempotency key.
 - Actor, initiator, tenant, correlation, and causation propagation.
+- Delegated work retaining its accepted actor after the originating browser activation stops or
+  expires, while later dispatch uses the restored actor.
 - Retry and terminal-failure classification.
 - Scheduled declarations and simulated firing.
 - Outbox-to-job handoff.
@@ -137,7 +157,9 @@ Before the adapter is production-ready, it must prove:
 5. Schedule reconciliation is deterministic across multiple processes and deployments.
 6. Misfires, overlap, clock changes, and time zones behave according to the specification.
 7. Shutdown stops admission and drains or safely releases claimed work.
-8. No pg-boss types appear in feature APIs, generated contracts, or test assertions.
+8. An expired handler cannot commit late entity, journal, or outbox writes; its later model access
+   fails stale.
+9. No pg-boss types appear in feature APIs, generated contracts, or test assertions.
 
 ## Revisit when
 

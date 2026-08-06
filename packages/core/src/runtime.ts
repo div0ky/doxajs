@@ -1,4 +1,5 @@
 export { type EventDispatcher, runWithEventDispatcher } from './event-context.js'
+export { allowedDeliveryPreviousStates, canApplyDeliveryTransition } from './communications.js'
 export {
   currentDateTimeContext,
   runWithDateTimeContext,

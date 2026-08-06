@@ -445,6 +445,8 @@ export class ManifestCompatibilityError extends Error {
   override readonly name = 'ManifestCompatibilityError'
 }
 
+const FRAMEWORK_OWNED_ABILITIES = new Set(['accounts.impersonation.stop'])
+
 /** One canonical representation shared by artifact producers and consumers. */
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortCanonicalValue(value), null, 2)
@@ -518,6 +520,9 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
       !Array.isArray(value.permissionSource.abilities) ||
       value.permissionSource.abilities.length === 0 ||
       !value.permissionSource.abilities.every(validAbility) ||
+      value.permissionSource.abilities.some((ability) =>
+        FRAMEWORK_OWNED_ABILITIES.has(String(ability)),
+      ) ||
       new Set(value.permissionSource.abilities).size !== value.permissionSource.abilities.length ||
       !Array.isArray(value.permissionSource.dependencies) ||
       !value.permissionSource.dependencies.every(validDependency) ||
@@ -550,6 +555,7 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
   })) {
     for (const entry of entries) assertManifestEntry(entry, section)
   }
+  assertUniqueManifestEntryIds(value.configurations, 'configuration')
   for (const command of value.realtimeCommands) {
     if (
       !isRecord(command) ||
@@ -702,6 +708,17 @@ export function assertManifest(value: unknown): asserts value is DoxaManifest {
       }
       assertModelRelationship(model.id, relationship)
     }
+  }
+}
+
+function assertUniqueManifestEntryIds(entries: readonly unknown[], section: string): void {
+  const seen = new Set<string>()
+  for (const entry of entries) {
+    if (!isRecord(entry) || !nonEmptyString(entry.id)) continue
+    if (seen.has(entry.id)) {
+      throw new ManifestCompatibilityError(`Doxa manifest has duplicate ${section} ID ${entry.id}.`)
+    }
+    seen.add(entry.id)
   }
 }
 

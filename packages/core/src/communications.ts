@@ -13,6 +13,35 @@ export type DeliveryState =
 
 export type DeliveryFailureKind = 'transient' | 'permanent' | 'suppressed' | 'opt-out'
 
+const DELIVERY_STATES: readonly DeliveryState[] = [
+  'pending',
+  'accepted',
+  'sent',
+  'delivered',
+  'undelivered',
+  'failed',
+  'suppressed',
+  'cancelled',
+]
+
+/** @internal Shared monotonic delivery-state rule for first-party persistence adapters. */
+export function allowedDeliveryPreviousStates(next: DeliveryState): readonly DeliveryState[] {
+  return DELIVERY_STATES.filter((current) => canApplyDeliveryTransition(current, next))
+}
+
+/** @internal Shared monotonic delivery-state rule for first-party persistence adapters. */
+export function canApplyDeliveryTransition(current: DeliveryState, next: DeliveryState): boolean {
+  if (current === next || next === 'suppressed') return true
+  if (['delivered', 'failed', 'suppressed', 'cancelled'].includes(current)) return false
+  if (next === 'accepted') return current === 'pending'
+  if (next === 'sent') return current === 'pending' || current === 'accepted'
+  if (next === 'undelivered') {
+    return current === 'pending' || current === 'accepted' || current === 'sent'
+  }
+  if (next === 'delivered' || next === 'failed' || next === 'cancelled') return true
+  return false
+}
+
 export interface DeliveryAcceptance {
   readonly messageId: string
   readonly providerMessageId?: string

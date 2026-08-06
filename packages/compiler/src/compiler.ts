@@ -72,6 +72,8 @@ const DECLARATION_FIELDS = new Set([
   'realtimeCommands',
 ])
 
+const FRAMEWORK_OWNED_ABILITIES = new Set(['accounts.impersonation.stop'])
+
 export interface CompileApplicationOptions {
   readonly tsconfigPath: string
   readonly applicationFile: string
@@ -424,6 +426,7 @@ export async function compileApplication(
   const authentication = compileAuthentication()
   const time = compileTime()
 
+  assertUnique(configurations, (configuration) => configuration.id, 'configuration ID')
   assertUnique(providers, (provider) => provider.id, 'provider ID')
   assertUnique(actions, (operation) => operation.id, 'action ID')
   assertUnique(queries, (operation) => operation.id, 'query ID')
@@ -2292,6 +2295,15 @@ export async function compileApplication(
       fail(declaration, `${name}.abilities must not contain duplicates.`)
     }
     for (const ability of abilities) assertAbilityName(declaration, ability)
+    const frameworkOwnedAbility = abilities.find((ability) =>
+      FRAMEWORK_OWNED_ABILITIES.has(ability),
+    )
+    if (frameworkOwnedAbility) {
+      fail(
+        declaration,
+        `${name}.abilities must not declare framework-owned ability ${frameworkOwnedAbility}.`,
+      )
+    }
     const entry: PermissionSourceManifestEntry = {
       id: `permission-source:${ownerId}/${readRequiredStaticString(declaration, 'id')}`,
       ownerId,

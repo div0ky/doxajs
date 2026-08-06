@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Accepted:** 2026-07-10
 - **Amended:** 2026-07-30 — Support application-selected per-message Twilio SMS senders.
+- **Amended:** 2026-08-06 — Make delivery reconciliation monotonic and classify provider failures.
 - **Decision owners:** Doxa maintainers
 
 ## Decision
@@ -33,8 +34,11 @@ The communications contract will normalize at least:
 - `suppressed`
 - `cancelled`
 
-The exact valid transitions may differ by channel, but feature code observes Doxa states and stable
-failure codes rather than vendor strings.
+Delivery reconciliation is monotonic. `delivered`, `failed`, `cancelled`, and `suppressed` are
+terminal except for an idempotent same-state event or a later suppression. A transient `undelivered`
+outcome may recover to `delivered`, and suppression may replace any state. Verified, unique provider
+events are recorded even when this rule ignores their state transition. Successful transitions clear
+stale failure metadata.
 
 Provider message IDs must correlate back to the Doxa message, job, actor, initiator, tenant,
 causation, correlation, and trace context. Webhook ingestion verifies provider signatures before
@@ -50,6 +54,8 @@ The SendGrid plugin will:
   hatches.
 - Correlate delivery, bounce, block, spam-report, and engagement events through the SendGrid Event
   Webhook.
+- Treat `open` and `click` as delivered engagement. Ignore unknown and resubscribe-only events
+  rather than inferring a delivery state.
 - Keep API keys, SendGrid request objects, template IDs, categories, and custom arguments out of
   feature contracts unless exposed through an explicit provider escape hatch.
 
@@ -64,7 +70,9 @@ The Twilio plugin will:
 - Normalize destination phone numbers to the Doxa phone-number contract and transmit E.164 to
   Twilio.
 - Track queued, sent, delivered, undelivered, and failed outcomes through status callbacks.
-- Preserve opt-out and permanent-rejection outcomes so they are not retried as transient failures.
+- Classify `21610` as non-retryable opt-out and `30007` as suppression. Only `30001`, `30003`,
+  `30008`, and `30017` are transient provider outcomes; other failed or undelivered provider codes
+  are permanent. Network failures, HTTP `429`, and HTTP `5xx` remain transient.
 - Keep account credentials, messaging-service identifiers, Twilio message objects, and error
   payloads behind the plugin boundary.
 
@@ -87,3 +95,6 @@ Provider sandbox or test modes supplement these fakes but do not replace framewo
 - [SendGrid Event Webhook](https://www.twilio.com/docs/sendgrid/for-developers/tracking-events/event)
 - [Twilio Message resource](https://www.twilio.com/docs/messaging/api/message-resource)
 - [Twilio Messaging Services](https://www.twilio.com/docs/messaging/services)
+- [Twilio error 21610](https://www.twilio.com/docs/api/errors/21610)
+- [Twilio error 30007](https://www.twilio.com/docs/api/errors/30007)
+- [Twilio retry guidance](https://www.twilio.com/docs/messaging/guides/best-practices-at-scale)

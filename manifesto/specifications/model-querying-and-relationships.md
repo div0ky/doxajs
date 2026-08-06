@@ -37,7 +37,9 @@ Contact.whereBetween('createdAt', [start, end])
 
 Constraints combine with `and` unless an `or` operation is explicit. Nested groups preserve their
 logical boundaries. Attribute names and operator/value combinations must be type checked where
-TypeScript can prove them and validated again before adapter execution.
+TypeScript can prove them and validated again before adapter execution. The first constraint in a
+top-level or nested group is evaluated directly; a leading `orWhere` therefore behaves as its
+predicate rather than matching every record. An empty group remains true.
 
 Equality and membership treat null as a comparable Doxa value: equality matches null or a missing
 entity-state attribute, inequality is its inverse, and membership can include or exclude null.
@@ -102,7 +104,11 @@ Offset pagination returns a Doxa-owned page containing `items`, `page`, `perPage
 Cursor pagination uses an opaque, versioned cursor containing the model identity and complete
 deterministic logical ordering position, including the primary-key tiebreaker. A cursor from another
 model or ordering is invalid. The result contains the hydrated items and opaque next and previous
-cursors when those directions exist. Adapters must not expose encoded physical column names.
+cursors when those directions exist. Adapters must not expose encoded physical column names. Cursor
+bounds preserve the ordering's null placement: ascending null-first and descending null-last.
+Equality prefixes use null equality, and missing optional entity-state attributes occupy the same
+cursor position as null. Forward and backward traversal must neither skip nor repeat rows when a
+nullable ordering value is duplicated or combined with later ordering columns.
 
 Async cursor iteration fetches bounded batches and yields attached models. It must not buffer the
 complete result set. An iterator used after its execution ends fails as stale.
@@ -248,7 +254,8 @@ the same identity constraint and force a one-row limit.
 1. Equality, operator, nested boolean, membership, null, and range queries return identical results
    in PostgreSQL and memory.
 2. Mapped logical attributes resolve to physical columns without leaking those names publicly.
-3. Offset and cursor pagination remain stable when ordering values are duplicated.
+3. Offset and cursor pagination remain stable when nullable ordering values are duplicated across
+   ascending, descending, forward, backward, and multi-column traversal in PostgreSQL and memory.
 4. Cursor iteration is bounded, ordered, identity-mapped, and stale after execution.
 5. Query handlers hydrate read-only models and reject all writes.
 6. Actions query writable models through their existing transaction.
