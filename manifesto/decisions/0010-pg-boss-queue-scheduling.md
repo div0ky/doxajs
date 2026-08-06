@@ -83,10 +83,11 @@ already-accepted dispatch. Impersonation stop, expiry, target ineligibility, or 
 prevents future delegated dispatch but does not rewrite or cancel durable work already accepted.
 
 If pg-boss expires an active attempt, Doxa races that cancellation inside the attempt's writable
-model session. Cancellation closes the session, rejects the local transaction, drains
-already-started database operations, and rolls back before the late handler can commit. A handler
-that continues settling cannot use stale models. External effects remain at least once and still
-require idempotency because they cannot be rolled back with local state.
+model session. Cancellation closes the session and PostgreSQL transaction connection, rejects the
+local transaction, drains already-started database operations, and remains armed through commit so
+the late handler cannot commit. A handler that continues settling cannot use stale models. External
+effects remain at least once and still require idempotency because they cannot be rolled back with
+local state.
 
 ## Scheduling model
 

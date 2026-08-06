@@ -197,8 +197,9 @@ PostgreSQL conformance proves:
 7. Repeated idempotent dispatch returns one stable job and executes it once.
 8. Delayed jobs do not execute before their availability boundary.
 9. A queued event listener runs in a fresh injected job execution.
-10. A one-second zero-retry job that ignores cancellation cannot commit entity, journal, or outbox
-    writes after pg-boss expires it; later model access is stale.
+10. One-second zero-retry jobs cannot commit after pg-boss expiry when a handler settles late, a
+    database operation is still draining, or PostgreSQL is inside deferred commit work; later model
+    access is stale.
 11. Shutdown waits for active worker completion before stopping the runtime.
 
 ## Deliberate boundary

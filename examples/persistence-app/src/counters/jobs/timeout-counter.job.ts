@@ -5,6 +5,7 @@ import { Counter } from '../models/counter.js'
 export interface TimeoutCounterInput {
   readonly counterId: string
   readonly holdMilliseconds: number
+  readonly detachWrite?: boolean
 }
 
 export class TimeoutCounterJob extends Job<TimeoutCounterInput> {
@@ -19,7 +20,11 @@ export class TimeoutCounterJob extends Job<TimeoutCounterInput> {
     await new Promise((resolve) => setTimeout(resolve, input.holdMilliseconds))
     const counter = Counter.make({ id: input.counterId, value: 0 })
     counter.increment(1)
-    await counter.save()
+    const save = counter.save()
+    if (input.detachWrite) {
+      void save.catch(() => undefined)
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    } else await save
   }
 }
 

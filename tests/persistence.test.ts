@@ -1486,6 +1486,83 @@ describe('PostgreSQL and Drizzle persistence slice', () => {
     expect(writes.rows[0]).toEqual({ entities: '0', journal: '0', outbox: '0' })
   })
 
+  it('rolls back when pg-boss expires while detached database work is draining', async () => {
+    const runtime = await bootPersistenceRuntime()
+    const counterId = 'expired-draining-counter'
+    const blocker = await pool.connect()
+    try {
+      await blocker.query('BEGIN')
+      await blocker.query('LOCK TABLE doxa_entity_states IN ACCESS EXCLUSIVE MODE')
+      const jobId = await runAction(runtime, DispatchTimeoutCounter, {
+        counterId,
+        holdMilliseconds: 0,
+        detachWrite: true,
+      })
+
+      await waitFor(
+        async () => (await inspectQueueJob(connectionString, jobId))?.state === 'failed',
+      )
+      await blocker.query('COMMIT')
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      expect(await inspectQueueJob(connectionString, jobId)).toEqual(
+        expect.objectContaining({ state: 'failed', retryCount: 0, retryLimit: 0 }),
+      )
+      const writes = await pool.query<{ count: string }>(
+        'SELECT count(*) FROM doxa_entity_states WHERE entity_id = $1',
+        [counterId],
+      )
+      expect(writes.rows[0]?.count).toBe('0')
+    } finally {
+      await blocker.query('ROLLBACK').catch(() => undefined)
+      blocker.release()
+    }
+  })
+
+  it('cancels a PostgreSQL commit that outlives the pg-boss deadline', async () => {
+    const runtime = await bootPersistenceRuntime()
+    const counterId = 'expired-commit-counter'
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION doxa_test_delay_expired_commit()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $function$
+      BEGIN
+        PERFORM pg_sleep(2);
+        RETURN NEW;
+      END
+      $function$;
+      CREATE CONSTRAINT TRIGGER doxa_test_delay_expired_commit
+      AFTER INSERT ON doxa_entity_states
+      DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW
+      WHEN (NEW.entity_id = 'expired-commit-counter')
+      EXECUTE FUNCTION doxa_test_delay_expired_commit();
+    `)
+    try {
+      const jobId = await runAction(runtime, DispatchTimeoutCounter, {
+        counterId,
+        holdMilliseconds: 0,
+      })
+
+      await waitFor(
+        async () => (await inspectQueueJob(connectionString, jobId))?.state === 'failed',
+      )
+      await new Promise((resolve) => setTimeout(resolve, 1_250))
+
+      const writes = await pool.query<{ count: string }>(
+        'SELECT count(*) FROM doxa_entity_states WHERE entity_id = $1',
+        [counterId],
+      )
+      expect(writes.rows[0]?.count).toBe('0')
+    } finally {
+      await pool.query(`
+        DROP TRIGGER IF EXISTS doxa_test_delay_expired_commit ON doxa_entity_states;
+        DROP FUNCTION IF EXISTS doxa_test_delay_expired_commit();
+      `)
+    }
+  })
+
   it('reconciles schedules and fires interval work as a causal system job', async () => {
     await bootPersistenceRuntime()
     const schedules = await pool.query<{

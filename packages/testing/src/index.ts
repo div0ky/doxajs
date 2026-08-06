@@ -737,6 +737,7 @@ interface MemoryState {
   readonly journal: JournalFact[]
   readonly outbox: OutboxMessage[]
   readonly deliveries: Map<string, MemoryDeliveryState>
+  readonly deliveryEvents: Set<string>
 }
 
 interface MemoryDeliveryState extends StagedDelivery {
@@ -747,12 +748,21 @@ interface MemoryDeliveryState extends StagedDelivery {
   readonly code?: string
 }
 
+type MemoryDeliveryOperation =
+  | { readonly kind: 'stage'; readonly delivery: StagedDelivery }
+  | {
+      readonly kind: 'transition'
+      readonly transition: DeliveryTransition
+      readonly applyToDelivery: boolean
+    }
+
 export class MemoryTransactionManager extends TransactionManager {
   readonly state: MemoryState = {
     entities: new Map(),
     journal: [],
     outbox: [],
     deliveries: new Map(),
+    deliveryEvents: new Set(),
   }
   constructor(private readonly queue?: QueueManager) {
     super()
@@ -790,8 +800,9 @@ class MemoryUnitOfWork extends UnitOfWork {
   >()
   readonly #journalWrites: JournalFact[] = []
   readonly #outboxWrites: OutboxMessage[] = []
-  readonly #deliveryWrites = new Set<string>()
   readonly #deliveryBaselines = new Map<string, MemoryDeliveryState | undefined>()
+  readonly #deliveryEventWrites = new Set<string>()
+  readonly #deliveryOperations: MemoryDeliveryOperation[] = []
   constructor(private readonly state: MemoryState) {
     super()
   }
@@ -877,7 +888,7 @@ class MemoryUnitOfWork extends UnitOfWork {
       current && entity.storage?.kind === 'table'
         ? {
             ...(current.state as Record<string, JsonValue>),
-            ...(entity.patch ?? {}),
+            ...(cloneDoxaValue(entity.patch ?? {}) as Record<string, JsonValue>),
           }
         : (cloneDoxaValue(entity.state) as Record<string, JsonValue>)
     for (const attribute of entity.removedAttributes ?? []) delete state[attribute]
@@ -919,25 +930,38 @@ class MemoryUnitOfWork extends UnitOfWork {
   }
   async stageDelivery(delivery: StagedDelivery): Promise<void> {
     this.trackDelivery(delivery.id, this.state.deliveries.get(delivery.id))
-    this.state.deliveries.set(delivery.id, { ...cloneDelivery(delivery), state: 'pending' })
-    this.#deliveryWrites.add(delivery.id)
+    const cloned = cloneDelivery(delivery)
+    this.state.deliveries.set(delivery.id, { ...cloned, state: 'pending' })
+    this.#deliveryOperations.push({ kind: 'stage', delivery: cloned })
   }
   async transitionDelivery(transition: DeliveryTransition): Promise<void> {
+    if (transition.eventId) {
+      if (this.state.deliveryEvents.has(transition.eventId)) return
+      this.state.deliveryEvents.add(transition.eventId)
+      this.#deliveryEventWrites.add(transition.eventId)
+    }
     const value = this.state.deliveries.get(transition.messageId)
-    if (value && canApplyDeliveryTransition(value.state, transition.state)) {
-      this.trackDelivery(transition.messageId, value)
-      const { failureKind: _failureKind, code: _code, ...retained } = value
-      this.state.deliveries.set(transition.messageId, {
-        ...retained,
-        state: transition.state,
-        ...(transition.providerMessageId !== undefined
-          ? { providerMessageId: transition.providerMessageId }
-          : {}),
-        ...(transition.eventId !== undefined ? { eventId: transition.eventId } : {}),
-        ...(transition.failureKind !== undefined ? { failureKind: transition.failureKind } : {}),
-        ...(transition.code !== undefined ? { code: transition.code } : {}),
-      })
-      this.#deliveryWrites.add(transition.messageId)
+    if (!value) {
+      if (transition.eventId) {
+        this.#deliveryOperations.push({
+          kind: 'transition',
+          transition: { ...transition },
+          applyToDelivery: false,
+        })
+      }
+      return
+    }
+    this.trackDelivery(transition.messageId, value)
+    this.#deliveryOperations.push({
+      kind: 'transition',
+      transition: { ...transition },
+      applyToDelivery: true,
+    })
+    if (canApplyDeliveryTransition(value.state, transition.state)) {
+      this.state.deliveries.set(
+        transition.messageId,
+        applyMemoryDeliveryTransition(value, transition),
+      )
     }
   }
   afterCommit(callback: () => void | Promise<void>): void {
@@ -948,14 +972,57 @@ class MemoryUnitOfWork extends UnitOfWork {
   }
 
   applyTo(target: MemoryState): readonly OutboxMessage[] {
+    const duplicateEvents = new Set(
+      [...this.#deliveryEventWrites].filter((eventId) => target.deliveryEvents.has(eventId)),
+    )
+    const activeDeliveryIds = new Set(
+      this.#deliveryOperations
+        .filter(
+          (operation) =>
+            operation.kind === 'stage' ||
+            (operation.applyToDelivery &&
+              (!operation.transition.eventId ||
+                !duplicateEvents.has(operation.transition.eventId))),
+        )
+        .map((operation) =>
+          operation.kind === 'stage' ? operation.delivery.id : operation.transition.messageId,
+        ),
+    )
     for (const [key, baseline] of this.#entityBaselines) {
       if (target.entities.get(key)?.version !== baseline.version) {
         throw new OptimisticConcurrencyError(baseline.type, baseline.id, baseline.version)
       }
     }
     for (const [id, baseline] of this.#deliveryBaselines) {
+      if (!activeDeliveryIds.has(id)) continue
       if (!sameDeliveryState(target.deliveries.get(id), baseline)) {
         throw new OptimisticConcurrencyError('delivery', id, undefined)
+      }
+    }
+    const committedDeliveries = new Map<string, MemoryDeliveryState | undefined>()
+    const committedEvents = new Set(target.deliveryEvents)
+    for (const operation of this.#deliveryOperations) {
+      if (operation.kind === 'stage') {
+        committedDeliveries.set(operation.delivery.id, {
+          ...cloneDelivery(operation.delivery),
+          state: 'pending',
+        })
+        continue
+      }
+      const { transition } = operation
+      if (transition.eventId) {
+        if (committedEvents.has(transition.eventId)) continue
+        committedEvents.add(transition.eventId)
+      }
+      if (!operation.applyToDelivery) continue
+      const current = committedDeliveries.has(transition.messageId)
+        ? committedDeliveries.get(transition.messageId)
+        : target.deliveries.get(transition.messageId)
+      if (current && canApplyDeliveryTransition(current.state, transition.state)) {
+        committedDeliveries.set(
+          transition.messageId,
+          applyMemoryDeliveryTransition(current, transition),
+        )
       }
     }
     for (const key of this.#entityBaselines.keys()) {
@@ -965,10 +1032,10 @@ class MemoryUnitOfWork extends UnitOfWork {
     }
     target.journal.push(...this.#journalWrites.map(cloneJournalFact))
     target.outbox.push(...this.#outboxWrites.map(cloneOutboxMessage))
-    for (const id of this.#deliveryWrites) {
-      const delivery = this.state.deliveries.get(id)
+    for (const [id, delivery] of committedDeliveries) {
       if (delivery) target.deliveries.set(id, cloneDeliveryState(delivery))
     }
+    for (const eventId of committedEvents) target.deliveryEvents.add(eventId)
     return this.#outboxWrites.map(cloneOutboxMessage)
   }
 
@@ -1009,6 +1076,7 @@ function cloneState(state: MemoryState): MemoryState {
     deliveries: new Map(
       [...state.deliveries].map(([key, delivery]) => [key, cloneDeliveryState(delivery)]),
     ),
+    deliveryEvents: new Set(state.deliveryEvents),
   }
 }
 
@@ -1054,6 +1122,23 @@ function cloneDeliveryState(delivery: MemoryDeliveryState): MemoryDeliveryState 
     ...(delivery.eventId !== undefined ? { eventId: delivery.eventId } : {}),
     ...(delivery.failureKind !== undefined ? { failureKind: delivery.failureKind } : {}),
     ...(delivery.code !== undefined ? { code: delivery.code } : {}),
+  }
+}
+
+function applyMemoryDeliveryTransition(
+  delivery: MemoryDeliveryState,
+  transition: DeliveryTransition,
+): MemoryDeliveryState {
+  const { failureKind: _failureKind, code: _code, ...retained } = delivery
+  return {
+    ...retained,
+    state: transition.state,
+    ...(transition.providerMessageId !== undefined
+      ? { providerMessageId: transition.providerMessageId }
+      : {}),
+    ...(transition.eventId !== undefined ? { eventId: transition.eventId } : {}),
+    ...(transition.failureKind !== undefined ? { failureKind: transition.failureKind } : {}),
+    ...(transition.code !== undefined ? { code: transition.code } : {}),
   }
 }
 

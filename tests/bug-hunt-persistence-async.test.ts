@@ -273,6 +273,136 @@ describe('bug-hunt persistence and async reproductions', () => {
     expect(transactions.state.deliveries.get('delivery-two')).not.toHaveProperty('code')
   })
 
+  it('records provider events once even when their delivery transition is ignored', async () => {
+    const transactions = new MemoryTransactionManager()
+    await transactions.transaction({} as never, async (unitOfWork) => {
+      await unitOfWork.stageDelivery({
+        id: 'delivery-events',
+        channel: 'mail',
+        recipients: ['reader@example.test'],
+        payload: { id: 'delivery-events' },
+      })
+      await unitOfWork.transitionDelivery({ messageId: 'delivery-events', state: 'delivered' })
+    })
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.transitionDelivery({
+        messageId: 'delivery-events',
+        eventId: 'provider-event-one',
+        state: 'accepted',
+      }),
+    )
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.transitionDelivery({
+        messageId: 'delivery-events',
+        eventId: 'provider-event-one',
+        state: 'suppressed',
+      }),
+    )
+
+    expect(transactions.state.deliveryEvents).toContain('provider-event-one')
+    expect(transactions.state.deliveries.get('delivery-events')?.state).toBe('delivered')
+  })
+
+  it('records provider events that arrive before their delivery is staged', async () => {
+    const transactions = new MemoryTransactionManager()
+    const transition = {
+      messageId: 'early-delivery-event',
+      eventId: 'early-provider-event',
+      state: 'delivered' as const,
+    }
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.transitionDelivery(transition),
+    )
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.stageDelivery({
+        id: 'early-delivery-event',
+        channel: 'mail',
+        recipients: ['reader@example.test'],
+        payload: { id: 'early-delivery-event' },
+      }),
+    )
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.transitionDelivery(transition),
+    )
+
+    expect(transactions.state.deliveryEvents).toContain('early-provider-event')
+    expect(transactions.state.deliveries.get('early-delivery-event')?.state).toBe('pending')
+  })
+
+  it('does not replay an early provider event onto a concurrently staged delivery', async () => {
+    const transactions = new MemoryTransactionManager()
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let ready!: () => void
+    const earlyTransitionStarted = new Promise<void>((resolve) => {
+      ready = resolve
+    })
+    const earlyTransition = transactions.transaction({} as never, async (unitOfWork) => {
+      await unitOfWork.transitionDelivery({
+        messageId: 'concurrent-early-event',
+        eventId: 'concurrent-early-provider-event',
+        state: 'delivered',
+      })
+      ready()
+      await barrier
+    })
+    await earlyTransitionStarted
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.stageDelivery({
+        id: 'concurrent-early-event',
+        channel: 'mail',
+        recipients: ['reader@example.test'],
+        payload: { id: 'concurrent-early-event' },
+      }),
+    )
+    release()
+    await earlyTransition
+
+    expect(transactions.state.deliveryEvents).toContain('concurrent-early-provider-event')
+    expect(transactions.state.deliveries.get('concurrent-early-event')?.state).toBe('pending')
+  })
+
+  it('treats concurrent duplicate provider events as harmless no-ops', async () => {
+    const transactions = new MemoryTransactionManager()
+    await transactions.transaction({} as never, (unitOfWork) =>
+      unitOfWork.stageDelivery({
+        id: 'concurrent-delivery-event',
+        channel: 'sms',
+        recipients: ['+13125550000'],
+        payload: { id: 'concurrent-delivery-event' },
+      }),
+    )
+    let release!: () => void
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let ready = 0
+    const reconcile = (id: string) =>
+      transactions.transaction({} as never, async (unitOfWork) => {
+        await unitOfWork.saveEntity({ type: 'event-proof', id, state: { id } })
+        await unitOfWork.transitionDelivery({
+          messageId: 'concurrent-delivery-event',
+          eventId: 'duplicate-provider-event',
+          state: 'delivered',
+        })
+        ready += 1
+        if (ready === 2) release()
+        await barrier
+      })
+
+    await expect(Promise.all([reconcile('first'), reconcile('second')])).resolves.toEqual([
+      undefined,
+      undefined,
+    ])
+    expect(transactions.state.deliveries.get('concurrent-delivery-event')?.state).toBe('delivered')
+    expect([...transactions.state.entities.keys()].sort()).toEqual([
+      'event-proof/first',
+      'event-proof/second',
+    ])
+  })
+
   it('preserves Doxa datetime values in memory-backed mapped models', async () => {
     const transactions = new MemoryTransactionManager()
     const occurredAt = Instant.parse('2026-08-05T12:00:00.000000Z')
@@ -323,6 +453,25 @@ describe('bug-hunt persistence and async reproductions', () => {
     expect(state.duration.toString()).toBe(duration.toString())
     expect(state.graphite.toString()).toBe(graphite.toString())
     expect(state.collision).toEqual(collision)
+
+    const patch = { collision: { nested: { value: 'saved' } } }
+    await transactions.transaction({} as never, async (unitOfWork) => {
+      await unitOfWork.saveEntity({
+        type: 'event',
+        id: 'one',
+        expectedVersion: 1,
+        state: found!.state,
+        patch,
+        storage,
+      })
+      patch.collision.nested.value = 'mutated-after-save'
+    })
+    const updated = await transactions.read({} as never, (reader) =>
+      reader.findEntity('event', 'one', storage),
+    )
+    expect((updated!.state as { collision: unknown }).collision).toEqual({
+      nested: { value: 'saved' },
+    })
   })
 
   it('keeps MemoryCache add and increment atomic under concurrent callers', async () => {

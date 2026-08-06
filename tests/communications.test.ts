@@ -107,8 +107,8 @@ describe('communications adapters', () => {
         JSON.stringify([
           event('open', 'open-1'),
           event('click', 'click-1'),
-          event('group_resubscribe', 'resubscribe-1'),
-          event('future_event', 'future-1'),
+          { event: 'group_resubscribe' },
+          { event: 'future_event' },
         ]),
       ),
     ).toEqual([

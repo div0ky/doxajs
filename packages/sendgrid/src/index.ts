@@ -74,12 +74,7 @@ export function normalizeSendGridEvents(rawBody: string): readonly DeliveryUpdat
       'invalid_webhook',
     )
   return parsed.flatMap((value): readonly DeliveryUpdate[] => {
-    if (
-      !record(value) ||
-      typeof value.event !== 'string' ||
-      typeof value.sg_event_id !== 'string' ||
-      typeof value.doxa_message_id !== 'string'
-    ) {
+    if (!record(value) || typeof value.event !== 'string') {
       throw new DeliveryError(
         'SendGrid webhook event is missing correlation fields.',
         'permanent',
@@ -88,6 +83,13 @@ export function normalizeSendGridEvents(rawBody: string): readonly DeliveryUpdat
     }
     const mapped = sendGridState(value.event)
     if (!mapped) return []
+    if (typeof value.sg_event_id !== 'string' || typeof value.doxa_message_id !== 'string') {
+      throw new DeliveryError(
+        'SendGrid webhook event is missing correlation fields.',
+        'permanent',
+        'invalid_webhook',
+      )
+    }
     return [
       {
         messageId: value.doxa_message_id,

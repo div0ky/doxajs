@@ -35,7 +35,7 @@ import {
 import { allowedDeliveryPreviousStates } from '@doxajs/core/runtime'
 import { and, DrizzleQueryError, eq, inArray, sql, type SQL } from 'drizzle-orm'
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres'
-import { DatabaseError, Pool, types as postgresTypes, type PoolClient } from 'pg'
+import { Client, DatabaseError, Pool, types as postgresTypes, type PoolClient } from 'pg'
 
 import {
   entityStates,
@@ -62,6 +62,30 @@ interface FrameworkPostgresTransaction {
 
 type Database = NodePgDatabase<typeof persistenceSchema>
 type DatabaseSession = Pick<Database, 'select' | 'insert' | 'update' | 'delete' | 'execute'>
+
+async function cancelActivePostgresQuery(
+  connectionString: string,
+  processId: number,
+): Promise<void> {
+  const canceller = new Client({ connectionString, connectionTimeoutMillis: 1_000 })
+  const timeout = setTimeout(
+    () =>
+      (
+        canceller as Client & { readonly connection: { readonly stream: { destroy(): void } } }
+      ).connection.stream.destroy(),
+    1_000,
+  )
+  timeout.unref()
+  try {
+    await canceller.connect()
+    await canceller.query('SELECT pg_cancel_backend($1)', [processId])
+  } catch {
+    /* The owned target connection is discarded if cancellation cannot be confirmed. */
+  } finally {
+    clearTimeout(timeout)
+    await canceller.end().catch(() => undefined)
+  }
+}
 
 export class PostgresTransactionManager extends TransactionManager implements Starts, Disposes {
   override readonly serializesConcurrentOperations = true
@@ -116,24 +140,55 @@ export class PostgresTransactionManager extends TransactionManager implements St
     context: ExecutionContext,
     work: (unitOfWork: UnitOfWork) => Promise<Output>,
   ): Promise<Output> {
-    const database = this.#database
-    if (!database) throw new PersistenceError('PostgreSQL transaction manager is not started.')
+    const pool = this.#pool
+    if (!pool) throw new PersistenceError('PostgreSQL transaction manager is not started.')
+    const transactionClient = await pool.connect().catch((error: unknown) => {
+      throw translatePostgresOperationError(error)
+    })
+    const database = drizzle(transactionClient, { schema: persistenceSchema })
     let unitOfWork: PostgresUnitOfWork | undefined
     let workFailure: { readonly error: unknown } | undefined
+    let cancellationWork: Promise<void> | undefined
+    const abortTransaction = () => {
+      unitOfWork?.close()
+      try {
+        context.cancellation.throwIfAborted()
+      } catch (error) {
+        workFailure ??= { error }
+      }
+      try {
+        const processId = (transactionClient as PoolClient & { readonly processID?: number })
+          .processID
+        if (processId !== undefined) {
+          cancellationWork ??= cancelActivePostgresQuery(this.#connectionString, processId).finally(
+            () => transactionClient.release(true),
+          )
+        }
+      } catch {
+        /* The owned connection is discarded below if cancellation setup fails. */
+      }
+    }
     let result: Output
     try {
       result = await database.transaction(async (transaction) => {
         unitOfWork = new PostgresUnitOfWork(transaction, context)
+        context.cancellation.addEventListener('abort', abortTransaction, { once: true })
+        if (context.cancellation.aborted) abortTransaction()
         return await runTransactionWork(
           unitOfWork,
           () => work(unitOfWork!),
           (error) => {
             workFailure = { error }
           },
+          context.cancellation,
         )
       })
     } catch (error) {
       throw transactionFailure(error, workFailure)
+    } finally {
+      context.cancellation.removeEventListener('abort', abortTransaction)
+      await cancellationWork
+      if (!cancellationWork) transactionClient.release()
     }
     await unitOfWork?.releaseAfterCommit()
     return result
@@ -257,12 +312,30 @@ async function runTransactionWork<Output>(
   unitOfWork: PostgresUnitOfWork,
   work: () => Promise<Output>,
   failed: (error: unknown) => void,
+  cancellation?: AbortSignal,
 ): Promise<Output> {
   let result: Output | undefined
   let workFailure: { readonly error: unknown } | undefined
   let drainFailure: { readonly error: unknown } | undefined
+  let cancellationFailure: { readonly error: unknown } | undefined
+  let rejectCancellation: ((error: unknown) => void) | undefined
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    rejectCancellation = reject
+  })
+  const abort = () => {
+    if (cancellationFailure) return
+    try {
+      cancellation?.throwIfAborted()
+    } catch (error) {
+      cancellationFailure = { error }
+      unitOfWork.close()
+      rejectCancellation?.(error)
+    }
+  }
+  cancellation?.addEventListener('abort', abort, { once: true })
+  if (cancellation?.aborted) abort()
   try {
-    result = await work()
+    result = await (cancellation ? Promise.race([Promise.resolve().then(work), cancelled]) : work())
   } catch (error) {
     workFailure = { error }
     failed(error)
@@ -273,6 +346,11 @@ async function runTransactionWork<Output>(
     drainFailure = { error }
   }
   unitOfWork.close()
+  cancellation?.removeEventListener('abort', abort)
+  if (!workFailure && cancellationFailure) {
+    workFailure = cancellationFailure
+    failed(cancellationFailure.error)
+  }
   if (workFailure) throw workFailure.error
   if (drainFailure) throw drainFailure.error
   return result as Output
