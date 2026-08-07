@@ -1,5 +1,24 @@
 # @doxajs/postgres-drizzle
 
+## 0.1.0-alpha.33
+
+### Patch Changes
+
+- 7f546d6: Require Node.js 26.6 or newer within the 26.x line and add first-party Graphite, Instant,
+  LocalDate, and Duration handling with execution-scoped clocks, strict validation, UTC PostgreSQL
+  persistence, and type-preserving durable serialization.
+- 92fc738: Reject invalid datetime, manifest, permission, HTTP, and schedule inputs; make cursor,
+  memory transaction/cache, lifecycle cleanup, cookie renewal, delivery reconciliation, provider
+  failure, and expired-job transaction behavior deterministic and safe.
+- bea1be1: Serialize concurrent model and framework operations on each PostgreSQL transaction
+  client, drain queued work before cleanup, and report Promise.all overlaps without production
+  warning-log noise.
+- Updated dependencies [6354418]
+- Updated dependencies [7f546d6]
+- Updated dependencies [92fc738]
+- Updated dependencies [bea1be1]
+  - @doxajs/core@0.1.0-alpha.33
+
 ## 0.1.0-alpha.32
 
 ### Patch Changes

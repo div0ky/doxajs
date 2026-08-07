@@ -1,5 +1,35 @@
 # @doxajs/praxis
 
+## 0.1.0-alpha.33
+
+### Minor Changes
+
+- 6354418: Add opt-in, policy-authorized native browser-session impersonation with target
+  eligibility, opaque credential rotation, actor/initiator/delegation audit context, restoration,
+  expiry, revocation, and unique activation grants across HTTP and Keryx with durable queued actor
+  attribution.
+
+### Patch Changes
+
+- ee59765: Resolve default framework upgrades through npm's sole moving `latest` dist-tag,
+  regardless of whether the newest coordinated release is an alpha, beta, release candidate, or
+  stable version.
+- 7f546d6: Require Node.js 26.6 or newer within the 26.x line and add first-party Graphite, Instant,
+  LocalDate, and Duration handling with execution-scoped clocks, strict validation, UTC PostgreSQL
+  persistence, and type-preserving durable serialization.
+- 92fc738: Reject invalid datetime, manifest, permission, HTTP, and schedule inputs; make cursor,
+  memory transaction/cache, lifecycle cleanup, cookie renewal, delivery reconciliation, provider
+  failure, and expired-job transaction behavior deterministic and safe.
+- Updated dependencies [6354418]
+- Updated dependencies [7f546d6]
+- Updated dependencies [92fc738]
+- Updated dependencies [bea1be1]
+  - @doxajs/core@0.1.0-alpha.33
+  - @doxajs/http-hono@0.1.0-alpha.33
+  - @doxajs/runtime@0.1.0-alpha.33
+  - @doxajs/introspection@0.1.0-alpha.33
+  - @doxajs/queue-pg-boss@0.1.0-alpha.33
+
 ## 0.1.0-alpha.32
 
 ### Minor Changes
