@@ -49,6 +49,6 @@
     "pg-boss": "12.26.0"
   },
   "devDependencies": {
-    "@types/pg": "8.20.0"
+    "@types/pg": "8.20.4"
   }
 }
