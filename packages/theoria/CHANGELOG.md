@@ -1,5 +1,21 @@
 # @doxajs/theoria
 
+## 0.1.0-alpha.33
+
+### Patch Changes
+
+- fb5ec6d: Preserve Theoria navigation, observation selection, and pane scroll positions during
+  automatic refresh. Ignore stale detail responses so polling cannot override newer operator
+  navigation.
+- 7f546d6: Require Node.js 26.6 or newer within the 26.x line and add first-party Graphite, Instant,
+  LocalDate, and Duration handling with execution-scoped clocks, strict validation, UTC PostgreSQL
+  persistence, and type-preserving durable serialization.
+- Updated dependencies [6354418]
+- Updated dependencies [7f546d6]
+- Updated dependencies [92fc738]
+- Updated dependencies [bea1be1]
+  - @doxajs/core@0.1.0-alpha.33
+
 ## 0.1.0-alpha.32
 
 ### Patch Changes

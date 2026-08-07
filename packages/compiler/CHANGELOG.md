@@ -1,5 +1,26 @@
 # @doxajs/compiler
 
+## 0.1.0-alpha.33
+
+### Minor Changes
+
+- 6354418: Add opt-in, policy-authorized native browser-session impersonation with target
+  eligibility, opaque credential rotation, actor/initiator/delegation audit context, restoration,
+  expiry, revocation, and unique activation grants across HTTP and Keryx with durable queued actor
+  attribution.
+
+### Patch Changes
+
+- 7f546d6: Require Node.js 26.6 or newer within the 26.x line and add first-party Graphite, Instant,
+  LocalDate, and Duration handling with execution-scoped clocks, strict validation, UTC PostgreSQL
+  persistence, and type-preserving durable serialization.
+- 92fc738: Reject invalid datetime, manifest, permission, HTTP, and schedule inputs; make cursor,
+  memory transaction/cache, lifecycle cleanup, cookie renewal, delivery reconciliation, provider
+  failure, and expired-job transaction behavior deterministic and safe.
+- Updated dependencies [7f546d6]
+- Updated dependencies [92fc738]
+  - @doxajs/manifest@0.1.0-alpha.33
+
 ## 0.1.0-alpha.32
 
 ### Minor Changes

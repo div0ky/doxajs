@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "channel": "alpha",
-  "version": "0.1.0-alpha.32",
+  "version": "0.1.0-alpha.33",
   "packages": [
     "@doxajs/auth-postgres",
     "@doxajs/compiler",

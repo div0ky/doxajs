@@ -1,6 +1,6 @@
 {
   "name": "@doxajs/sendgrid",
-  "version": "0.1.0-alpha.32",
+  "version": "0.1.0-alpha.33",
   "description": "The first-party SendGrid mail and webhook adapter for Doxa.",
   "license": "Apache-2.0",
   "repository": {
