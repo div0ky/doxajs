@@ -62,7 +62,7 @@
     "@doxajs/theoria": "workspace:*",
     "@modelcontextprotocol/sdk": "1.29.0",
     "@opentelemetry/api": "1.9.0",
-    "@opentelemetry/sdk-trace-base": "2.9.0",
+    "@opentelemetry/sdk-trace-base": "2.10.0",
     "@changesets/cli": "2.31.0",
     "@eslint/js": "10.0.1",
     "@testcontainers/postgresql": "12.0.4",
