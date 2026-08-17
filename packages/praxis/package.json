@@ -91,7 +91,7 @@
     "@doxajs/introspection": "workspace:*",
     "@doxajs/queue-pg-boss": "workspace:*",
     "@doxajs/runtime": "workspace:*",
-    "pg": "8.22.0"
+    "pg": "8.23.0"
   },
   "optionalDependencies": {
     "@doxajs/compiler": "workspace:*",
@@ -100,6 +100,6 @@
     "typescript": "6.0.2"
   },
   "devDependencies": {
-    "@types/pg": "8.20.0"
+    "@types/pg": "8.21.0"
   }
 }
