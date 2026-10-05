@@ -97,7 +97,7 @@
     "@doxajs/compiler": "workspace:*",
     "@doxajs/gnosis": "workspace:*",
     "@doxajs/theoria": "workspace:*",
-    "typescript": "6.0.2"
+    "typescript": "7.0.2"
   },
   "devDependencies": {
     "@types/pg": "8.20.0"
